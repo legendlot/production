@@ -990,7 +990,7 @@ function onScan(raw) {
   lastBarcode = raw;
   lastScanTs = now;
 
-  const barcode = raw.trim();
+  const barcode = raw.replace(/\s+/g, "").trim(); // strip spaces (scanner may insert between EAN and serial)
 
   // ── LENGTH VALIDATION ──
   if (cfg.expectedLen && cfg.expectedLen !== 0) {
