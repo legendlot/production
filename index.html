@@ -35,83 +35,102 @@
     html,body{height:100%;overflow:hidden}
     body{background:var(--bg);color:var(--text);font-family:'JetBrains Mono',monospace;display:flex;flex-direction:column}
 
-    /* ═══════════════════════════════════════
-       SCREENS
-    ═══════════════════════════════════════ */
     .screen{display:none;flex-direction:column;height:100%;overflow:hidden}
     .screen.active{display:flex}
 
-    /* ═══════════════════════════════════════
-       SETUP SCREEN
-    ═══════════════════════════════════════ */
+    /* ── SETUP SCREEN ── */
     #setupScreen{background:var(--bg);overflow-y:auto}
-
     .setup-hero{
       padding:48px 24px 32px;
       background:linear-gradient(160deg,#0f0f0f 0%,#080808 100%);
       border-bottom:1px solid var(--border);
-      position:relative;
-      overflow:hidden;
+      position:relative;overflow:hidden;
     }
     .setup-hero::after{
-      content:'';position:absolute;
-      bottom:-40px;right:-40px;
-      width:160px;height:160px;
-      background:var(--yellow);
+      content:'';position:absolute;bottom:-40px;right:-40px;
+      width:160px;height:160px;background:var(--yellow);
       opacity:0.04;border-radius:50%;
     }
     .lot-wordmark{
-      font-family:'Tomorrow',sans-serif;
-      font-weight:900;font-size:11px;
-      letter-spacing:0.35em;
-      color:var(--yellow);
-      text-transform:uppercase;
-      margin-bottom:14px;
-      display:flex;align-items:center;gap:8px;
+      font-family:'Tomorrow',sans-serif;font-weight:900;font-size:11px;
+      letter-spacing:0.35em;color:var(--yellow);text-transform:uppercase;
+      margin-bottom:14px;display:flex;align-items:center;gap:8px;
     }
-    .lot-wordmark::before{
-      content:'';width:20px;height:2px;background:var(--yellow);
-    }
+    .lot-wordmark::before{content:'';width:20px;height:2px;background:var(--yellow)}
     .setup-headline{
-      font-family:'Tomorrow',sans-serif;
-      font-weight:900;font-size:30px;
-      line-height:1.05;text-transform:uppercase;
-      letter-spacing:-0.01em;
+      font-family:'Tomorrow',sans-serif;font-weight:900;font-size:30px;
+      line-height:1.05;text-transform:uppercase;letter-spacing:-0.01em;
     }
     .setup-headline em{color:var(--yellow);font-style:normal}
-
     .setup-body{padding:28px 24px 40px;display:flex;flex-direction:column;gap:22px}
-
     .section-divider{
       font-size:9px;letter-spacing:0.3em;text-transform:uppercase;
       color:var(--muted);padding-bottom:10px;
-      border-bottom:1px solid var(--border);
-      margin-bottom:2px;
+      border-bottom:1px solid var(--border);margin-bottom:2px;
     }
-
     .field{display:flex;flex-direction:column;gap:7px}
     .field-label{font-size:10px;letter-spacing:0.18em;text-transform:uppercase;color:var(--text2)}
     .field-sub{font-size:10px;color:var(--muted);margin-top:2px;line-height:1.5}
-    .field-sub a{color:var(--yellow);text-decoration:none}
 
     input[type=text],input[type=url],input[type=password],select{
-      background:var(--surface);
-      border:1px solid var(--border2);
-      border-radius:8px;
-      padding:13px 14px;
-      color:var(--text);
-      font-family:'JetBrains Mono',monospace;
-      font-size:13px;width:100%;outline:none;
-      transition:border-color 0.15s;
-      -webkit-appearance:none;
+      background:var(--surface);border:1px solid var(--border2);
+      border-radius:8px;padding:13px 14px;color:var(--text);
+      font-family:'JetBrains Mono',monospace;font-size:13px;width:100%;outline:none;
+      transition:border-color 0.15s;-webkit-appearance:none;
     }
     input:focus,select:focus{border-color:var(--yellow)}
     input::placeholder{color:var(--muted)}
     select option{background:#1a1a1a}
 
-    .row-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    /* Scan-to-configure button */
+    .scan-cfg-btn{
+      display:flex;align-items:center;gap:10px;
+      background:var(--surface2);border:1px solid var(--border2);
+      border-radius:8px;padding:12px 14px;cursor:pointer;
+      transition:border-color 0.15s;
+    }
+    .scan-cfg-btn:active{border-color:var(--yellow)}
+    .scan-cfg-icon{font-size:18px}
+    .scan-cfg-label{font-size:12px;color:var(--text2);flex:1}
+    .scan-cfg-label strong{display:block;color:var(--text);font-size:13px;margin-bottom:2px}
 
-    /* Toggle switch */
+    /* Segment control (station select) */
+    .seg-group{display:flex;flex-direction:column;gap:8px}
+    .seg-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .seg-btn{
+      background:var(--surface);border:1px solid var(--border2);
+      border-radius:8px;padding:11px 10px;
+      font-family:'JetBrains Mono',monospace;font-size:12px;
+      cursor:pointer;text-align:center;letter-spacing:0.04em;
+      transition:all 0.15s;color:var(--text2);
+    }
+    .seg-btn.on{background:var(--yellow);color:#080808;border-color:var(--yellow);font-weight:700}
+
+    .custom-act-input{margin-top:8px;display:none}
+    .custom-act-input.show{display:block}
+
+    /* Chips */
+    .chips{display:flex;flex-wrap:wrap;gap:8px}
+    .chip{
+      background:var(--surface);border:1px solid var(--border2);
+      border-radius:6px;padding:7px 13px;font-size:11px;cursor:pointer;
+      transition:all 0.15s;letter-spacing:0.05em;
+      font-family:'JetBrains Mono',monospace;
+    }
+    .chip.on{background:var(--yellow);color:#080808;border-color:var(--yellow);font-weight:700}
+    .chip.line-chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
+
+    /* Length pills */
+    .length-pills{display:flex;gap:8px}
+    .length-pill{
+      background:var(--surface);border:1px solid var(--border2);
+      border-radius:6px;padding:8px 16px;font-size:12px;cursor:pointer;
+      transition:all 0.15s;letter-spacing:0.05em;
+      font-family:'JetBrains Mono',monospace;
+    }
+    .length-pill.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
+
+    /* Toggle */
     .toggle-row{
       display:flex;align-items:center;justify-content:space-between;
       background:var(--surface);border:1px solid var(--border2);
@@ -120,190 +139,123 @@
     .toggle-info{display:flex;flex-direction:column;gap:3px}
     .toggle-info span{font-size:12px;color:var(--text)}
     .toggle-info small{font-size:10px;color:var(--muted)}
-    .toggle{
-      position:relative;width:44px;height:24px;flex-shrink:0;
-    }
+    .toggle{position:relative;width:44px;height:24px;flex-shrink:0}
     .toggle input{opacity:0;width:0;height:0}
     .toggle-slider{
-      position:absolute;inset:0;
-      background:var(--border2);border-radius:12px;
-      cursor:pointer;transition:background 0.2s;
+      position:absolute;inset:0;background:var(--border2);
+      border-radius:12px;cursor:pointer;transition:background 0.2s;
     }
     .toggle-slider::after{
-      content:'';position:absolute;
-      width:18px;height:18px;border-radius:50%;
-      background:#fff;top:3px;left:3px;
-      transition:transform 0.2s;
+      content:'';position:absolute;width:18px;height:18px;border-radius:50%;
+      background:#fff;top:3px;left:3px;transition:transform 0.2s;
     }
     .toggle input:checked+.toggle-slider{background:var(--yellow)}
     .toggle input:checked+.toggle-slider::after{transform:translateX(20px)}
 
-    /* Chip tags */
-    .chips{display:flex;flex-wrap:wrap;gap:8px}
-    .chip{
-      background:var(--surface);border:1px solid var(--border2);
-      border-radius:6px;padding:7px 13px;
-      font-size:11px;cursor:pointer;
-      transition:all 0.15s;letter-spacing:0.05em;
-      font-family:'JetBrains Mono',monospace;
-    }
-    .chip.on{background:var(--yellow);color:#080808;border-color:var(--yellow);font-weight:700}
-    .chip.line-chip.on{background:var(--blue);border-color:var(--blue);color:#fff}
-
-    .add-row{display:flex;gap:8px;margin-top:4px}
-    .add-row input{flex:1}
-    .icon-btn{
-      background:var(--surface2);border:1px solid var(--border2);
-      border-radius:8px;padding:0 16px;
-      color:var(--yellow);font-size:22px;cursor:pointer;flex-shrink:0;
-    }
-
-    /* Scan length pills */
-    .length-pills{display:flex;gap:8px}
-    .length-pill{
-      background:var(--surface);border:1px solid var(--border2);
-      border-radius:6px;padding:8px 16px;
-      font-size:12px;cursor:pointer;
-      transition:all 0.15s;letter-spacing:0.05em;
-      font-family:'JetBrains Mono',monospace;
-    }
-    .length-pill.on{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:600}
-
     .btn-launch{
-      background:var(--yellow);color:#080808;
-      border:none;border-radius:10px;
-      padding:18px;
-      font-family:'Tomorrow',sans-serif;
-      font-weight:700;font-size:13px;
-      letter-spacing:0.2em;text-transform:uppercase;
-      cursor:pointer;width:100%;
-      transition:opacity 0.15s,transform 0.1s;
-      margin-top:8px;
+      background:var(--yellow);color:#080808;border:none;border-radius:10px;
+      padding:18px;font-family:'Tomorrow',sans-serif;font-weight:700;font-size:13px;
+      letter-spacing:0.2em;text-transform:uppercase;cursor:pointer;width:100%;
+      transition:opacity 0.15s,transform 0.1s;margin-top:8px;
     }
     .btn-launch:active{opacity:0.85;transform:scale(0.99)}
 
-    /* ═══════════════════════════════════════
-       PIN MODAL
-    ═══════════════════════════════════════ */
+    /* ── PIN MODAL ── */
     .modal-backdrop{
-      display:none;position:fixed;inset:0;
-      background:rgba(0,0,0,0.85);
+      display:none;position:fixed;inset:0;background:rgba(0,0,0,0.85);
       z-index:500;align-items:center;justify-content:center;
     }
     .modal-backdrop.show{display:flex}
     .modal{
-      background:var(--surface);
-      border:1px solid var(--border2);
-      border-radius:16px;
-      padding:32px 28px;
-      width:calc(100% - 48px);
-      max-width:320px;
+      background:var(--surface);border:1px solid var(--border2);
+      border-radius:16px;padding:32px 28px;
+      width:calc(100% - 48px);max-width:320px;
     }
     .modal-title{
-      font-family:'Tomorrow',sans-serif;
-      font-weight:700;font-size:16px;
-      text-transform:uppercase;
-      letter-spacing:0.08em;
-      margin-bottom:6px;
+      font-family:'Tomorrow',sans-serif;font-weight:700;font-size:16px;
+      text-transform:uppercase;letter-spacing:0.08em;margin-bottom:6px;
     }
     .modal-sub{font-size:11px;color:var(--muted);margin-bottom:20px}
-    .pin-dots{
-      display:flex;gap:12px;justify-content:center;margin-bottom:24px;
-    }
+    .pin-dots{display:flex;gap:12px;justify-content:center;margin-bottom:24px}
     .pin-dot{
       width:14px;height:14px;border-radius:50%;
-      border:2px solid var(--border2);
-      transition:background 0.1s,border-color 0.1s;
+      border:2px solid var(--border2);transition:background 0.1s,border-color 0.1s;
     }
     .pin-dot.filled{background:var(--yellow);border-color:var(--yellow)}
     .numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
     .num-key{
       background:var(--surface2);border:1px solid var(--border);
-      border-radius:10px;padding:16px;
-      font-size:18px;font-weight:600;
-      cursor:pointer;text-align:center;
-      transition:background 0.1s;
+      border-radius:10px;padding:16px;font-size:18px;font-weight:600;
+      cursor:pointer;text-align:center;transition:background 0.1s;
       font-family:'JetBrains Mono',monospace;
     }
     .num-key:active{background:var(--surface3)}
     .num-key.del{font-size:14px;color:var(--text2)}
     .num-key.empty{visibility:hidden}
-    .modal-error{
-      font-size:11px;color:var(--red);
-      text-align:center;margin-top:12px;
-      min-height:16px;
-    }
+    .modal-error{font-size:11px;color:var(--red);text-align:center;margin-top:12px;min-height:16px}
 
-    /* ═══════════════════════════════════════
-       SCANNER SCREEN
-    ═══════════════════════════════════════ */
+    /* ── SCANNER SCREEN ── */
     #scannerScreen{position:relative}
-
-    /* Offline banner */
     .offline-bar{
-      background:var(--orange);color:#000;
-      text-align:center;padding:7px;
-      font-size:10px;font-weight:700;
-      letter-spacing:0.12em;text-transform:uppercase;
+      background:var(--orange);color:#000;text-align:center;padding:7px;
+      font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
       display:none;flex-shrink:0;
     }
     .offline-bar.show{display:block}
 
-    /* Top bar */
     .topbar{
-      display:flex;align-items:center;
-      justify-content:space-between;
-      padding:12px 16px;
-      background:var(--surface);
-      border-bottom:1px solid var(--border);
-      flex-shrink:0;gap:10px;
+      display:flex;align-items:center;justify-content:space-between;
+      padding:12px 16px;background:var(--surface);
+      border-bottom:1px solid var(--border);flex-shrink:0;gap:10px;
     }
     .device-identity{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
-    .device-line{
-      font-size:9px;letter-spacing:0.2em;
-      text-transform:uppercase;color:var(--muted);
-    }
+    .device-line{font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted)}
     .device-station{
-      font-family:'Tomorrow',sans-serif;
-      font-weight:700;font-size:15px;
+      font-family:'Tomorrow',sans-serif;font-weight:700;font-size:15px;
       color:var(--yellow);text-transform:uppercase;
       white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
     }
     .topbar-right{display:flex;align-items:center;gap:8px}
     .queue-pill{
-      background:var(--orange-dim);
-      border:1px solid var(--orange);
-      color:var(--orange);
-      border-radius:20px;padding:3px 10px;
-      font-size:10px;font-weight:700;
-      display:none;
+      background:var(--orange-dim);border:1px solid var(--orange);
+      color:var(--orange);border-radius:20px;padding:3px 10px;
+      font-size:10px;font-weight:700;display:none;
     }
     .queue-pill.show{display:block}
     .icon-action{
-      background:var(--surface2);
-      border:1px solid var(--border);
-      border-radius:8px;padding:8px 10px;
-      color:var(--text2);font-size:15px;
-      cursor:pointer;flex-shrink:0;
+      background:var(--surface2);border:1px solid var(--border);
+      border-radius:8px;padding:8px 10px;color:var(--text2);
+      font-size:15px;cursor:pointer;flex-shrink:0;
+      transition:all 0.15s;
     }
+    .icon-action.active{background:var(--yellow);color:#080808;border-color:var(--yellow)}
 
-    /* Activity strip — hidden in locked mode */
+    /* Shift bar */
+    .shift-bar{
+      display:flex;gap:0;background:var(--surface);
+      border-bottom:1px solid var(--border);flex-shrink:0;
+    }
+    .shift-btn{
+      flex:1;padding:8px;font-family:'JetBrains Mono',monospace;
+      font-size:10px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
+      background:transparent;border:none;color:var(--muted);cursor:pointer;
+      border-right:1px solid var(--border);transition:all 0.15s;
+    }
+    .shift-btn:last-child{border-right:none}
+    .shift-btn.active{color:var(--yellow);background:rgba(242,205,26,0.07)}
+
+    /* Activity strip */
     .activity-strip{
-      display:flex;gap:8px;
-      padding:10px 14px;
-      overflow-x:auto;flex-shrink:0;
-      scrollbar-width:none;
-      background:var(--surface);
-      border-bottom:1px solid var(--border);
+      display:flex;gap:8px;padding:10px 14px;
+      overflow-x:auto;flex-shrink:0;scrollbar-width:none;
+      background:var(--surface);border-bottom:1px solid var(--border);
     }
     .activity-strip::-webkit-scrollbar{display:none}
     .activity-strip.locked-mode{display:none}
-
     .act-chip{
       background:var(--surface2);border:1px solid var(--border);
-      border-radius:20px;padding:6px 14px;
-      font-size:11px;letter-spacing:0.05em;
-      cursor:pointer;white-space:nowrap;
+      border-radius:20px;padding:6px 14px;font-size:11px;
+      letter-spacing:0.05em;cursor:pointer;white-space:nowrap;
       transition:all 0.15s;flex-shrink:0;
       font-family:'JetBrains Mono',monospace;
     }
@@ -314,20 +266,16 @@
     .act-chip.active.rtd{background:var(--yellow);border-color:var(--yellow);color:#000}
     .act-chip.active.other{background:var(--surface3);border-color:var(--border2);color:var(--text)}
 
-    /* Locked activity badge */
+    /* Locked badge */
     .locked-badge{
-      display:none;
-      align-items:center;justify-content:center;
-      gap:8px;padding:8px 16px;
-      flex-shrink:0;
+      display:none;align-items:center;justify-content:center;
+      gap:8px;padding:8px 16px;flex-shrink:0;
       border-bottom:1px solid var(--border);
     }
     .locked-badge.show{display:flex}
     .locked-badge-inner{
-      font-family:'Tomorrow',sans-serif;
-      font-weight:700;font-size:13px;
-      letter-spacing:0.12em;text-transform:uppercase;
-      padding:6px 20px;border-radius:20px;
+      font-family:'Tomorrow',sans-serif;font-weight:700;font-size:13px;
+      letter-spacing:0.12em;text-transform:uppercase;padding:6px 20px;border-radius:20px;
     }
     .lock-icon{font-size:12px;color:var(--muted)}
 
@@ -336,26 +284,15 @@
     #reader{width:100%;height:100%}
     #reader video{width:100%!important;height:100%!important;object-fit:cover!important}
     #reader img{display:none!important}
-
-    /* Remove html5-qrcode default UI clutter */
     #reader__scan_region{position:relative!important}
     #reader__dashboard{display:none!important}
 
     .scan-overlay{
-      position:absolute;inset:0;
-      pointer-events:none;
-      display:flex;flex-direction:column;
-      align-items:center;justify-content:center;
-      gap:16px;
+      position:absolute;inset:0;pointer-events:none;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;
     }
-    .scan-frame{
-      width:240px;height:150px;
-      position:relative;
-    }
-    .sf-corner{
-      position:absolute;width:24px;height:24px;
-      border-color:var(--yellow);border-style:solid;
-    }
+    .scan-frame{width:240px;height:150px;position:relative}
+    .sf-corner{position:absolute;width:24px;height:24px;border-color:var(--yellow);border-style:solid}
     .sf-corner.tl{top:0;left:0;border-width:3px 0 0 3px}
     .sf-corner.tr{top:0;right:0;border-width:3px 3px 0 0}
     .sf-corner.br{bottom:0;right:0;border-width:0 3px 3px 0}
@@ -363,87 +300,57 @@
     .scan-line{
       position:absolute;left:4px;right:4px;height:2px;
       background:linear-gradient(90deg,transparent,var(--yellow),transparent);
-      animation:scanBeam 2.4s ease-in-out infinite;
-      border-radius:1px;
+      animation:scanBeam 2.4s ease-in-out infinite;border-radius:1px;
     }
     @keyframes scanBeam{
-      0%{top:4px;opacity:0.9}
-      50%{top:calc(100% - 6px);opacity:0.7}
-      100%{top:4px;opacity:0.9}
+      0%{top:4px;opacity:0.9}50%{top:calc(100% - 6px);opacity:0.7}100%{top:4px;opacity:0.9}
     }
-    .scan-hint-text{
-      font-size:10px;color:rgba(255,255,255,0.4);
-      letter-spacing:0.15em;text-transform:uppercase;
-    }
+    .scan-hint-text{font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.15em;text-transform:uppercase}
 
-    /* RTD tally panel */
-    .tally-panel{
-      display:none;
-      background:var(--surface);
-      border-top:1px solid var(--border);
-      padding:10px 14px;flex-shrink:0;
+    /* Camera controls overlay */
+    .cam-controls{
+      position:absolute;bottom:12px;right:12px;
+      display:flex;flex-direction:column;gap:8px;
+      pointer-events:all;
     }
+    .cam-btn{
+      width:42px;height:42px;border-radius:50%;
+      background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.2);
+      display:flex;align-items:center;justify-content:center;
+      font-size:18px;cursor:pointer;transition:all 0.15s;
+      backdrop-filter:blur(4px);
+    }
+    .cam-btn:active{background:rgba(242,205,26,0.3);border-color:var(--yellow)}
+    .cam-btn.torch-on{background:rgba(242,205,26,0.25);border-color:var(--yellow)}
+
+    /* RTD tally */
+    .tally-panel{display:none;background:var(--surface);border-top:1px solid var(--border);padding:10px 14px;flex-shrink:0}
     .tally-panel.show{display:block}
-    .tally-header{
-      font-size:9px;letter-spacing:0.2em;text-transform:uppercase;
-      color:var(--muted);margin-bottom:8px;
-    }
-    .tally-grid{
-      display:flex;flex-direction:column;gap:6px;
-      max-height:100px;overflow-y:auto;
-    }
-    .tally-row{
-      display:flex;align-items:center;justify-content:space-between;
-      gap:8px;
-    }
+    .tally-header{font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
+    .tally-grid{display:flex;flex-direction:column;gap:6px;max-height:100px;overflow-y:auto}
+    .tally-row{display:flex;align-items:center;justify-content:space-between;gap:8px}
     .tally-name{font-size:12px;color:var(--text);flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .tally-ean{font-size:10px;color:var(--muted)}
-    .tally-count{
-      font-family:'Tomorrow',sans-serif;
-      font-weight:700;font-size:16px;
-      color:var(--yellow);flex-shrink:0;
-    }
+    .tally-count{font-family:'Tomorrow',sans-serif;font-weight:700;font-size:16px;color:var(--yellow);flex-shrink:0}
 
     /* Operator row */
     .operator-row{
-      display:flex;align-items:center;gap:10px;
-      padding:9px 14px;
-      background:var(--surface);
-      border-top:1px solid var(--border);
-      flex-shrink:0;
+      display:flex;align-items:center;gap:10px;padding:9px 14px;
+      background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;
     }
     .op-icon{font-size:13px;color:var(--muted);flex-shrink:0}
     .op-input{
-      background:transparent;border:none;
-      color:var(--text);
-      font-family:'JetBrains Mono',monospace;
-      font-size:13px;flex:1;outline:none;
+      background:transparent;border:none;color:var(--text);
+      font-family:'JetBrains Mono',monospace;font-size:13px;flex:1;outline:none;
     }
     .op-input::placeholder{color:var(--muted)}
 
     /* Log feed */
-    .log-feed{
-      height:172px;overflow-y:auto;
-      background:var(--bg);flex-shrink:0;
-      scrollbar-width:thin;
-      scrollbar-color:var(--border) transparent;
-    }
-    .log-empty{
-      display:flex;align-items:center;justify-content:center;
-      height:100%;font-size:11px;color:var(--muted);
-      letter-spacing:0.12em;text-transform:uppercase;
-    }
-    .log-item{
-      display:flex;align-items:flex-start;
-      gap:10px;padding:9px 14px;
-      border-bottom:1px solid var(--border);
-      animation:rowIn 0.18s ease;
-    }
+    .log-feed{height:172px;overflow-y:auto;background:var(--bg);flex-shrink:0;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+    .log-empty{display:flex;align-items:center;justify-content:center;height:100%;font-size:11px;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase}
+    .log-item{display:flex;align-items:flex-start;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);animation:rowIn 0.18s ease}
     @keyframes rowIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
-    .log-dot{
-      width:7px;height:7px;border-radius:50%;
-      flex-shrink:0;margin-top:4px;
-    }
+    .log-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:4px}
     .log-dot.ok{background:var(--green)}
     .log-dot.err{background:var(--red)}
     .log-dot.warn{background:var(--orange)}
@@ -453,10 +360,7 @@
     .log-barcode{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
     .log-product{font-size:11px;color:var(--text2);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .log-meta{font-size:10px;color:var(--muted);margin-top:2px}
-    .log-tag{
-      font-size:10px;border-radius:4px;
-      padding:2px 7px;flex-shrink:0;font-weight:600;
-    }
+    .log-tag{font-size:10px;border-radius:4px;padding:2px 7px;flex-shrink:0;font-weight:600}
     .log-tag.inw{color:var(--blue);background:var(--blue-dim)}
     .log-tag.qcp{color:var(--green);background:var(--green-dim)}
     .log-tag.qcf{color:var(--red);background:var(--red-dim)}
@@ -465,85 +369,62 @@
     .log-tag.dup{color:var(--orange);background:var(--orange-dim)}
     .log-tag.other{color:var(--text2);background:var(--surface2)}
 
-    /* ═══════════════════════════════════════
-       FLASH + FEEDBACK
-    ═══════════════════════════════════════ */
-    .flash{
-      position:fixed;inset:0;pointer-events:none;
-      z-index:300;opacity:0;transition:opacity 0.08s;
-    }
+    /* Flash + feedback */
+    .flash{position:fixed;inset:0;pointer-events:none;z-index:300;opacity:0;transition:opacity 0.08s}
     .flash.ok{background:rgba(34,197,94,0.2)}
     .flash.err{background:rgba(222,42,42,0.35)}
     .flash.warn{background:rgba(245,158,11,0.25)}
     .flash.show{opacity:1}
-
-    /* Toast */
     .toast{
       position:fixed;top:16px;left:50%;
       transform:translateX(-50%) translateY(-90px);
-      background:var(--surface2);
-      border:1px solid var(--border2);
-      border-radius:10px;padding:11px 18px;
-      font-size:12px;letter-spacing:0.04em;
-      z-index:400;
-      transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
-      white-space:nowrap;max-width:calc(100vw - 32px);
-      display:flex;align-items:center;gap:8px;
+      background:var(--surface2);border:1px solid var(--border2);
+      border-radius:10px;padding:11px 18px;font-size:12px;letter-spacing:0.04em;
+      z-index:400;transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+      white-space:nowrap;max-width:calc(100vw - 32px);display:flex;align-items:center;gap:8px;
     }
     .toast.show{transform:translateX(-50%) translateY(0)}
     .toast.ok{border-color:var(--green);color:var(--green)}
     .toast.err{border-color:var(--red);color:var(--red)}
     .toast.warn{border-color:var(--orange);color:var(--orange)}
     .toast.dup{border-color:var(--orange);color:var(--orange)}
-
-    /* Big reject screen */
     .reject-screen{
-      display:none;position:fixed;inset:0;
-      background:#1a0000;z-index:350;
-      flex-direction:column;align-items:center;
-      justify-content:center;gap:12px;
+      display:none;position:fixed;inset:0;background:#1a0000;z-index:350;
+      flex-direction:column;align-items:center;justify-content:center;gap:12px;
       animation:rejectPulse 0.3s ease;
     }
     .reject-screen.show{display:flex}
-    @keyframes rejectPulse{
-      0%{background:#3a0000}50%{background:#2a0000}100%{background:#1a0000}
-    }
+    @keyframes rejectPulse{0%{background:#3a0000}50%{background:#2a0000}100%{background:#1a0000}}
     .reject-icon{font-size:72px;line-height:1}
-    .reject-title{
-      font-family:'Tomorrow',sans-serif;
-      font-weight:900;font-size:28px;
-      color:var(--red);text-transform:uppercase;
-      letter-spacing:0.05em;
-    }
+    .reject-title{font-family:'Tomorrow',sans-serif;font-weight:900;font-size:28px;color:var(--red);text-transform:uppercase;letter-spacing:0.05em}
     .reject-msg{font-size:13px;color:rgba(255,255,255,0.5);letter-spacing:0.05em;text-align:center;padding:0 20px}
     .reject-sub{font-size:11px;color:rgba(255,255,255,0.3);letter-spacing:0.08em;margin-top:4px}
 
-    /* Shift modal */
-    .shift-bar{
-      display:flex;gap:0;
-      background:var(--surface);
-      border-bottom:1px solid var(--border);
+    /* QR config scanner modal */
+    .qr-cfg-modal{
+      display:none;position:fixed;inset:0;background:#000;z-index:600;
+      flex-direction:column;
+    }
+    .qr-cfg-modal.show{display:flex}
+    .qr-cfg-header{
+      display:flex;align-items:center;justify-content:space-between;
+      padding:16px 20px;background:var(--surface);border-bottom:1px solid var(--border);
       flex-shrink:0;
     }
-    .shift-btn{
-      flex:1;padding:8px;
-      font-family:'JetBrains Mono',monospace;
-      font-size:10px;font-weight:600;
-      letter-spacing:0.08em;text-transform:uppercase;
-      background:transparent;border:none;
-      color:var(--muted);cursor:pointer;
-      border-right:1px solid var(--border);
-      transition:all 0.15s;
+    .qr-cfg-title{font-family:'Tomorrow',sans-serif;font-weight:700;font-size:14px;letter-spacing:0.1em;text-transform:uppercase}
+    .qr-cfg-close{font-size:22px;cursor:pointer;color:var(--text2);padding:4px 8px}
+    #qrCfgReader{flex:1}
+    #qrCfgReader video{width:100%!important;height:100%!important;object-fit:cover!important}
+    #qrCfgReader__dashboard{display:none!important}
+    .qr-cfg-hint{
+      padding:16px 20px;background:var(--surface);border-top:1px solid var(--border);
+      font-size:11px;color:var(--muted);text-align:center;letter-spacing:0.06em;flex-shrink:0;
     }
-    .shift-btn:last-child{border-right:none}
-    .shift-btn.active{color:var(--yellow);background:rgba(242,205,26,0.07)}
   </style>
 </head>
 <body>
 
-<!-- ═══════════════════════════════════════════════════
-     SETUP SCREEN
-═══════════════════════════════════════════════════ -->
+<!-- ═══════════ SETUP SCREEN ═══════════ -->
 <div id="setupScreen" class="screen active">
   <div class="setup-hero">
     <div class="lot-wordmark">Legend of Toys</div>
@@ -558,40 +439,46 @@
     <div class="field">
       <div class="field-label">Google Apps Script URL</div>
       <input type="url" id="s_url" placeholder="https://script.google.com/macros/s/...">
-      <div class="field-sub">Your deployed Web App URL. <a href="setup-guide.html" target="_blank">Setup guide →</a></div>
+      <div class="field-sub">Paste URL manually or use the QR scanner below.</div>
     </div>
 
-    <div class="field">
-      <div class="field-label">Product Master URL <span style="color:var(--muted);font-size:9px">(optional)</span></div>
-      <input type="url" id="s_masterUrl" placeholder="Same URL works — script handles both">
-      <div class="field-sub">Leave blank to use the same Apps Script URL for product lookups.</div>
+    <div class="scan-cfg-btn" onclick="openQrCfg()">
+      <span class="scan-cfg-icon">📷</span>
+      <div class="scan-cfg-label">
+        <strong>Scan to Configure</strong>
+        Point camera at the Apps Script URL QR code
+      </div>
+      <span style="color:var(--yellow);font-size:18px">›</span>
     </div>
 
     <!-- DEVICE IDENTITY -->
     <div class="section-divider">Device Identity</div>
 
     <div class="field">
-      <div class="field-label">Station Name</div>
-      <input type="text" id="s_station" placeholder="e.g. QC Table — Pass">
+      <div class="field-label">Station</div>
+      <div class="seg-group" id="s_stationGroup">
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Assembly" onclick="pickStation(this)">Assembly</div>
+          <div class="seg-btn" data-val="QC" onclick="pickStation(this)">QC</div>
+        </div>
+        <div class="seg-row">
+          <div class="seg-btn" data-val="RTD" onclick="pickStation(this)">RTD</div>
+          <div class="seg-btn" data-val="Repair" onclick="pickStation(this)">Repair</div>
+        </div>
+        <div class="seg-btn" data-val="Custom" onclick="pickStation(this)" style="width:100%">Custom</div>
+      </div>
+      <div class="custom-act-input" id="s_stationCustomWrap">
+        <input type="text" id="s_stationCustom" placeholder="Enter station name...">
+      </div>
     </div>
 
-    <div class="row-2">
-      <div class="field">
-        <div class="field-label">Line</div>
-        <div class="chips" id="s_lineChips">
-          <div class="chip line-chip" data-val="L1" onclick="pickLine(this)">L1</div>
-          <div class="chip line-chip" data-val="L2" onclick="pickLine(this)">L2</div>
-          <div class="chip line-chip" data-val="L3" onclick="pickLine(this)">L3</div>
-          <div class="chip line-chip" data-val="SHARED" onclick="pickLine(this)">SHARED</div>
-        </div>
-      </div>
-      <div class="field">
-        <div class="field-label">Shift</div>
-        <select id="s_shift">
-          <option value="MORNING">Morning</option>
-          <option value="AFTERNOON">Afternoon</option>
-          <option value="NIGHT">Night</option>
-        </select>
+    <div class="field">
+      <div class="field-label">Line</div>
+      <div class="chips" id="s_lineChips">
+        <div class="chip line-chip" data-val="L1" onclick="pickLine(this)">L1</div>
+        <div class="chip line-chip" data-val="L2" onclick="pickLine(this)">L2</div>
+        <div class="chip line-chip" data-val="L3" onclick="pickLine(this)">L3</div>
+        <div class="chip line-chip" data-val="Other" onclick="pickLine(this)">Other</div>
       </div>
     </div>
 
@@ -599,13 +486,12 @@
     <div class="section-divider">Scan Settings</div>
 
     <div class="field">
-      <div class="field-label">Expected Barcode Length</div>
+      <div class="field-label">Barcode Length</div>
       <div class="length-pills" id="s_lengthPills">
-        <div class="length-pill" data-val="17" onclick="pickLength(this)">17 digits <span style="font-size:9px;opacity:0.6">(UPC)</span></div>
-        <div class="length-pill" data-val="13" onclick="pickLength(this)">13 digits <span style="font-size:9px;opacity:0.6">(EAN)</span></div>
-        <div class="length-pill" data-val="0" onclick="pickLength(this)">Any length</div>
+        <div class="length-pill on" data-val="0" onclick="pickLength(this)">Auto (recommended)</div>
+        <div class="length-pill" data-val="0_any" onclick="pickLength(this)">Any length</div>
       </div>
-      <div class="field-sub">INW &amp; QC → 17 (UPC). RTD → 13 (EAN). Set "Any" for custom codes.</div>
+      <div class="field-sub">Auto: 17 digits for all activities, 13 digits for RTE/RTR. Override with "Any length" only if needed.</div>
     </div>
 
     <!-- ACTIVITIES -->
@@ -613,20 +499,16 @@
 
     <div class="field">
       <div class="chips" id="s_actChips">
-        <div class="chip on" data-val="INW" onclick="toggleChip(this,'act')">INW</div>
-        <div class="chip" data-val="QC-PASS" onclick="toggleChip(this,'act')">QC-PASS</div>
-        <div class="chip" data-val="QC-FAIL" onclick="toggleChip(this,'act')">QC-FAIL</div>
-        <div class="chip" data-val="RTE" onclick="toggleChip(this,'act')">RTE</div>
-        <div class="chip" data-val="RTR" onclick="toggleChip(this,'act')">RTR</div>
-        <div class="chip" data-val="REWORK" onclick="toggleChip(this,'act')">REWORK</div>
-      </div>
-      <div class="add-row">
-        <input type="text" id="s_customAct" placeholder="Add custom activity...">
-        <button class="icon-btn" onclick="addCustomAct()">+</button>
+        <div class="chip on" data-val="INW" onclick="toggleChip(this)">INW</div>
+        <div class="chip" data-val="QC-PASS" onclick="toggleChip(this)">QC-PASS</div>
+        <div class="chip" data-val="QC-FAIL" onclick="toggleChip(this)">QC-FAIL</div>
+        <div class="chip" data-val="RTE" onclick="toggleChip(this)">RTE</div>
+        <div class="chip" data-val="RTR" onclick="toggleChip(this)">RTR</div>
+        <div class="chip" data-val="REWORK" onclick="toggleChip(this)">REWORK</div>
       </div>
     </div>
 
-    <!-- LOCK MODE -->
+    <!-- LOCK & SECURITY -->
     <div class="section-divider">Lock &amp; Security</div>
 
     <div class="toggle-row">
@@ -640,7 +522,7 @@
       </label>
     </div>
 
-    <div id="s_lockedActivity" style="display:none">
+    <div id="s_lockedSection" style="display:none;display:flex;flex-direction:column;gap:12px">
       <div class="field">
         <div class="field-label">Locked Activity</div>
         <select id="s_lockAct">
@@ -652,22 +534,18 @@
           <option value="REWORK">REWORK</option>
         </select>
       </div>
-    </div>
-
-    <div class="field">
-      <div class="field-label">Settings PIN <span style="color:var(--muted);font-size:9px">(4 digits — protects ⚙ button)</span></div>
-      <input type="password" id="s_pin" placeholder="Leave blank = no PIN" maxlength="4" inputmode="numeric">
+      <div class="field">
+        <div class="field-label">Settings PIN <span style="color:var(--muted);font-size:9px">(4 digits)</span></div>
+        <input type="password" id="s_pin" placeholder="Leave blank = no PIN" maxlength="4" inputmode="numeric">
+      </div>
     </div>
 
     <button class="btn-launch" onclick="saveSetup()">LAUNCH SCANNER →</button>
   </div>
 </div>
 
-<!-- ═══════════════════════════════════════════════════
-     SCANNER SCREEN
-═══════════════════════════════════════════════════ -->
+<!-- ═══════════ SCANNER SCREEN ═══════════ -->
 <div id="scannerScreen" class="screen">
-
   <div class="offline-bar" id="offlineBar">⚠ OFFLINE — SCANS QUEUED LOCALLY</div>
 
   <div class="topbar">
@@ -677,28 +555,24 @@
     </div>
     <div class="topbar-right">
       <div class="queue-pill" id="queuePill">0 queued</div>
-      <div class="icon-action" id="shiftDisplay" onclick="cycleShift()" title="Tap to change shift">☀️</div>
+      <div class="icon-action" id="shiftDisplay" onclick="cycleShift()" title="Tap to change shift">Regular</div>
       <div class="icon-action" onclick="requestSettings()">⚙</div>
     </div>
   </div>
 
-  <!-- Shift selector bar -->
   <div class="shift-bar" id="shiftBar">
-    <button class="shift-btn active" data-shift="MORNING" onclick="setShift('MORNING',this)">☀ Morning</button>
-    <button class="shift-btn" data-shift="AFTERNOON" onclick="setShift('AFTERNOON',this)">🌤 Afternoon</button>
-    <button class="shift-btn" data-shift="NIGHT" onclick="setShift('NIGHT',this)">🌙 Night</button>
+    <button class="shift-btn active" data-shift="Regular" onclick="setShift('Regular',this)">Regular</button>
+    <button class="shift-btn" data-shift="OT" onclick="setShift('OT',this)">OT</button>
+    <button class="shift-btn" data-shift="Double OT" onclick="setShift('Double OT',this)">Double OT</button>
   </div>
 
-  <!-- Activity strip (hidden if locked) -->
   <div class="activity-strip" id="activityStrip"></div>
 
-  <!-- Locked badge -->
   <div class="locked-badge" id="lockedBadge">
     <span class="lock-icon">🔒</span>
     <div class="locked-badge-inner" id="lockedBadgeInner">INW</div>
   </div>
 
-  <!-- Camera -->
   <div class="camera-wrap">
     <div id="reader"></div>
     <div class="scan-overlay">
@@ -711,30 +585,28 @@
       </div>
       <div class="scan-hint-text">ALIGN BARCODE OR QR CODE</div>
     </div>
+    <div class="cam-controls">
+      <div class="cam-btn" id="torchBtn" onclick="toggleTorch()" title="Flashlight">🔦</div>
+      <div class="cam-btn" onclick="flipCamera()" title="Flip camera">🔄</div>
+    </div>
   </div>
 
-  <!-- RTD Tally Panel (shown only for RTD activities) -->
   <div class="tally-panel" id="tallyPanel">
     <div class="tally-header">Session Tally — RTD</div>
     <div class="tally-grid" id="tallyGrid"></div>
   </div>
 
-  <!-- Operator -->
   <div class="operator-row">
     <span class="op-icon">👤</span>
     <input class="op-input" id="operatorInput" type="text" placeholder="Operator name (optional)">
   </div>
 
-  <!-- Log feed -->
   <div class="log-feed" id="logFeed">
     <div class="log-empty">NO SCANS YET</div>
   </div>
-
 </div>
 
-<!-- ═══════════════════════════════════════════════════
-     PIN MODAL
-═══════════════════════════════════════════════════ -->
+<!-- ═══════════ PIN MODAL ═══════════ -->
 <div class="modal-backdrop" id="pinModal">
   <div class="modal">
     <div class="modal-title">Enter PIN</div>
@@ -763,7 +635,17 @@
   </div>
 </div>
 
-<!-- Flash + Reject -->
+<!-- ═══════════ QR CONFIG MODAL ═══════════ -->
+<div class="qr-cfg-modal" id="qrCfgModal">
+  <div class="qr-cfg-header">
+    <div class="qr-cfg-title">Scan Apps Script URL</div>
+    <div class="qr-cfg-close" onclick="closeQrCfg()">✕</div>
+  </div>
+  <div id="qrCfgReader"></div>
+  <div class="qr-cfg-hint">Point camera at the QR code containing your Apps Script URL</div>
+</div>
+
+<!-- Flash + Reject + Toast -->
 <div class="flash" id="flash"></div>
 <div class="reject-screen" id="rejectScreen">
   <div class="reject-icon">🚫</div>
@@ -771,14 +653,7 @@
   <div class="reject-msg" id="rejectMsg">Barcode length incorrect</div>
   <div class="reject-sub">RESCAN THE CODE</div>
 </div>
-
-<!-- Toast -->
 <div class="toast" id="toast"></div>
-
-<!-- Error audio -->
-<audio id="beepErr" preload="auto">
-  <source src="data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAA..." type="audio/wav">
-</audio>
 
 <script>
 // ═══════════════════════════════════════════════════
@@ -786,18 +661,23 @@
 // ═══════════════════════════════════════════════════
 let cfg = {};
 let activeActivity = 'INW';
-let currentShift = 'MORNING';
+let currentShift = 'Regular';
 let scanQueue = [];
 let isOnline = navigator.onLine;
 let qrScanner = null;
+let qrCfgScanner = null;
 let lastBarcode = '';
 let lastScanTs = 0;
 const DEBOUNCE_MS = 2200;
-let productMaster = {}; // barcode -> { name, sku, category }
-let sessionScans = []; // for duplicate detection
-let rtdTally = {}; // ean -> { name, count }
+let productMaster = {};
+let sessionScans = [];
+let rtdTally = {};
 let pinBuffer = '';
 let pinResolve = null;
+let allCameras = [];
+let currentCamIndex = 0;
+let torchOn = false;
+let currentCamTrack = null;
 
 // ═══════════════════════════════════════════════════
 // BOOT
@@ -807,79 +687,104 @@ window.addEventListener('load', () => {
   if (saved) {
     cfg = JSON.parse(saved);
     scanQueue = JSON.parse(localStorage.getItem('lot_queue') || '[]');
-    currentShift = cfg.shift || 'MORNING';
+    currentShift = cfg.shift || 'Regular';
     bootScanner();
   }
   window.addEventListener('online', onOnline);
   window.addEventListener('offline', onOffline);
+
+  // Restore product master from cache
+  const cached = localStorage.getItem('lot_product_master');
+  if (cached) productMaster = JSON.parse(cached);
 });
 
 // ═══════════════════════════════════════════════════
 // SETUP HELPERS
 // ═══════════════════════════════════════════════════
+function pickStation(el) {
+  document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  const wrap = document.getElementById('s_stationCustomWrap');
+  wrap.classList.toggle('show', el.dataset.val === 'Custom');
+}
+
 function pickLine(el) {
   document.querySelectorAll('#s_lineChips .chip').forEach(c => c.classList.remove('on'));
   el.classList.add('on');
 }
+
 function pickLength(el) {
   document.querySelectorAll('.length-pill').forEach(p => p.classList.remove('on'));
   el.classList.add('on');
 }
-function toggleChip(el, group) {
+
+function toggleChip(el) {
   el.classList.toggle('on');
 }
-function addCustomAct() {
-  const inp = document.getElementById('s_customAct');
-  const val = inp.value.trim().toUpperCase().replace(/\s+/g,'-');
-  if (!val) return;
-  const cont = document.getElementById('s_actChips');
-  const ch = document.createElement('div');
-  ch.className = 'chip on';
-  ch.dataset.val = val;
-  ch.textContent = val;
-  ch.onclick = () => toggleChip(ch, 'act');
-  cont.appendChild(ch);
-  // Also add to lock select
-  const sel = document.getElementById('s_lockAct');
-  const opt = document.createElement('option');
-  opt.value = val; opt.textContent = val;
-  sel.appendChild(opt);
-  inp.value = '';
-}
+
 function onLockToggle() {
   const locked = document.getElementById('s_locked').checked;
-  document.getElementById('s_lockedActivity').style.display = locked ? 'block' : 'none';
+  document.getElementById('s_lockedSection').style.display = locked ? 'flex' : 'none';
 }
 
 function saveSetup() {
-  const url    = document.getElementById('s_url').value.trim();
-  const station= document.getElementById('s_station').value.trim();
-  const lineSel= document.querySelector('#s_lineChips .chip.on');
-  const lenSel = document.querySelector('.length-pill.on');
-  const acts   = [...document.querySelectorAll('#s_actChips .chip.on')].map(c=>c.dataset.val);
-  const locked = document.getElementById('s_locked').checked;
-  const lockAct= document.getElementById('s_lockAct').value;
-  const pin    = document.getElementById('s_pin').value.trim();
-  const masterUrl = document.getElementById('s_masterUrl').value.trim();
+  const url      = document.getElementById('s_url').value.trim();
+  const stationEl= document.querySelector('#s_stationGroup .seg-btn.on');
+  const lineSel  = document.querySelector('#s_lineChips .chip.on');
+  const lenSel   = document.querySelector('.length-pill.on');
+  const acts     = [...document.querySelectorAll('#s_actChips .chip.on')].map(c => c.dataset.val);
+  const locked   = document.getElementById('s_locked').checked;
+  const lockAct  = document.getElementById('s_lockAct').value;
+  const pin      = document.getElementById('s_pin').value.trim();
 
-  if (!station) { showToast('Enter a station name','err'); return; }
-  if (!lineSel) { showToast('Select a line','err'); return; }
-  if (!lenSel)  { showToast('Select expected barcode length','err'); return; }
-  if (acts.length === 0 && !locked) { showToast('Select at least one activity','err'); return; }
+  if (!stationEl) { showToast('Select a station', 'err'); return; }
+  const station = stationEl.dataset.val === 'Custom'
+    ? document.getElementById('s_stationCustom').value.trim()
+    : stationEl.dataset.val;
+  if (!station) { showToast('Enter a station name', 'err'); return; }
+  if (!lineSel)  { showToast('Select a line', 'err'); return; }
+  if (acts.length === 0 && !locked) { showToast('Select at least one activity', 'err'); return; }
 
   cfg = {
     url, station,
     line: lineSel.dataset.val,
-    shift: document.getElementById('s_shift').value,
-    expectedLen: parseInt(lenSel.dataset.val),
+    shift: currentShift,
+    anyLength: lenSel && lenSel.dataset.val === '0_any',
     activities: acts,
     locked, lockAct,
-    pin: pin || '',
-    masterUrl: masterUrl || url,
+    pin: locked ? (pin || '') : '',
   };
   localStorage.setItem('lot_cfg', JSON.stringify(cfg));
-  currentShift = cfg.shift;
   bootScanner();
+}
+
+// ═══════════════════════════════════════════════════
+// QR CONFIG SCANNER
+// ═══════════════════════════════════════════════════
+function openQrCfg() {
+  document.getElementById('qrCfgModal').classList.add('show');
+  qrCfgScanner = new Html5Qrcode('qrCfgReader');
+  qrCfgScanner.start(
+    { facingMode: 'environment' },
+    { fps: 10, qrbox: { width: 260, height: 160 } },
+    (text) => {
+      // Accept any URL that looks like an Apps Script URL
+      if (text.includes('script.google.com') || text.startsWith('https://')) {
+        document.getElementById('s_url').value = text.trim();
+        closeQrCfg();
+        showToast('URL configured ✓', 'ok');
+      }
+    },
+    () => {}
+  ).catch(e => showToast('Camera error: ' + e, 'err'));
+}
+
+function closeQrCfg() {
+  document.getElementById('qrCfgModal').classList.remove('show');
+  if (qrCfgScanner) {
+    qrCfgScanner.stop().catch(() => {});
+    qrCfgScanner = null;
+  }
 }
 
 // ═══════════════════════════════════════════════════
@@ -889,26 +794,14 @@ function bootScanner() {
   document.getElementById('setupScreen').classList.remove('active');
   document.getElementById('scannerScreen').classList.add('active');
 
-  // Topbar
   document.getElementById('tb_line').textContent = cfg.line + ' · ' + cfg.shift;
   document.getElementById('tb_station').textContent = cfg.station;
 
-  // Shift bar
   setShift(currentShift, document.querySelector(`.shift-btn[data-shift="${currentShift}"]`), true);
-
-  // Activity strip / locked
   buildActivityUI();
-
-  // Queue badge
   updateQueueBadge();
-
-  // Load product master
   fetchProductMaster();
-
-  // Init camera
   initCamera();
-
-  // RTD tally
   updateTallyVisibility();
 }
 
@@ -929,14 +822,14 @@ function buildActivityUI() {
   } else {
     strip.classList.remove('locked-mode');
     document.getElementById('lockedBadge').classList.remove('show');
-    const acts = cfg.activities.length ? cfg.activities : ['INW'];
+    const acts = cfg.activities && cfg.activities.length ? cfg.activities : ['INW'];
     acts.forEach((act, i) => {
       const ch = document.createElement('div');
-      ch.className = 'act-chip' + (i===0?' active '+actClass(act):'');
+      ch.className = 'act-chip' + (i === 0 ? ' active ' + actClass(act) : '');
       ch.textContent = act;
       ch.onclick = () => {
-        document.querySelectorAll('.act-chip').forEach(c=>c.className='act-chip');
-        ch.className = 'act-chip active '+actClass(act);
+        document.querySelectorAll('.act-chip').forEach(c => c.className = 'act-chip');
+        ch.className = 'act-chip active ' + actClass(act);
         activeActivity = act;
         updateTallyVisibility();
       };
@@ -947,18 +840,18 @@ function buildActivityUI() {
 }
 
 function actClass(act) {
-  if (act==='INW') return 'inw';
-  if (act==='QC-PASS') return 'qcp';
-  if (act==='QC-FAIL') return 'qcf';
-  if (act==='RTE'||act==='RTR') return 'rtd';
+  if (act === 'INW') return 'inw';
+  if (act === 'QC-PASS') return 'qcp';
+  if (act === 'QC-FAIL') return 'qcf';
+  if (act === 'RTE' || act === 'RTR') return 'rtd';
   return 'other';
 }
-function actColor(act, bg=false) {
-  const map={INW:'#213CE2','QC-PASS':'#22c55e','QC-FAIL':'#DE2A2A',RTE:'#F2CD1A',RTR:'#F2CD1A'};
-  return map[act]||(bg?'#202020':'#555');
+function actColor(act, bg = false) {
+  const map = { INW: '#213CE2', 'QC-PASS': '#22c55e', 'QC-FAIL': '#DE2A2A', RTE: '#F2CD1A', RTR: '#F2CD1A' };
+  return map[act] || (bg ? '#202020' : '#555');
 }
 function actTextColor(act) {
-  if (act==='QC-PASS'||act==='RTE'||act==='RTR') return '#000';
+  if (act === 'QC-PASS' || act === 'RTE' || act === 'RTR') return '#000';
   return '#fff';
 }
 
@@ -968,17 +861,71 @@ function actTextColor(act) {
 function initCamera() {
   qrScanner = new Html5Qrcode('reader');
   Html5Qrcode.getCameras().then(cams => {
-    if (!cams || !cams.length) { showToast('No camera found','err'); return; }
-    const back = cams.find(c=>/back|rear|environment/i.test(c.label)) || cams[cams.length-1];
-    qrScanner.start(back.id, {fps:12, qrbox:{width:240,height:150}, aspectRatio:1.5}, onScan, ()=>{})
-      .catch(()=>{
-        qrScanner.start({facingMode:'environment'},{fps:12,qrbox:{width:240,height:150}},onScan,()=>{})
-          .catch(e=>showToast('Camera error: '+e,'err'));
-      });
-  }).catch(()=>{
-    qrScanner.start({facingMode:'environment'},{fps:12,qrbox:{width:240,height:150}},onScan,()=>{})
-      .catch(e=>showToast('Camera error','err'));
+    if (!cams || !cams.length) { showToast('No camera found', 'err'); return; }
+    allCameras = cams;
+    // Default to back camera
+    const backIdx = cams.findIndex(c => /back|rear|environment/i.test(c.label));
+    currentCamIndex = backIdx >= 0 ? backIdx : cams.length - 1;
+    startCamera(currentCamIndex);
+  }).catch(() => {
+    startCameraByFacing('environment');
   });
+}
+
+function startCamera(idx) {
+  const cam = allCameras[idx];
+  if (!cam) return;
+  qrScanner.stop().catch(() => {}).finally(() => {
+    qrScanner.start(
+      cam.id,
+      { fps: 12, qrbox: { width: 240, height: 150 }, aspectRatio: 1.5 },
+      onScan, () => {}
+    ).then(() => {
+      // Grab track for torch
+      const video = document.querySelector('#reader video');
+      if (video && video.srcObject) {
+        const tracks = video.srcObject.getVideoTracks();
+        currentCamTrack = tracks.length ? tracks[0] : null;
+      }
+    }).catch(e => showToast('Camera error: ' + e, 'err'));
+  });
+}
+
+function startCameraByFacing(facing) {
+  qrScanner.stop().catch(() => {}).finally(() => {
+    qrScanner.start(
+      { facingMode: facing },
+      { fps: 12, qrbox: { width: 240, height: 150 } },
+      onScan, () => {}
+    ).catch(e => showToast('Camera error', 'err'));
+  });
+}
+
+function flipCamera() {
+  if (allCameras.length > 1) {
+    currentCamIndex = (currentCamIndex + 1) % allCameras.length;
+    torchOn = false;
+    document.getElementById('torchBtn').classList.remove('torch-on');
+    startCamera(currentCamIndex);
+  } else {
+    showToast('Only one camera found', 'warn');
+  }
+}
+
+function toggleTorch() {
+  if (!currentCamTrack) {
+    showToast('Torch not available', 'warn');
+    return;
+  }
+  torchOn = !torchOn;
+  currentCamTrack.applyConstraints({ advanced: [{ torch: torchOn }] })
+    .then(() => {
+      document.getElementById('torchBtn').classList.toggle('torch-on', torchOn);
+    })
+    .catch(() => {
+      torchOn = false;
+      showToast('Torch not supported on this device', 'warn');
+    });
 }
 
 // ═══════════════════════════════════════════════════
@@ -986,51 +933,49 @@ function initCamera() {
 // ═══════════════════════════════════════════════════
 function onScan(raw) {
   const now = Date.now();
-  if (raw===lastBarcode && now-lastScanTs < DEBOUNCE_MS) return;
+  if (raw === lastBarcode && now - lastScanTs < DEBOUNCE_MS) return;
   lastBarcode = raw;
   lastScanTs = now;
 
-  const barcode = raw.replace(/\s+/g, "").trim(); // strip spaces (scanner may insert between EAN and serial)
+  const barcode = raw.replace(/\s+/g, '').trim();
 
-  // ── LENGTH VALIDATION ──
-  if (cfg.expectedLen && cfg.expectedLen !== 0) {
-    if (barcode.length !== cfg.expectedLen) {
-      showReject('SHORT / INVALID SCAN',
-        `Got ${barcode.length} digits — expected ${cfg.expectedLen}`,
-        'err');
+  // Auto length: RTE/RTR = 13, everything else = 17, unless anyLength override
+  if (!cfg.anyLength) {
+    const isRTD = activeActivity === 'RTE' || activeActivity === 'RTR' ||
+                  (cfg.locked && (cfg.lockAct === 'RTE' || cfg.lockAct === 'RTR'));
+    const expectedLen = isRTD ? 13 : 17;
+    if (barcode.length !== expectedLen) {
+      showReject('SHORT / INVALID SCAN', `Got ${barcode.length} digits — expected ${expectedLen}`);
       playErrBeep();
-      addLogItem({barcode, status:'err', tag:'ERR', label:`SHORT (${barcode.length}d)`});
+      addLogItem({ barcode, status: 'err', tag: 'ERR', label: `SHORT (${barcode.length}d)` });
       return;
     }
   }
 
-  // ── DUPLICATE DETECTION (UPC level, within session) ──
-  const isDup = cfg.expectedLen===17 && sessionScans.includes(barcode);
+  // Duplicate detection
+  const isDup = !cfg.anyLength && sessionScans.includes(barcode);
   if (isDup) {
     flash('warn');
-    vibrate([80,40,80]);
-    showToast('⚠ Duplicate scan: '+barcode.slice(-6),'warn');
-    addLogItem({barcode, status:'warn', tag:'DUP', label:'DUPLICATE', product:lookupProduct(barcode)});
-    // Still log it — let the server-side dedup handle it, but flag clearly
+    vibrate([80, 40, 80]);
+    showToast('⚠ Duplicate scan: ' + barcode.slice(-6), 'warn');
+    addLogItem({ barcode, status: 'warn', tag: 'DUP', label: 'DUPLICATE', product: lookupProduct(barcode) });
     submitEntry(buildEntry(barcode, 'DUPLICATE'));
     return;
   }
 
-  // ── GOOD SCAN ──
-  if (cfg.expectedLen===17) sessionScans.push(barcode);
+  if (!cfg.anyLength) sessionScans.push(barcode);
 
   const product = lookupProduct(barcode);
   flash('ok');
   vibrate([60]);
   const entry = buildEntry(barcode);
 
-  // RTD tally update
-  if (activeActivity==='RTE'||activeActivity==='RTR') {
+  if (activeActivity === 'RTE' || activeActivity === 'RTR') {
     updateTally(barcode, product);
   }
 
-  addLogItem({barcode, status:'ok', tag:activeActivity, label:activeActivity, product});
-  showToast('✓ '+(product||barcode.slice(-8)),'ok');
+  addLogItem({ barcode, status: 'ok', tag: activeActivity, label: activeActivity, product });
+  showToast('✓ ' + (product || barcode.slice(-8)), 'ok');
   submitEntry(entry);
 }
 
@@ -1052,28 +997,24 @@ function buildEntry(barcode, overrideActivity) {
 // PRODUCT LOOKUP
 // ═══════════════════════════════════════════════════
 function lookupProduct(barcode) {
-  // Try full UPC match, then EAN prefix (first 13 digits)
   if (productMaster[barcode]) return productMaster[barcode].name;
-  const ean = barcode.slice(0,13);
+  const ean = barcode.slice(0, 13);
   if (productMaster[ean]) return productMaster[ean].name;
   return null;
 }
 
 async function fetchProductMaster() {
-  const url = cfg.masterUrl || cfg.url;
+  const url = cfg.url;
   if (!url) return;
   try {
-    const res = await fetch(url + '?action=products', {cache:'no-cache'});
+    const res = await fetch(url + '?action=products', { cache: 'no-cache' });
     const data = await res.json();
     if (data && data.products) {
       productMaster = {};
-      data.products.forEach(p => {
-        productMaster[p.barcode] = p;
-      });
+      data.products.forEach(p => { productMaster[p.barcode] = p; });
       localStorage.setItem('lot_product_master', JSON.stringify(productMaster));
     }
   } catch {
-    // Use cached
     const cached = localStorage.getItem('lot_product_master');
     if (cached) productMaster = JSON.parse(cached);
   }
@@ -1083,8 +1024,8 @@ async function fetchProductMaster() {
 // RTD TALLY
 // ═══════════════════════════════════════════════════
 function updateTally(barcode, productName) {
-  const key = barcode.slice(0,13); // EAN level
-  if (!rtdTally[key]) rtdTally[key] = {name: productName||key, count:0};
+  const key = barcode.slice(0, 13);
+  if (!rtdTally[key]) rtdTally[key] = { name: productName || key, count: 0 };
   rtdTally[key].count++;
   renderTally();
 }
@@ -1092,22 +1033,17 @@ function updateTally(barcode, productName) {
 function renderTally() {
   const grid = document.getElementById('tallyGrid');
   grid.innerHTML = '';
-  const entries = Object.entries(rtdTally).sort((a,b)=>b[1].count-a[1].count);
-  entries.forEach(([ean,data])=>{
+  Object.entries(rtdTally).sort((a, b) => b[1].count - a[1].count).forEach(([ean, data]) => {
     const row = document.createElement('div');
     row.className = 'tally-row';
-    row.innerHTML = `
-      <div class="tally-name">${data.name}</div>
-      <div class="tally-ean">${ean}</div>
-      <div class="tally-count">${data.count}</div>
-    `;
+    row.innerHTML = `<div class="tally-name">${data.name}</div><div class="tally-ean">${ean}</div><div class="tally-count">${data.count}</div>`;
     grid.appendChild(row);
   });
 }
 
 function updateTallyVisibility() {
-  const isRTD = activeActivity==='RTE' || activeActivity==='RTR' ||
-                (cfg.locked && (cfg.lockAct==='RTE'||cfg.lockAct==='RTR'));
+  const isRTD = activeActivity === 'RTE' || activeActivity === 'RTR' ||
+                (cfg.locked && (cfg.lockAct === 'RTE' || cfg.lockAct === 'RTR'));
   document.getElementById('tallyPanel').classList.toggle('show', isRTD);
 }
 
@@ -1115,11 +1051,9 @@ function updateTallyVisibility() {
 // SUBMIT TO SHEETS
 // ═══════════════════════════════════════════════════
 async function submitEntry(entry) {
-  if (!cfg.url) { return; }
+  if (!cfg.url) return;
   if (!isOnline) { enqueue(entry); return; }
   try {
-    // Use GET with encoded data — avoids CORS preflight and redirect issues
-    // that block POST requests to Apps Script Web Apps from PWAs
     const encoded = encodeURIComponent(JSON.stringify(entry));
     const url = cfg.url + '?action=scan&data=' + encoded;
     const res = await fetch(url, { method: 'GET' });
@@ -1129,7 +1063,7 @@ async function submitEntry(entry) {
     } else {
       throw new Error(result.message || 'Script error');
     }
-  } catch(err) {
+  } catch (err) {
     enqueue(entry);
     updateLogDot(entry.id, 'pending');
     showToast('Queued — will retry', 'warn');
@@ -1146,7 +1080,7 @@ async function flushQueue() {
   if (!scanQueue.length || !cfg.url) return;
   const batch = [...scanQueue];
   scanQueue = [];
-  localStorage.setItem('lot_queue','[]');
+  localStorage.setItem('lot_queue', '[]');
   updateQueueBadge();
   for (const e of batch) {
     try {
@@ -1155,15 +1089,15 @@ async function flushQueue() {
       await fetch(url, { method: 'GET' });
     } catch { scanQueue.push(e); }
   }
-  localStorage.setItem('lot_queue',JSON.stringify(scanQueue));
+  localStorage.setItem('lot_queue', JSON.stringify(scanQueue));
   updateQueueBadge();
-  if (batch.length) showToast(`✓ Synced ${batch.length} scans`,'ok');
+  if (batch.length) showToast(`✓ Synced ${batch.length} scans`, 'ok');
 }
 
 // ═══════════════════════════════════════════════════
 // LOG FEED
 // ═══════════════════════════════════════════════════
-function addLogItem({barcode, status, tag, label, product}) {
+function addLogItem({ barcode, status, tag, label, product }) {
   const feed = document.getElementById('logFeed');
   const empty = feed.querySelector('.log-empty');
   if (empty) empty.remove();
@@ -1172,8 +1106,8 @@ function addLogItem({barcode, status, tag, label, product}) {
   item.className = 'log-item';
   item.id = 'li-' + Date.now();
 
-  const time = new Date().toLocaleTimeString('en-IN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const tagClass = tag==='INW'?'inw':tag==='QC-PASS'?'qcp':tag==='QC-FAIL'?'qcf':(tag==='RTE'||tag==='RTR')?'rtd':tag==='ERR'?'err':tag==='DUP'?'dup':'other';
+  const time = new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+  const tagClass = tag === 'INW' ? 'inw' : tag === 'QC-PASS' ? 'qcp' : tag === 'QC-FAIL' ? 'qcf' : (tag === 'RTE' || tag === 'RTR') ? 'rtd' : tag === 'ERR' ? 'err' : tag === 'DUP' ? 'dup' : 'other';
   const productLine = product ? `<div class="log-product">${product}</div>` : '';
 
   item.innerHTML = `
@@ -1184,77 +1118,96 @@ function addLogItem({barcode, status, tag, label, product}) {
         <div class="log-tag ${tagClass}">${label}</div>
       </div>
       ${productLine}
-      <div class="log-meta">${time} · ${document.getElementById('operatorInput').value.trim()||'Unknown'} · ${cfg.line}</div>
+      <div class="log-meta">${time} · ${document.getElementById('operatorInput').value.trim() || 'Unknown'} · ${cfg.line}</div>
     </div>
   `;
   feed.insertBefore(item, feed.firstChild);
-  while(feed.children.length>60) feed.removeChild(feed.lastChild);
+  while (feed.children.length > 60) feed.removeChild(feed.lastChild);
 }
 
 function updateLogDot(id, status) {
-  const el = document.getElementById('li-'+id);
-  if (el) { const d=el.querySelector('.log-dot'); if(d) d.className='log-dot '+status; }
+  const el = document.getElementById('li-' + id);
+  if (el) { const d = el.querySelector('.log-dot'); if (d) d.className = 'log-dot ' + status; }
 }
 
 // ═══════════════════════════════════════════════════
 // SHIFT
 // ═══════════════════════════════════════════════════
-const shiftEmoji = {MORNING:'☀️',AFTERNOON:'🌤',NIGHT:'🌙'};
-
-function setShift(shift, el, silent=false) {
+function setShift(shift, el, silent = false) {
   currentShift = shift;
   cfg.shift = shift;
   localStorage.setItem('lot_cfg', JSON.stringify(cfg));
-  document.querySelectorAll('.shift-btn').forEach(b=>b.classList.remove('active'));
+  document.querySelectorAll('.shift-btn').forEach(b => b.classList.remove('active'));
   if (el) el.classList.add('active');
-  document.getElementById('shiftDisplay').textContent = shiftEmoji[shift]||'☀️';
+  document.getElementById('shiftDisplay').textContent = shift;
   document.getElementById('tb_line').textContent = cfg.line + ' · ' + shift;
-  if (!silent) showToast('Shift: '+shift,'ok');
+  if (!silent) showToast('Shift: ' + shift, 'ok');
+}
+
+function cycleShift() {
+  const shifts = ['Regular', 'OT', 'Double OT'];
+  const next = shifts[(shifts.indexOf(currentShift) + 1) % shifts.length];
+  const el = document.querySelector(`.shift-btn[data-shift="${next}"]`);
+  setShift(next, el);
 }
 
 // ═══════════════════════════════════════════════════
 // SETTINGS / PIN
 // ═══════════════════════════════════════════════════
 function requestSettings() {
-  if (cfg.pin) {
-    openPinModal().then(ok => { if(ok) openSettings(); });
+  if (cfg.locked && cfg.pin) {
+    openPinModal().then(ok => { if (ok) openSettings(); });
   } else {
     openSettings();
   }
 }
 
 function openSettings() {
-  if (qrScanner) qrScanner.stop().catch(()=>{});
-  // Pre-fill
-  document.getElementById('s_url').value = cfg.url||'';
-  document.getElementById('s_masterUrl').value = cfg.masterUrl||'';
-  document.getElementById('s_station').value = cfg.station||'';
-  document.getElementById('s_shift').value = cfg.shift||'MORNING';
-  document.getElementById('s_pin').value = cfg.pin||'';
-  document.getElementById('s_locked').checked = cfg.locked||false;
+  if (qrScanner) qrScanner.stop().catch(() => {});
+
+  // Pre-fill URL
+  document.getElementById('s_url').value = cfg.url || '';
+
+  // Pre-select station
+  document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => {
+    const isCustom = b.dataset.val === 'Custom';
+    const isMatch = b.dataset.val === cfg.station;
+    b.classList.toggle('on', isMatch || (isCustom && !['Assembly','QC','RTD','Repair'].includes(cfg.station)));
+  });
+  if (!['Assembly','QC','RTD','Repair'].includes(cfg.station)) {
+    document.getElementById('s_stationCustom').value = cfg.station || '';
+    document.getElementById('s_stationCustomWrap').classList.add('show');
+  }
+
+  // Pre-select line
+  document.querySelectorAll('#s_lineChips .chip').forEach(c => {
+    c.classList.toggle('on', c.dataset.val === cfg.line);
+  });
+
+  // Length
+  document.querySelectorAll('.length-pill').forEach(p => {
+    p.classList.toggle('on',
+      cfg.anyLength ? p.dataset.val === '0_any' : p.dataset.val === '0'
+    );
+  });
+
+  // Activities
+  document.querySelectorAll('#s_actChips .chip').forEach(c => {
+    c.classList.toggle('on', cfg.activities && cfg.activities.includes(c.dataset.val));
+  });
+
+  // Lock
+  document.getElementById('s_locked').checked = cfg.locked || false;
   onLockToggle();
-  if (cfg.locked) document.getElementById('s_lockAct').value = cfg.lockAct||'INW';
-
-  // Restore line
-  document.querySelectorAll('#s_lineChips .chip').forEach(c=>{
-    c.classList.toggle('on', c.dataset.val===cfg.line);
-  });
-
-  // Restore length
-  document.querySelectorAll('.length-pill').forEach(p=>{
-    p.classList.toggle('on', parseInt(p.dataset.val)===cfg.expectedLen);
-  });
-
-  // Restore activities
-  document.querySelectorAll('#s_actChips .chip').forEach(c=>{
-    c.classList.toggle('on', cfg.activities?.includes(c.dataset.val));
-  });
+  if (cfg.locked) {
+    document.getElementById('s_lockAct').value = cfg.lockAct || 'INW';
+    document.getElementById('s_pin').value = cfg.pin || '';
+  }
 
   document.getElementById('scannerScreen').classList.remove('active');
   document.getElementById('setupScreen').classList.add('active');
 }
 
-// PIN modal
 function openPinModal() {
   return new Promise(resolve => {
     pinBuffer = '';
@@ -1266,31 +1219,31 @@ function openPinModal() {
 }
 
 function pinKey(k) {
-  if (k==='del') {
-    pinBuffer = pinBuffer.slice(0,-1);
+  if (k === 'del') {
+    pinBuffer = pinBuffer.slice(0, -1);
   } else {
-    if (pinBuffer.length>=4) return;
+    if (pinBuffer.length >= 4) return;
     pinBuffer += k;
   }
   updatePinDots();
-  if (pinBuffer.length===4) {
-    setTimeout(()=>{
-      if (pinBuffer===cfg.pin) {
+  if (pinBuffer.length === 4) {
+    setTimeout(() => {
+      if (pinBuffer === cfg.pin) {
         document.getElementById('pinModal').classList.remove('show');
         pinResolve(true);
       } else {
         document.getElementById('pinError').textContent = 'Incorrect PIN. Try again.';
         pinBuffer = '';
         updatePinDots();
-        vibrate([100,50,100]);
+        vibrate([100, 50, 100]);
       }
     }, 150);
   }
 }
 
 function updatePinDots() {
-  for(let i=0;i<4;i++){
-    document.getElementById('pd'+i).classList.toggle('filled', i<pinBuffer.length);
+  for (let i = 0; i < 4; i++) {
+    document.getElementById('pd' + i).classList.toggle('filled', i < pinBuffer.length);
   }
 }
 
@@ -1300,13 +1253,13 @@ function updatePinDots() {
 function onOnline() {
   isOnline = true;
   document.getElementById('offlineBar').classList.remove('show');
-  showToast('Back online','ok');
+  showToast('Back online', 'ok');
   flushQueue();
 }
 function onOffline() {
   isOnline = false;
   document.getElementById('offlineBar').classList.add('show');
-  showToast('Offline — queuing scans','warn');
+  showToast('Offline — queuing scans', 'warn');
 }
 
 // ═══════════════════════════════════════════════════
@@ -1314,8 +1267,8 @@ function onOffline() {
 // ═══════════════════════════════════════════════════
 function flash(type) {
   const el = document.getElementById('flash');
-  el.className = 'flash '+type+' show';
-  setTimeout(()=>el.classList.remove('show'),120);
+  el.className = 'flash ' + type + ' show';
+  setTimeout(() => el.classList.remove('show'), 120);
 }
 
 let rejectTimer;
@@ -1325,38 +1278,37 @@ function showReject(title, msg) {
   document.getElementById('rejectMsg').textContent = msg;
   el.classList.add('show');
   clearTimeout(rejectTimer);
-  rejectTimer = setTimeout(()=>el.classList.remove('show'), 2200);
+  rejectTimer = setTimeout(() => el.classList.remove('show'), 2200);
 }
 
-function vibrate(pat) { if(navigator.vibrate) navigator.vibrate(pat); }
+function vibrate(pat) { if (navigator.vibrate) navigator.vibrate(pat); }
 
 function playErrBeep() {
   try {
-    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const osc = ctx.createOscillator();
     const gain = ctx.createGain();
     osc.connect(gain); gain.connect(ctx.destination);
-    osc.frequency.value = 220;
-    osc.type = 'sawtooth';
+    osc.frequency.value = 220; osc.type = 'sawtooth';
     gain.gain.setValueAtTime(0.3, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime+0.4);
-    osc.start(); osc.stop(ctx.currentTime+0.4);
-  } catch{}
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+    osc.start(); osc.stop(ctx.currentTime + 0.4);
+  } catch {}
 }
 
 let toastTimer;
-function showToast(msg, type='ok') {
+function showToast(msg, type = 'ok') {
   const el = document.getElementById('toast');
   el.textContent = msg;
-  el.className = 'toast '+type+' show';
+  el.className = 'toast ' + type + ' show';
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(()=>el.classList.remove('show'), 2500);
+  toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
 }
 
 function updateQueueBadge() {
   const p = document.getElementById('queuePill');
-  if (scanQueue.length>0) {
-    p.textContent = scanQueue.length+' queued';
+  if (scanQueue.length > 0) {
+    p.textContent = scanQueue.length + ' queued';
     p.classList.add('show');
   } else {
     p.classList.remove('show');
