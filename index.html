@@ -195,7 +195,7 @@
     .modal-error{font-size:11px;color:var(--red);text-align:center;margin-top:12px;min-height:16px}
 
     /* ── SCANNER SCREEN ── */
-    #scannerScreen{position:relative}
+    #scannerScreen{position:relative;display:flex;flex-direction:column}
     .offline-bar{
       background:var(--orange);color:#000;text-align:center;padding:7px;
       font-size:10px;font-weight:700;letter-spacing:0.12em;text-transform:uppercase;
@@ -207,6 +207,7 @@
       display:flex;align-items:center;justify-content:space-between;
       padding:12px 16px;background:var(--surface);
       border-bottom:1px solid var(--border);flex-shrink:0;gap:10px;
+      position:relative;z-index:100;
     }
     .device-identity{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
     .device-line{font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted)}
@@ -224,9 +225,12 @@
     .queue-pill.show{display:block}
     .icon-action{
       background:var(--surface2);border:1px solid var(--border);
-      border-radius:8px;padding:8px 10px;color:var(--text2);
+      border-radius:8px;padding:10px 14px;color:var(--text2);
       font-size:15px;cursor:pointer;flex-shrink:0;
       transition:all 0.15s;
+      -webkit-user-select:none;user-select:none;
+      min-width:44px;min-height:44px;
+      display:flex;align-items:center;justify-content:center;
     }
     .icon-action.active{background:var(--yellow);color:#080808;border-color:var(--yellow)}
 
@@ -234,6 +238,7 @@
     .shift-bar{
       display:flex;gap:0;background:var(--surface);
       border-bottom:1px solid var(--border);flex-shrink:0;
+      position:relative;z-index:100;
     }
     .shift-btn{
       flex:1;padding:8px;font-family:'JetBrains Mono',monospace;
@@ -249,6 +254,7 @@
       display:flex;gap:8px;padding:10px 14px;
       overflow-x:auto;flex-shrink:0;scrollbar-width:none;
       background:var(--surface);border-bottom:1px solid var(--border);
+      position:relative;z-index:100;
     }
     .activity-strip::-webkit-scrollbar{display:none}
     .activity-strip.locked-mode{display:none}
@@ -271,6 +277,7 @@
       display:none;align-items:center;justify-content:center;
       gap:8px;padding:8px 16px;flex-shrink:0;
       border-bottom:1px solid var(--border);
+      position:relative;z-index:100;
     }
     .locked-badge.show{display:flex}
     .locked-badge-inner{
@@ -280,12 +287,18 @@
     .lock-icon{font-size:12px;color:var(--muted)}
 
     /* Camera */
-    .camera-wrap{flex:1;position:relative;overflow:hidden;background:#000;min-height:0}
-    #reader{width:100%;height:100%}
-    #reader video{width:100%!important;height:100%!important;object-fit:cover!important}
+    .camera-wrap{flex:1;position:relative;overflow:hidden;background:#000;min-height:120px;z-index:1;}
+    #reader{width:100%;height:100%;position:absolute;top:0;left:0;right:0;bottom:0;}
+    #reader video{
+      position:absolute!important;top:0!important;left:0!important;
+      width:100%!important;height:100%!important;
+      object-fit:cover!important;
+    }
     #reader img{display:none!important}
-    #reader__scan_region{position:relative!important}
+    #reader canvas{display:none!important}
+    #reader__scan_region{width:100%!important;height:100%!important;position:relative!important}
     #reader__dashboard{display:none!important}
+    #reader__scan_region img{display:none!important}
 
     .scan-overlay{
       position:absolute;inset:0;pointer-events:none;
@@ -307,24 +320,10 @@
     }
     .scan-hint-text{font-size:10px;color:rgba(255,255,255,0.4);letter-spacing:0.15em;text-transform:uppercase}
 
-    /* Camera controls overlay */
-    .cam-controls{
-      position:absolute;bottom:12px;right:12px;
-      display:flex;flex-direction:column;gap:8px;
-      pointer-events:all;
-    }
-    .cam-btn{
-      width:42px;height:42px;border-radius:50%;
-      background:rgba(0,0,0,0.6);border:1px solid rgba(255,255,255,0.2);
-      display:flex;align-items:center;justify-content:center;
-      font-size:18px;cursor:pointer;transition:all 0.15s;
-      backdrop-filter:blur(4px);
-    }
-    .cam-btn:active{background:rgba(242,205,26,0.3);border-color:var(--yellow)}
-    .cam-btn.torch-on{background:rgba(242,205,26,0.25);border-color:var(--yellow)}
+
 
     /* RTD tally */
-    .tally-panel{display:none;background:var(--surface);border-top:1px solid var(--border);padding:10px 14px;flex-shrink:0}
+    .tally-panel{display:none;background:var(--surface);border-top:1px solid var(--border);padding:10px 14px;flex-shrink:0;position:relative;z-index:100;}
     .tally-panel.show{display:block}
     .tally-header{font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted);margin-bottom:8px}
     .tally-grid{display:flex;flex-direction:column;gap:6px;max-height:100px;overflow-y:auto}
@@ -337,6 +336,7 @@
     .operator-row{
       display:flex;align-items:center;gap:10px;padding:9px 14px;
       background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;
+      position:relative;z-index:100;
     }
     .op-icon{font-size:13px;color:var(--muted);flex-shrink:0}
     .op-input{
@@ -346,7 +346,7 @@
     .op-input::placeholder{color:var(--muted)}
 
     /* Log feed */
-    .log-feed{height:172px;overflow-y:auto;background:var(--bg);flex-shrink:0;scrollbar-width:thin;scrollbar-color:var(--border) transparent}
+    .log-feed{height:172px;overflow-y:auto;background:var(--bg);flex-shrink:0;scrollbar-width:thin;scrollbar-color:var(--border) transparent;position:relative;z-index:100;}
     .log-empty{display:flex;align-items:center;justify-content:center;height:100%;font-size:11px;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase}
     .log-item{display:flex;align-items:flex-start;gap:10px;padding:9px 14px;border-bottom:1px solid var(--border);animation:rowIn 0.18s ease}
     @keyframes rowIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:translateY(0)}}
@@ -540,6 +540,29 @@
       </div>
     </div>
 
+    <!-- CAMERA -->
+    <div class="section-divider">Camera</div>
+
+    <div class="field">
+      <div class="field-label">Active Camera</div>
+      <div class="chips" id="s_camChips">
+        <div class="chip on" data-val="environment" onclick="pickCam(this)">Back</div>
+        <div class="chip" data-val="user" onclick="pickCam(this)">Front</div>
+      </div>
+      <div class="field-sub">Back camera recommended for scanning.</div>
+    </div>
+
+    <div class="toggle-row" id="s_torchRow">
+      <div class="toggle-info">
+        <span>Flashlight / Torch</span>
+        <small>Turns on when scanner is active</small>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="s_torch">
+        <span class="toggle-slider"></span>
+      </label>
+    </div>
+
     <button class="btn-launch" onclick="saveSetup()">LAUNCH SCANNER →</button>
   </div>
 </div>
@@ -585,10 +608,7 @@
       </div>
       <div class="scan-hint-text">ALIGN BARCODE OR QR CODE</div>
     </div>
-    <div class="cam-controls">
-      <div class="cam-btn" id="torchBtn" onclick="toggleTorch()" title="Flashlight">🔦</div>
-      <div class="cam-btn" onclick="flipCamera()" title="Flip camera">🔄</div>
-    </div>
+
   </div>
 
   <div class="tally-panel" id="tallyPanel">
@@ -722,6 +742,11 @@ function toggleChip(el) {
   el.classList.toggle('on');
 }
 
+function pickCam(el) {
+  document.querySelectorAll('#s_camChips .chip').forEach(c => c.classList.remove('on'));
+  el.classList.add('on');
+}
+
 function onLockToggle() {
   const locked = document.getElementById('s_locked').checked;
   document.getElementById('s_lockedSection').style.display = locked ? 'flex' : 'none';
@@ -745,6 +770,9 @@ function saveSetup() {
   if (!lineSel)  { showToast('Select a line', 'err'); return; }
   if (acts.length === 0 && !locked) { showToast('Select at least one activity', 'err'); return; }
 
+  const camSel = document.querySelector('#s_camChips .chip.on');
+  const torchSetting = document.getElementById('s_torch').checked;
+
   cfg = {
     url, station,
     line: lineSel.dataset.val,
@@ -753,6 +781,8 @@ function saveSetup() {
     activities: acts,
     locked, lockAct,
     pin: locked ? (pin || '') : '',
+    camFacing: camSel ? camSel.dataset.val : 'environment',
+    torchEnabled: torchSetting,
   };
   localStorage.setItem('lot_cfg', JSON.stringify(cfg));
   bootScanner();
@@ -805,8 +835,10 @@ function bootScanner() {
   const readerEl = document.getElementById('reader');
   readerEl.innerHTML = '';
   qrScanner = null;
-  initCamera();
   updateTallyVisibility();
+  // Defer camera init — gives browser time to render/size the reader div
+  // Fixes black screen on Android where div isn't laid out yet
+  setTimeout(() => initCamera(), 300);
 }
 
 function buildActivityUI() {
@@ -863,79 +895,51 @@ function actTextColor(act) {
 // CAMERA
 // ═══════════════════════════════════════════════════
 function initCamera() {
+  // Always use facingMode — most reliable on Android
+  // getCameras() requires explicit permission grant first and fails silently on many devices
+  document.getElementById('reader').innerHTML = '';
   qrScanner = new Html5Qrcode('reader');
   currentCamTrack = null;
-  torchOn = false;
-  document.getElementById('torchBtn').classList.remove('torch-on');
-  Html5Qrcode.getCameras().then(cams => {
-    if (!cams || !cams.length) { showToast('No camera found', 'err'); return; }
-    allCameras = cams;
-    // Default to back camera
-    const backIdx = cams.findIndex(c => /back|rear|environment/i.test(c.label));
-    currentCamIndex = backIdx >= 0 ? backIdx : cams.length - 1;
-    startCamera(currentCamIndex);
-  }).catch(() => {
-    startCameraByFacing('environment');
-  });
+  const facing = cfg.camFacing || 'environment';
+  startCameraByFacing(facing);
 }
 
-function startCamera(idx) {
-  const cam = allCameras[idx];
-  if (!cam) return;
-  qrScanner.stop().catch(() => {}).finally(() => {
-    qrScanner.start(
-      cam.id,
-      { fps: 12, qrbox: { width: 240, height: 150 }, aspectRatio: 1.5 },
-      onScan, () => {}
-    ).then(() => {
-      // Grab track for torch — delay needed for stream to initialise
-      setTimeout(() => {
+function startCameraByFacing(facing) {
+  const config = {
+    fps: 10,
+    qrbox: { width: 250, height: 250 },
+    aspectRatio: 1.0,
+    videoConstraints: {
+      facingMode: { ideal: facing },
+      width: { ideal: 1280 },
+      height: { ideal: 720 }
+    }
+  };
+  qrScanner.start(
+    { facingMode: { ideal: facing } },
+    config,
+    onScan,
+    () => {}
+  ).then(() => {
+    // Grab video track for torch after stream starts
+    setTimeout(() => {
+      try {
         const video = document.querySelector('#reader video');
         if (video && video.srcObject) {
           const tracks = video.srcObject.getVideoTracks();
           currentCamTrack = tracks.length ? tracks[0] : null;
+          if (currentCamTrack && cfg.torchEnabled) {
+            currentCamTrack.applyConstraints({ advanced: [{ torch: true }] }).catch(() => {});
+          }
         }
-      }, 800);
-    }).catch(e => showToast('Camera error: ' + e, 'err'));
+      } catch(e) {}
+    }, 1500);
+  }).catch(err => {
+    showToast('Camera error: ' + err, 'err');
   });
 }
 
-function startCameraByFacing(facing) {
-  qrScanner.stop().catch(() => {}).finally(() => {
-    qrScanner.start(
-      { facingMode: facing },
-      { fps: 12, qrbox: { width: 240, height: 150 } },
-      onScan, () => {}
-    ).catch(e => showToast('Camera error', 'err'));
-  });
-}
 
-function flipCamera() {
-  if (allCameras.length > 1) {
-    currentCamIndex = (currentCamIndex + 1) % allCameras.length;
-    torchOn = false;
-    document.getElementById('torchBtn').classList.remove('torch-on');
-    startCamera(currentCamIndex);
-  } else {
-    showToast('Only one camera found', 'warn');
-  }
-}
-
-function toggleTorch() {
-  if (!currentCamTrack) {
-    showToast('Torch not available', 'warn');
-    return;
-  }
-  torchOn = !torchOn;
-  currentCamTrack.applyConstraints({ advanced: [{ torch: torchOn }] })
-    .then(() => {
-      document.getElementById('torchBtn').classList.toggle('torch-on', torchOn);
-    })
-    .catch(() => {
-      torchOn = false;
-      showToast('Torch not supported on this device', 'warn');
-    });
-}
 
 // ═══════════════════════════════════════════════════
 // SCAN HANDLER
@@ -1172,10 +1176,12 @@ function requestSettings() {
 }
 
 function openSettings() {
-  // Safely stop camera before going to settings
   if (qrScanner) {
-    try { qrScanner.stop().catch(() => {}); } catch(e) {}
+    try {
+      qrScanner.stop().catch(() => {});
+    } catch(e) {}
     qrScanner = null;
+    currentCamTrack = null;
   }
 
   // Pre-fill URL
@@ -1208,6 +1214,12 @@ function openSettings() {
   document.querySelectorAll('#s_actChips .chip').forEach(c => {
     c.classList.toggle('on', cfg.activities && cfg.activities.includes(c.dataset.val));
   });
+
+  // Camera
+  document.querySelectorAll('#s_camChips .chip').forEach(c => {
+    c.classList.toggle('on', c.dataset.val === (cfg.camFacing || 'environment'));
+  });
+  document.getElementById('s_torch').checked = cfg.torchEnabled || false;
 
   // Lock
   document.getElementById('s_locked').checked = cfg.locked || false;
