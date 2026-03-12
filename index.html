@@ -801,6 +801,10 @@ function bootScanner() {
   buildActivityUI();
   updateQueueBadge();
   fetchProductMaster();
+  // Clear reader div before reinit to avoid "already running" errors
+  const readerEl = document.getElementById('reader');
+  readerEl.innerHTML = '';
+  qrScanner = null;
   initCamera();
   updateTallyVisibility();
 }
@@ -860,6 +864,9 @@ function actTextColor(act) {
 // ═══════════════════════════════════════════════════
 function initCamera() {
   qrScanner = new Html5Qrcode('reader');
+  currentCamTrack = null;
+  torchOn = false;
+  document.getElementById('torchBtn').classList.remove('torch-on');
   Html5Qrcode.getCameras().then(cams => {
     if (!cams || !cams.length) { showToast('No camera found', 'err'); return; }
     allCameras = cams;
@@ -881,12 +888,14 @@ function startCamera(idx) {
       { fps: 12, qrbox: { width: 240, height: 150 }, aspectRatio: 1.5 },
       onScan, () => {}
     ).then(() => {
-      // Grab track for torch
-      const video = document.querySelector('#reader video');
-      if (video && video.srcObject) {
-        const tracks = video.srcObject.getVideoTracks();
-        currentCamTrack = tracks.length ? tracks[0] : null;
-      }
+      // Grab track for torch — delay needed for stream to initialise
+      setTimeout(() => {
+        const video = document.querySelector('#reader video');
+        if (video && video.srcObject) {
+          const tracks = video.srcObject.getVideoTracks();
+          currentCamTrack = tracks.length ? tracks[0] : null;
+        }
+      }, 800);
     }).catch(e => showToast('Camera error: ' + e, 'err'));
   });
 }
@@ -1163,7 +1172,11 @@ function requestSettings() {
 }
 
 function openSettings() {
-  if (qrScanner) qrScanner.stop().catch(() => {});
+  // Safely stop camera before going to settings
+  if (qrScanner) {
+    try { qrScanner.stop().catch(() => {}); } catch(e) {}
+    qrScanner = null;
+  }
 
   // Pre-fill URL
   document.getElementById('s_url').value = cfg.url || '';
