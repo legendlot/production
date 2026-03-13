@@ -1,0 +1,10 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "com.legendoftoys.scanner.twa",
+    "sha256_cert_fingerprints": [
+      "86:47:98:40:5A:82:14:0D:1D:C0:87:83:FB:50:0A:31:19:A7:F6:F9:2D:E3:BD:E3:44:1E:CF:19:3F:E4:C0:5E"
+    ]
+  }
+}]
