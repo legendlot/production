@@ -1334,8 +1334,24 @@ function updateScanHint() {
 // ══════════════════════════════════════════════════════
 function initCamera() {
   document.getElementById('reader').innerHTML = '';
-  qrScanner = new Html5Qrcode('reader');
   currentCamTrack = null;
+
+  // Show tap-to-start overlay (required for Android camera permission prompt)
+  const wrap = document.querySelector('.camera-wrap');
+  // Remove any existing overlay
+  const existing = wrap.querySelector('.cam-start-overlay');
+  if (existing) existing.remove();
+
+  const overlay = document.createElement('div');
+  overlay.className = 'cam-start-overlay';
+  overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;background:rgba(0,0,0,0.75);z-index:10;border-radius:0';
+  overlay.innerHTML = '<div style="font-size:48px;line-height:1">📷</div><div style="font-size:13px;color:rgba(255,255,255,0.8);letter-spacing:0.1em;text-transform:uppercase">Tap to start camera</div>';
+  overlay.onclick = () => { overlay.remove(); startMainCamera(); };
+  wrap.appendChild(overlay);
+}
+
+function startMainCamera() {
+  qrScanner = new Html5Qrcode('reader');
   const facing = cfg.camFacing || 'environment';
   qrScanner.start(
     { facingMode: facing },
@@ -1355,17 +1371,14 @@ function initCamera() {
       } catch(e) {}
     }, 1500);
   }).catch(e => {
-    showToast('Tap screen to enable camera', 'warn');
-    // Show a tap target over the camera area
+    showToast('Camera error: ' + e, 'err');
+    // Re-show tap overlay on failure
     const wrap = document.querySelector('.camera-wrap');
-    if (wrap && !wrap.querySelector('.cam-start-overlay')) {
-      const overlay = document.createElement('div');
-      overlay.className = 'cam-start-overlay';
-      overlay.style.borderRadius = '0';
-      overlay.innerHTML = '<div class="cam-start-icon">📷</div><div class="cam-start-label">Tap to enable camera</div>';
-      overlay.onclick = () => { overlay.remove(); initCamera(); };
-      wrap.appendChild(overlay);
-    }
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;background:rgba(0,0,0,0.75);z-index:10;border-radius:0';
+    overlay.innerHTML = '<div style="font-size:48px;line-height:1">📷</div><div style="font-size:13px;color:rgba(255,255,255,0.8);letter-spacing:0.1em;text-transform:uppercase">Tap to retry camera</div>';
+    overlay.onclick = () => { overlay.remove(); startMainCamera(); };
+    wrap.appendChild(overlay);
   });
 }
 
@@ -1769,6 +1782,9 @@ function openSettings() {
     qrScanner = null;
     currentCamTrack = null;
   }
+  // Remove tap overlay if present
+  const overlay = document.querySelector('.camera-wrap .cam-start-overlay');
+  if (overlay) overlay.remove();
   document.getElementById('scannerScreen').classList.remove('active');
   document.getElementById('setupScreen').classList.add('active');
 }
