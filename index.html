@@ -57,9 +57,13 @@
       background:#000;position:relative;margin-bottom:28px;
       border:1px solid var(--border2);
     }
-    #loginReader{width:100%;height:100%}
-    #loginReader video{width:100%!important;height:100%!important;object-fit:cover!important}
+    #loginReader{width:100%;height:100%;position:relative}
+    #loginReader video{position:absolute!important;top:0!important;left:0!important;width:100%!important;height:100%!important;object-fit:cover!important}
+    #loginReader img{display:none!important}
+    #loginReader canvas{display:none!important}
+    #loginReader__scan_region{width:100%!important;height:100%!important;position:relative!important}
     #loginReader__dashboard{display:none!important}
+    #loginReader__scan_region img{display:none!important}
     .login-frame{
       position:absolute;inset:0;pointer-events:none;
       display:flex;align-items:center;justify-content:center;
@@ -70,6 +74,16 @@
     .lf-corner.tr{top:0;right:0;border-width:3px 3px 0 0}
     .lf-corner.br{bottom:0;right:0;border-width:0 3px 3px 0}
     .lf-corner.bl{bottom:0;left:0;border-width:0 0 3px 3px}
+    .cam-start-overlay{
+      position:absolute;inset:0;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
+      gap:10px;cursor:pointer;background:rgba(0,0,0,0.6);
+      border-radius:16px;transition:background 0.15s;
+    }
+    .cam-start-overlay:active{background:rgba(0,0,0,0.4)}
+    .cam-start-overlay.hidden{display:none}
+    .cam-start-icon{font-size:40px;line-height:1}
+    .cam-start-label{font-size:12px;color:rgba(255,255,255,0.7);letter-spacing:0.08em;text-align:center}
     .login-hint{font-size:11px;color:var(--muted);letter-spacing:0.08em;text-align:center;margin-bottom:20px}
     .login-manual{
       background:var(--surface);border:1px solid var(--border2);
@@ -577,7 +591,7 @@
     <div class="login-logo">Legend of Toys</div>
     <div class="login-title">Operator<br>Sign In</div>
     <div class="login-sub">SCAN YOUR ID CARD TO CONTINUE</div>
-    <div class="login-cam-wrap">
+    <div class="login-cam-wrap" id="loginCamWrap">
       <div id="loginReader"></div>
       <div class="login-frame">
         <div class="lf-inner">
@@ -586,6 +600,10 @@
           <div class="lf-corner br"></div>
           <div class="lf-corner bl"></div>
         </div>
+      </div>
+      <div class="cam-start-overlay" id="loginCamOverlay" onclick="startLoginCamera()">
+        <div class="cam-start-icon">📷</div>
+        <div class="cam-start-label">Tap to start camera</div>
       </div>
     </div>
     <div class="login-hint">Point camera at your QR ID card</div>
@@ -958,8 +976,7 @@ window.addEventListener('load', async () => {
   // Pre-load product and defect masters
   loadMasters();
 
-  // Start login camera
-  startLoginCamera();
+  // Login camera starts on user tap (required for Android permission prompt);
 
   window.addEventListener('online', onOnline);
   window.addEventListener('offline', onOffline);
@@ -1003,14 +1020,29 @@ async function loadMasters() {
 // LOGIN
 // ══════════════════════════════════════════════════════
 function startLoginCamera() {
+  // Hide the tap overlay
+  const overlay = document.getElementById('loginCamOverlay');
+  if (overlay) overlay.classList.add('hidden');
+
   try {
+    document.getElementById('loginReader').innerHTML = '';
     loginScanner = new Html5Qrcode('loginReader');
     loginScanner.start(
-      { facingMode: { ideal: 'environment' } },
-      { fps: 10, qrbox: { width: 160, height: 160 } },
+      { facingMode: 'environment' },
+      { fps: 10, qrbox: { width: 160, height: 160 }, aspectRatio: 1.0 },
       onLoginScan, () => {}
-    ).catch(() => {});
-  } catch(e) {}
+    ).catch(e => {
+      if (overlay) overlay.classList.remove('hidden');
+      document.getElementById('loginStatus').textContent = 'Camera unavailable — use manual select below';
+      document.getElementById('loginStatus').className = 'login-status err';
+      document.getElementById('manualSelect').classList.add('show');
+    });
+  } catch(e) {
+    if (overlay) overlay.classList.remove('hidden');
+    document.getElementById('loginStatus').textContent = 'Camera unavailable — use manual select below';
+    document.getElementById('loginStatus').className = 'login-status err';
+    document.getElementById('manualSelect').classList.add('show');
+  }
 }
 
 async function onLoginScan(raw) {
@@ -1306,7 +1338,7 @@ function initCamera() {
   currentCamTrack = null;
   const facing = cfg.camFacing || 'environment';
   qrScanner.start(
-    { facingMode: { ideal: facing } },
+    { facingMode: facing },
     { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
     onScan, () => {}
   ).then(() => {
@@ -1322,7 +1354,19 @@ function initCamera() {
         }
       } catch(e) {}
     }, 1500);
-  }).catch(e => showToast('Camera error: ' + e, 'err'));
+  }).catch(e => {
+    showToast('Tap screen to enable camera', 'warn');
+    // Show a tap target over the camera area
+    const wrap = document.querySelector('.camera-wrap');
+    if (wrap && !wrap.querySelector('.cam-start-overlay')) {
+      const overlay = document.createElement('div');
+      overlay.className = 'cam-start-overlay';
+      overlay.style.borderRadius = '0';
+      overlay.innerHTML = '<div class="cam-start-icon">📷</div><div class="cam-start-label">Tap to enable camera</div>';
+      overlay.onclick = () => { overlay.remove(); initCamera(); };
+      wrap.appendChild(overlay);
+    }
+  });
 }
 
 // ══════════════════════════════════════════════════════
