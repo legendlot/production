@@ -10,6 +10,7 @@
   <link rel="manifest" href="manifest.json">
   <link href="https://fonts.googleapis.com/css2?family=Tomorrow:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
   <style>
     :root {
       --yellow: #F2CD1A;
@@ -1020,29 +1021,64 @@ async function loadMasters() {
 // LOGIN
 // ══════════════════════════════════════════════════════
 function startLoginCamera() {
-  // Hide the tap overlay
   const overlay = document.getElementById('loginCamOverlay');
   if (overlay) overlay.classList.add('hidden');
 
-  try {
-    document.getElementById('loginReader').innerHTML = '';
-    loginScanner = new Html5Qrcode('loginReader');
-    loginScanner.start(
-      { facingMode: 'environment' },
-      { fps: 10, qrbox: { width: 160, height: 160 }, aspectRatio: 1.0 },
-      onLoginScan, () => {}
-    ).catch(e => {
-      if (overlay) overlay.classList.remove('hidden');
-      document.getElementById('loginStatus').textContent = 'Camera unavailable — use manual select below';
-      document.getElementById('loginStatus').className = 'login-status err';
-      document.getElementById('manualSelect').classList.add('show');
-    });
-  } catch(e) {
+  const readerEl = document.getElementById('loginReader');
+  readerEl.innerHTML = '';
+
+  const video = document.createElement('video');
+  video.setAttribute('playsinline', '');
+  video.setAttribute('autoplay', '');
+  video.setAttribute('muted', '');
+  video.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover';
+  readerEl.appendChild(video);
+
+  const canvas = document.createElement('canvas');
+  canvas.style.display = 'none';
+  readerEl.appendChild(canvas);
+
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: 'environment' }, audio: false
+  }).then(stream => {
+    video.srcObject = stream;
+    video.play();
+    loginScanner = { stream, stop: () => { stream.getTracks().forEach(t => t.stop()); video.srcObject = null; } };
+
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.QR_CODE]);
+    const reader = new ZXing.BrowserMultiFormatReader(hints);
+    let loginLoopActive = true;
+    const ctx = canvas.getContext('2d');
+
+    function loginLoop() {
+      if (!loginLoopActive) return;
+      if (video.readyState === video.HAVE_ENOUGH_DATA) {
+        canvas.width = video.videoWidth || 320;
+        canvas.height = video.videoHeight || 240;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        try {
+          const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+          const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+          const result = reader.decodeBitmap(binaryBitmap);
+          if (result) {
+            loginLoopActive = false;
+            if (loginScanner) { loginScanner.stop(); loginScanner = null; }
+            onLoginScan(result.getText());
+            return;
+          }
+        } catch(e) {}
+      }
+      requestAnimationFrame(loginLoop);
+    }
+    video.addEventListener('playing', () => loginLoop());
+
+  }).catch(e => {
     if (overlay) overlay.classList.remove('hidden');
     document.getElementById('loginStatus').textContent = 'Camera unavailable — use manual select below';
     document.getElementById('loginStatus').className = 'login-status err';
     document.getElementById('manualSelect').classList.add('show');
-  }
+  });
 }
 
 async function onLoginScan(raw) {
@@ -1351,35 +1387,99 @@ function initCamera() {
 }
 
 function startMainCamera() {
-  qrScanner = new Html5Qrcode('reader');
+  const readerEl = document.getElementById('reader');
+  readerEl.innerHTML = '';
+
+  // Create video element directly
+  const video = document.createElement('video');
+  video.setAttribute('playsinline', '');
+  video.setAttribute('autoplay', '');
+  video.setAttribute('muted', '');
+  video.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover';
+  readerEl.appendChild(video);
+
+  // Create canvas for frame capture
+  const canvas = document.createElement('canvas');
+  canvas.style.display = 'none';
+  readerEl.appendChild(canvas);
+
   const facing = cfg.camFacing || 'environment';
-  qrScanner.start(
-    { facingMode: facing },
-    { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
-    onScan, () => {}
-  ).then(() => {
-    setTimeout(() => {
-      try {
-        const video = document.querySelector('#reader video');
-        if (video && video.srcObject) {
-          const tracks = video.srcObject.getVideoTracks();
-          currentCamTrack = tracks.length ? tracks[0] : null;
-          if (currentCamTrack && cfg.torchEnabled) {
-            currentCamTrack.applyConstraints({ advanced: [{ torch: true }] }).catch(() => {});
-          }
-        }
-      } catch(e) {}
-    }, 1500);
+
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(stream => {
+    video.srcObject = stream;
+    currentCamTrack = stream.getVideoTracks()[0];
+    video.play();
+
+    if (cfg.torchEnabled && currentCamTrack) {
+      setTimeout(() => {
+        currentCamTrack.applyConstraints({ advanced: [{ torch: true }] }).catch(() => {});
+      }, 1000);
+    }
+
+    // Start ZXing decode loop
+    const hints = new Map();
+    const formats = [
+      ZXing.BarcodeFormat.QR_CODE,
+      ZXing.BarcodeFormat.EAN_13,
+      ZXing.BarcodeFormat.EAN_8,
+      ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.DATA_MATRIX
+    ];
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+    const reader = new ZXing.BrowserMultiFormatReader(hints);
+
+    video.addEventListener('playing', () => {
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      scanFrame(reader, video, canvas);
+    });
+
+    qrScanner = { stream, reader, stop: () => {
+      stream.getTracks().forEach(t => t.stop());
+      video.srcObject = null;
+    }};
+
   }).catch(e => {
-    showToast('Camera error: ' + e, 'err');
-    // Re-show tap overlay on failure
+    showToast('Camera error: ' + e.message, 'err');
     const wrap = document.querySelector('.camera-wrap');
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;background:rgba(0,0,0,0.75);z-index:10;border-radius:0';
-    overlay.innerHTML = '<div style="font-size:48px;line-height:1">📷</div><div style="font-size:13px;color:rgba(255,255,255,0.8);letter-spacing:0.1em;text-transform:uppercase">Tap to retry camera</div>';
+    overlay.innerHTML = '<div style="font-size:48px;line-height:1">📷</div><div style="font-size:13px;color:var(--red);letter-spacing:0.1em;text-transform:uppercase">' + e.message + '</div><div style="font-size:11px;color:rgba(255,255,255,0.5)">Tap to retry</div>';
     overlay.onclick = () => { overlay.remove(); startMainCamera(); };
     wrap.appendChild(overlay);
   });
+}
+
+let scanLoopActive = false;
+function scanFrame(reader, video, canvas) {
+  scanLoopActive = true;
+  const ctx = canvas.getContext('2d');
+
+  function loop() {
+    if (!scanLoopActive) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA) {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      try {
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+        const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+        const result = reader.decodeBitmap(binaryBitmap);
+        if (result) {
+          onScan(result.getText());
+        }
+      } catch(e) {
+        // No barcode found in frame — normal, keep looping
+      }
+    }
+    requestAnimationFrame(loop);
+  }
+  loop();
 }
 
 // ══════════════════════════════════════════════════════
@@ -1777,8 +1877,11 @@ function requestSettings() {
 }
 
 function openSettings() {
+  scanLoopActive = false;
   if (qrScanner) {
-    try { qrScanner.stop().catch(() => {}); } catch(e) {}
+    try {
+      if (typeof qrScanner.stop === 'function') qrScanner.stop();
+    } catch(e) {}
     qrScanner = null;
     currentCamTrack = null;
   }
