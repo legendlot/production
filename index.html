@@ -1541,7 +1541,7 @@ function processBarcode(barcode, act) {
   }
 
   addLog({ barcode, status:'ok', tag: act, label: act.replace('_',' '), product });
-  showToast('✓ ' + (product ? product.product : barcode.slice(-8)), 'ok');
+  showToast('✓ ' + (product ? [product.product, product.model, product.color].filter(Boolean).join(' ') : barcode.slice(-8)), 'ok');
   submitScan(barcode, act);
 }
 
@@ -1791,7 +1791,7 @@ async function flushQueue() {
 // ══════════════════════════════════════════════════════
 function updateTally(barcode, product) {
   const key = barcode.slice(0, 13);
-  const name = product ? product.product + (product.color ? ' ' + product.color : '') : key;
+  const name = product ? [product.product, product.model, product.color].filter(Boolean).join(' ') : key;
   if (!rtdTally[key]) rtdTally[key] = { name, count: 0 };
   rtdTally[key].count++;
   renderTally();
@@ -1827,7 +1827,7 @@ function addLog({ barcode, status, tag, label, product }) {
 
   const time = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const tagCls = actClass(tag);
-  const productName = product ? `${product.product}${product.color ? ' ' + product.color : ''}` : null;
+  const productName = product ? [product.product, product.model, product.color].filter(Boolean).join(' ') : null;
 
   item.innerHTML = `
     <div class="log-dot ${status}"></div>
