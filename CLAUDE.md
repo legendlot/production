@@ -38,7 +38,7 @@ Stack is 100% free. Do not introduce paid services or new infrastructure without
 
 ## Known issues
 - Duplicate RTD scans: currently unresolved, handled by manual count reconciliation
-- Do not attempt to "fix" this without a full discussion first — it has production floor implications
+- Do not attempt to fix this without a full discussion first — it has production floor implications
 
 ## Coding rules
 - Keep it plain HTML/JS — no React, no Vue, no build tools
