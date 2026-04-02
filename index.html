@@ -220,6 +220,7 @@
       transition:all 0.15s;
     }
     .btn-secondary:active{background:var(--surface)}
+    .setup-status{font-size:11px;min-height:16px;text-align:center;letter-spacing:.04em;padding:0 4px}
 
     /* Volume slider */
     input[type=range]{
@@ -641,93 +642,29 @@
 
   <div class="setup-body">
 
-    <div class="sec-div">Connection</div>
+    <div class="sec-div">Station</div>
     <div class="field">
-      <div class="field-label">Supabase URL</div>
-      <input type="url" id="s_url" placeholder="https://xxxx.supabase.co">
-    </div>
-    <div class="field">
-      <div class="field-label">Publishable Key</div>
-      <input type="text" id="s_key" placeholder="sb_publishable_...">
-    </div>
-
-    <div class="sec-div">Device Identity</div>
-    <div class="field">
-      <div class="field-label">Station</div>
       <div class="seg-group" id="s_stationGroup">
         <div class="seg-row">
-          <div class="seg-btn" data-val="Assembly" onclick="pickStation(this)">Assembly</div>
-          <div class="seg-btn" data-val="QC" onclick="pickStation(this)">QC</div>
+          <div class="seg-btn" data-val="Assembly" data-code="INW"     data-shared="0" onclick="pickStation(this)">Assembly</div>
+          <div class="seg-btn" data-val="QC Pass"  data-code="QC_PASS" data-shared="0" onclick="pickStation(this)">QC Pass</div>
         </div>
         <div class="seg-row">
-          <div class="seg-btn" data-val="PKG" onclick="pickStation(this)">Packing</div>
-          <div class="seg-btn" data-val="RTD" onclick="pickStation(this)">RTD</div>
+          <div class="seg-btn" data-val="QC Fail"  data-code="QC_FAIL" data-shared="0" onclick="pickStation(this)">QC Fail</div>
+          <div class="seg-btn" data-val="Workshop" data-code="WKS"     data-shared="1" onclick="pickStation(this)">Workshop</div>
         </div>
         <div class="seg-row">
-          <div class="seg-btn" data-val="Workshop" onclick="pickStation(this)">Workshop</div>
-          <div class="seg-btn" data-val="RTO" onclick="pickStation(this)">RTO In</div>
+          <div class="seg-btn" data-val="RTO In"   data-code="RTO_IN"  data-shared="1" onclick="pickStation(this)">RTO In</div>
         </div>
-        <div class="seg-btn" data-val="Custom" onclick="pickStation(this)" style="width:100%">Custom</div>
-      </div>
-      <div class="custom-wrap" id="s_stationCustomWrap">
-        <input type="text" id="s_stationCustom" placeholder="Enter station name...">
       </div>
     </div>
 
-    <div class="field">
-      <div class="field-label">Line</div>
+    <div class="field" id="s_lineField">
+      <div class="sec-div">Line</div>
       <div class="seg-row">
         <div class="seg-btn" data-val="L1" onclick="pickLine(this)">L1</div>
         <div class="seg-btn" data-val="L2" onclick="pickLine(this)">L2</div>
         <div class="seg-btn" data-val="L3" onclick="pickLine(this)">L3</div>
-        <div class="seg-btn" data-val="SHARED" onclick="pickLine(this)">Shared</div>
-      </div>
-    </div>
-
-    <div class="field">
-      <div class="field-label">Device Code</div>
-      <input type="text" id="s_deviceCode" placeholder="e.g. INW-L1">
-      <div class="field-sub">Must match a device code in the database (e.g. INW-L1, QCP-L2, QCF-L3, WKS, RTO)</div>
-    </div>
-
-    <div class="sec-div">Activities</div>
-    <div class="field">
-      <div class="chips" id="s_actChips">
-        <div class="chip on" data-val="INW" onclick="toggleChip(this)">INW</div>
-        <div class="chip" data-val="QC_PASS" onclick="toggleChip(this)">QC Pass</div>
-        <div class="chip" data-val="QC_FAIL" onclick="toggleChip(this)">QC Fail</div>
-        <div class="chip" data-val="WKS_IN" onclick="toggleChip(this)">WKS In</div>
-        <div class="chip" data-val="WKS_OUT" onclick="toggleChip(this)">WKS Out</div>
-        <div class="chip" data-val="RTO_IN" onclick="toggleChip(this)">RTO In</div>
-      </div>
-    </div>
-
-    <div class="sec-div">Lock & Security</div>
-    <div class="toggle-row">
-      <div class="toggle-info">
-        <span>Lock to one activity</span>
-        <small>Operators can't switch activities</small>
-      </div>
-      <label class="toggle">
-        <input type="checkbox" id="s_locked" onchange="onLockToggle()">
-        <span class="toggle-slider"></span>
-      </label>
-    </div>
-    <div id="s_lockedSection" style="display:none;flex-direction:column;gap:10px">
-      <div class="field">
-        <div class="field-label">Locked Activity</div>
-        <select id="s_lockAct">
-          <option value="INW">INW</option>
-          <option value="QC_PASS">QC Pass</option>
-          <option value="QC_FAIL">QC Fail</option>
-          <option value="WKS_IN">WKS In</option>
-          <option value="WKS_OUT">WKS Out</option>
-          <option value="RTO_IN">RTO In</option>
-        </select>
-      </div>
-      <div class="field">
-        <div class="field-label">Settings PIN <span style="color:var(--muted);font-size:9px">(4 digits)</span></div>
-        <input type="password" id="s_pin" placeholder="Leave blank = no PIN" maxlength="4" inputmode="numeric">
       </div>
     </div>
 
@@ -762,6 +699,7 @@
       <div class="field-sub" id="s_volumeLabel">Volume: 60%</div>
     </div>
 
+    <div class="setup-status" id="setupStatus"></div>
     <button class="btn-primary" onclick="saveSetup()">LAUNCH SCANNER →</button>
     <button class="btn-secondary" onclick="switchOperator()">← Switch Operator</button>
   </div>
@@ -797,11 +735,7 @@
     <button class="shift-btn" data-shift="Double OT" onclick="setShift('Double OT',this)">Double OT</button>
   </div>
 
-  <div class="act-strip" id="actStrip"></div>
-  <div class="locked-badge" id="lockedBadge">
-    <span style="font-size:11px;color:var(--muted)">🔒</span>
-    <div class="locked-inner" id="lockedInner">INW</div>
-  </div>
+  <div class="act-strip" id="actStrip" style="display:none"></div>
 
   <div class="camera-wrap">
     <div id="reader"></div>
@@ -861,32 +795,7 @@
   </div>
 </div>
 
-<!-- PIN modal -->
-<div class="pin-backdrop" id="pinModal">
-  <div class="pin-card">
-    <div class="pin-title">Enter PIN</div>
-    <div class="pin-sub">Settings are PIN-protected</div>
-    <div class="pin-dots">
-      <div class="pin-dot" id="pd0"></div><div class="pin-dot" id="pd1"></div>
-      <div class="pin-dot" id="pd2"></div><div class="pin-dot" id="pd3"></div>
-    </div>
-    <div class="numpad">
-      <div class="num-key" onclick="pinKey('1')">1</div>
-      <div class="num-key" onclick="pinKey('2')">2</div>
-      <div class="num-key" onclick="pinKey('3')">3</div>
-      <div class="num-key" onclick="pinKey('4')">4</div>
-      <div class="num-key" onclick="pinKey('5')">5</div>
-      <div class="num-key" onclick="pinKey('6')">6</div>
-      <div class="num-key" onclick="pinKey('7')">7</div>
-      <div class="num-key" onclick="pinKey('8')">8</div>
-      <div class="num-key" onclick="pinKey('9')">9</div>
-      <div class="num-key empty"></div>
-      <div class="num-key" onclick="pinKey('0')">0</div>
-      <div class="num-key del" onclick="pinKey('del')">⌫</div>
-    </div>
-    <div class="pin-error" id="pinError"></div>
-  </div>
-</div>
+
 
 <div class="flash" id="flash"></div>
 <div class="reject-screen" id="rejectScreen">
@@ -1187,43 +1096,38 @@ function goToSetup() {
   document.getElementById('setupOpName').textContent = currentOperator.name;
   document.getElementById('setupOpRole').textContent = currentOperator.role;
 
-  document.getElementById('s_url').value = cfg.url || DEFAULT_SUPABASE_URL;
-  document.getElementById('s_key').value = cfg.key || DEFAULT_SUPABASE_KEY;
-  document.getElementById('s_deviceCode').value = cfg.deviceCode || '';
-
-  if (cfg.station) {
-    const isStd = ['Assembly','QC','PKG','RTD','Workshop','RTO'].includes(cfg.station);
+  // Pre-select saved station
+  if (cfg.stationLabel) {
     document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => {
-      if (b.dataset.val === cfg.station) b.classList.add('on');
-      if (!isStd && b.dataset.val === 'Custom') {
-        b.classList.add('on');
-        document.getElementById('s_stationCustomWrap').classList.add('show');
-        document.getElementById('s_stationCustom').value = cfg.station;
-      }
+      const match = b.dataset.val === cfg.stationLabel;
+      b.classList.toggle('on', match);
+    });
+    // Show/hide line field based on saved station
+    const savedBtn = document.querySelector(`#s_stationGroup .seg-btn[data-val="${cfg.stationLabel}"]`);
+    if (savedBtn) {
+      const isShared = savedBtn.dataset.shared === '1';
+      document.getElementById('s_lineField').style.display = isShared ? 'none' : '';
+    }
+  }
+
+  // Pre-select saved line
+  if (cfg.line && cfg.line !== 'SHARED') {
+    document.querySelectorAll('#s_lineField .seg-btn').forEach(b => {
+      b.classList.toggle('on', b.dataset.val === cfg.line);
     });
   }
-  if (cfg.line) {
-    document.querySelectorAll('.seg-row .seg-btn[data-val]').forEach(b => {
-      if (['L1','L2','L3','SHARED'].includes(b.dataset.val) && b.dataset.val === cfg.line) {
-        b.classList.add('line-on');
-      }
-    });
-  }
-  if (cfg.activities) {
-    document.querySelectorAll('#s_actChips .chip').forEach(c => {
-      c.classList.toggle('on', cfg.activities.includes(c.dataset.val));
-    });
-  }
-  document.getElementById('s_locked').checked = cfg.locked || false;
-  onLockToggle();
-  if (cfg.locked) {
-    document.getElementById('s_lockAct').value = cfg.lockAct || 'INW';
-    document.getElementById('s_pin').value = cfg.pin || '';
-  }
+
+  // Camera
+  document.querySelectorAll('.seg-btn[data-val="environment"], .seg-btn[data-val="user"]').forEach(b => {
+    b.classList.toggle('on', b.dataset.val === (cfg.camFacing || 'environment'));
+  });
+  document.getElementById('s_torch').checked = cfg.torchEnabled || false;
+
   const vol = parseFloat(localStorage.getItem('lot_volume') || '0.6');
   document.getElementById('s_volume').value = vol;
   document.getElementById('s_volumeLabel').textContent = `Volume: ${Math.round(vol * 100)}%`;
 
+  document.getElementById('setupStatus').textContent = '';
   document.getElementById('loginScreen').classList.remove('active');
   document.getElementById('setupScreen').classList.add('active');
 }
@@ -1235,10 +1139,8 @@ function pickStation(el) {
 }
 
 function pickLine(el) {
-  document.querySelectorAll('.seg-row .seg-btn').forEach(b => {
-    if (['L1','L2','L3','SHARED'].includes(b.dataset.val)) b.classList.remove('line-on');
-  });
-  el.classList.add('line-on');
+  document.querySelectorAll('#s_lineField .seg-btn').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
 }
 
 function pickCam(el) {
@@ -1248,49 +1150,81 @@ function pickCam(el) {
 
 function toggleChip(el) { el.classList.toggle('on'); }
 
-function onLockToggle() {
-  const locked = document.getElementById('s_locked').checked;
-  document.getElementById('s_lockedSection').style.display = locked ? 'flex' : 'none';
+// Station → activity and display mapping
+const STATION_DEFS = {
+  INW:     { label: 'Assembly', activity: 'INW',     hint: 'SCAN LOT UPC — LOT-XXXXXXXX' },
+  QC_PASS: { label: 'QC Pass',  activity: 'QC_PASS', hint: 'SCAN LOT UPC (CAR FIRST)' },
+  QC_FAIL: { label: 'QC Fail',  activity: 'QC_FAIL', hint: 'SCAN LOT UPC — DEFECT SELECT FOLLOWS' },
+  WKS:     { label: 'Workshop', activity: 'WKS',     hint: 'SCAN LOT UPC' },
+  RTO_IN:  { label: 'RTO In',   activity: 'RTO_IN',  hint: 'SCAN LOT UPC OR EAN' },
+};
+
+function pickStation(el) {
+  document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+  // Hide line selector for shared stations
+  const isShared = el.dataset.shared === '1';
+  document.getElementById('s_lineField').style.display = isShared ? 'none' : '';
+  if (isShared) {
+    // Clear any line selection — will use SHARED
+    document.querySelectorAll('#s_lineField .seg-btn').forEach(b => b.classList.remove('on'));
+  }
 }
 
-function saveSetup() {
+async function saveSetup() {
   const stationEl = document.querySelector('#s_stationGroup .seg-btn.on');
-  const lineEl = document.querySelector('.seg-btn.line-on');
-  const acts = [...document.querySelectorAll('#s_actChips .chip.on')].map(c => c.dataset.val);
-  const locked = document.getElementById('s_locked').checked;
-  const camEl = document.querySelector('.seg-row .seg-btn.on[data-val="environment"]') ||
-                document.querySelector('.seg-row .seg-btn.on[data-val="user"]');
-
   if (!stationEl) { showToast('Select a station', 'err'); return; }
-  const station = stationEl.dataset.val === 'Custom'
-    ? document.getElementById('s_stationCustom').value.trim()
-    : stationEl.dataset.val;
-  if (!station) { showToast('Enter station name', 'err'); return; }
-  if (!lineEl) { showToast('Select a line', 'err'); return; }
-  if (acts.length === 0 && !locked) { showToast('Select at least one activity', 'err'); return; }
 
-  const deviceCode = document.getElementById('s_deviceCode').value.trim();
-  if (!deviceCode) { showToast('Device code required', 'err'); return; }
+  const stationCode = stationEl.dataset.code;
+  const isShared    = stationEl.dataset.shared === '1';
+  const lineEl      = document.querySelector('#s_lineField .seg-btn.on');
 
-  cfg = {
-    url:          document.getElementById('s_url').value.trim() || DEFAULT_SUPABASE_URL,
-    key:          document.getElementById('s_key').value.trim() || DEFAULT_SUPABASE_KEY,
-    station,
-    line:         lineEl.dataset.val,
-    deviceCode,
-    shift:        currentShift,
-    activities:   acts,
-    locked,
-    lockAct:      document.getElementById('s_lockAct').value,
-    pin:          locked ? (document.getElementById('s_pin').value.trim() || '') : '',
-    camFacing:    camEl ? camEl.dataset.val : 'environment',
-    torchEnabled: document.getElementById('s_torch').checked,
-  };
-  localStorage.setItem('lot_cfg', JSON.stringify(cfg));
-  localStorage.setItem('lot_volume', document.getElementById('s_volume').value);
+  if (!isShared && !lineEl) { showToast('Select a line', 'err'); return; }
 
-  startSession();
-  bootScanner();
+  const line = isShared ? 'SHARED' : lineEl.dataset.val;
+
+  // Look up device from DB
+  const statusEl = document.getElementById('setupStatus');
+  statusEl.textContent = 'Looking up device...';
+  statusEl.style.color = 'var(--text2)';
+
+  try {
+    const devices = await sbGet('devices',
+      `station=eq.${stationCode}&line=eq.${line}&is_active=eq.true&limit=1`
+    );
+    if (!devices || !devices.length) {
+      statusEl.textContent = `No active device found for ${stationEl.dataset.val} · ${line}`;
+      statusEl.style.color = 'var(--red)';
+      return;
+    }
+
+    const device = devices[0];
+    const camEl = document.querySelector('.seg-btn.on[data-val="environment"]') ||
+                  document.querySelector('.seg-btn.on[data-val="user"]');
+
+    cfg = {
+      url:          DEFAULT_SUPABASE_URL,
+      key:          DEFAULT_SUPABASE_KEY,
+      stationCode,
+      stationLabel: stationEl.dataset.val,
+      line,
+      deviceCode:   device.device_code,
+      activity:     STATION_DEFS[stationCode]?.activity || stationCode,
+      shift:        currentShift,
+      camFacing:    camEl ? camEl.dataset.val : 'environment',
+      torchEnabled: document.getElementById('s_torch').checked,
+    };
+
+    localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+    localStorage.setItem('lot_volume', document.getElementById('s_volume').value);
+    statusEl.textContent = '';
+
+    startSession();
+    bootScanner();
+  } catch(e) {
+    statusEl.textContent = 'Connection error — check network';
+    statusEl.style.color = 'var(--red)';
+  }
 }
 
 async function startSession() {
@@ -1326,8 +1260,10 @@ function bootScanner() {
   document.getElementById('setupScreen').classList.remove('active');
   document.getElementById('scannerScreen').classList.add('active');
 
+  // Top bar: show station label and line
+  const stationDef = STATION_DEFS[cfg.stationCode] || {};
   document.getElementById('tb_line').textContent = cfg.line + ' · ' + currentShift;
-  document.getElementById('tb_station').textContent = cfg.station;
+  document.getElementById('tb_station').textContent = stationDef.label || cfg.stationCode;
 
   const initials = currentOperator
     ? currentOperator.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()
@@ -1337,48 +1273,14 @@ function bootScanner() {
   document.getElementById('scannerShift').textContent = currentShift;
 
   setShift(currentShift, document.querySelector(`.shift-btn[data-shift="${currentShift}"]`), true);
-  buildActivityUI();
+  updateScanHint();
   updateQueueBadge();
   updateTallyVisibility();
   initCamera();
 }
 
-function buildActivityUI() {
-  const strip = document.getElementById('actStrip');
-  strip.innerHTML = '';
-
-  if (cfg.locked) {
-    strip.classList.add('locked');
-    const badge = document.getElementById('lockedBadge');
-    badge.classList.add('show');
-    const inner = document.getElementById('lockedInner');
-    inner.textContent = cfg.lockAct;
-    inner.style.background = actBg(cfg.lockAct);
-    inner.style.color = actFg(cfg.lockAct);
-    activeActivity = cfg.lockAct;
-  } else {
-    strip.classList.remove('locked');
-    document.getElementById('lockedBadge').classList.remove('show');
-    const acts = cfg.activities && cfg.activities.length ? cfg.activities : ['INW'];
-    acts.forEach((act, i) => {
-      const ch = document.createElement('div');
-      ch.className = 'act-chip' + (i === 0 ? ' active ' + actClass(act) : '');
-      ch.textContent = act.replace('_', ' ');
-      ch.onclick = () => {
-        document.querySelectorAll('.act-chip').forEach(c => c.className = 'act-chip');
-        ch.className = 'act-chip active ' + actClass(act);
-        activeActivity = act;
-        updateTallyVisibility();
-        updateScanHint();
-        // Clear any pending QC_PASS state if switching away
-        if (act !== 'QC_PASS') cancelQcPassFlow();
-      };
-      strip.appendChild(ch);
-    });
-    activeActivity = acts[0];
-  }
-  updateScanHint();
-}
+// buildActivityUI kept as no-op for any residual calls
+function buildActivityUI() {}
 
 function actClass(act) {
   const m = {INW:'inw',QC_PASS:'qcp',QC_FAIL:'qcf',WKS_IN:'wks',WKS_OUT:'wks',RTO_IN:'rto'};
@@ -1393,16 +1295,8 @@ function actFg(act) {
 }
 
 function updateScanHint() {
-  const hints = {
-    INW:     'SCAN LOT UPC — LOT-XXXXXXXX',
-    QC_PASS: 'SCAN LOT UPC (CAR)',
-    QC_FAIL: 'SCAN LOT UPC — DEFECT SELECT FOLLOWS',
-    WKS_IN:  'SCAN LOT UPC',
-    WKS_OUT: 'SCAN LOT UPC',
-    RTO_IN:  'SCAN LOT UPC OR EAN',
-  };
-  const act = cfg.locked ? cfg.lockAct : activeActivity;
-  document.getElementById('scanHint').textContent = hints[act] || 'ALIGN QR CODE';
+  const def = STATION_DEFS[cfg.stationCode];
+  document.getElementById('scanHint').textContent = def?.hint || 'ALIGN QR CODE';
 }
 
 // ══════════════════════════════════════════════════════
@@ -1519,11 +1413,10 @@ function onScan(raw) {
   lastScanTs = now;
 
   const barcode = raw.replace(/\s+/g, '').trim();
-  const act = cfg.locked ? cfg.lockAct : activeActivity;
+  const act = cfg.activity || 'INW';
 
-  // WKS — show sub-activity modal if both WKS_IN and WKS_OUT are in activities
-  if ((act === 'WKS_IN' || act === 'WKS_OUT') &&
-      cfg.activities && cfg.activities.includes('WKS_IN') && cfg.activities.includes('WKS_OUT')) {
+  // WKS — show sub-activity modal to choose WKS_IN vs WKS_OUT
+  if (act === 'WKS') {
     pendingWksScan = barcode;
     document.getElementById('wksModal').classList.add('show');
     return;
@@ -1570,14 +1463,10 @@ async function processBarcode(barcode, act) {
   }
 
   // ── All other scan types ──
-  // Submit first, show feedback only after worker confirms
-  const scanId = await submitScanWorker(barcode, act);
-  if (scanId !== null) {
-    flash('ok'); vibrate([50]); playSuccessBeep();
-    addLog({ barcode, status:'ok', tag: act, label: act.replace('_',' ') });
-    showToast('✓ ' + barcode, 'ok');
-  }
-  // If scanId is null, submitScanWorker already called showReject
+  flash('ok'); vibrate([50]); playSuccessBeep();
+  addLog({ barcode, status:'ok', tag: act, label: act.replace('_',' ') });
+  showToast('✓ ' + barcode, 'ok');
+  await submitScanWorker(barcode, act);
 }
 
 // ══════════════════════════════════════════════════════
@@ -1836,25 +1725,21 @@ async function submitScanWorker(barcode, act) {
 
   if (!isOnline) {
     enqueue('postScan', payload);
-    showToast('Queued — offline', 'warn');
     return null;
   }
 
   const result = await workerPost('postScan', payload);
   if (!result.ok) {
-    const msg = result.error || 'Unknown error';
-    playErrBeep(); vibrate([100,50,100]);
-
-    if (msg.includes('already been') || msg.includes('Duplicate')) {
-      showReject('DUPLICATE SCAN', msg);
-    } else if (msg.includes('must be available') || msg.includes('generated')) {
-      showReject('NOT AVAILABLE', 'Batch not received yet — mark batch as Received in dashboard first');
-    } else if (msg.includes('Network error')) {
+    // Duplicate or validation error — show reject
+    if (result.error && (result.error.includes('already been') || result.error.includes('Duplicate'))) {
+      showReject('DUPLICATE', result.error);
+      playErrBeep(); vibrate([100,50,100]);
+    } else if (result.error && result.error.includes('Network error')) {
       enqueue('postScan', payload);
       showToast('Queued — no connection', 'warn');
-      return null;
     } else {
-      showReject('SCAN FAILED', msg);
+      showReject('SCAN FAILED', result.error || 'Unknown error');
+      playErrBeep(); vibrate([100,50,100]);
     }
     return null;
   }
@@ -1925,7 +1810,7 @@ function addLog({ barcode, status, tag, label }) {
 // RTD TALLY (kept for future RTE/RTR)
 // ══════════════════════════════════════════════════════
 function updateTallyVisibility() {
-  const act = cfg.locked ? cfg.lockAct : activeActivity;
+  const act = cfg.activity || '';
   document.getElementById('tallyPanel').classList.toggle('show', act === 'RTD');
 }
 
@@ -1954,11 +1839,7 @@ function cycleShift() {
 // SETTINGS
 // ══════════════════════════════════════════════════════
 function requestSettings() {
-  if (cfg.locked && cfg.pin) {
-    openPinModal().then(ok => { if (ok) openSettings(); });
-  } else {
-    openSettings();
-  }
+  openSettings();
 }
 
 function openSettings() {
@@ -1989,44 +1870,6 @@ function switchOperator() {
   document.getElementById('loginStatus').textContent = '';
   document.getElementById('loginStatus').className = 'login-status';
   startLoginCamera();
-}
-
-// ══════════════════════════════════════════════════════
-// PIN
-// ══════════════════════════════════════════════════════
-function openPinModal() {
-  return new Promise(resolve => {
-    pinBuffer = '';
-    pinResolve = resolve;
-    updatePinDots();
-    document.getElementById('pinError').textContent = '';
-    document.getElementById('pinModal').classList.add('show');
-  });
-}
-
-function pinKey(k) {
-  if (k === 'del') { pinBuffer = pinBuffer.slice(0, -1); }
-  else { if (pinBuffer.length >= 4) return; pinBuffer += k; }
-  updatePinDots();
-  if (pinBuffer.length === 4) {
-    setTimeout(() => {
-      if (pinBuffer === cfg.pin) {
-        document.getElementById('pinModal').classList.remove('show');
-        pinResolve(true);
-      } else {
-        document.getElementById('pinError').textContent = 'Incorrect PIN';
-        pinBuffer = '';
-        updatePinDots();
-        vibrate([100,50,100]);
-      }
-    }, 150);
-  }
-}
-
-function updatePinDots() {
-  for (let i = 0; i < 4; i++) {
-    document.getElementById('pd' + i).classList.toggle('filled', i < pinBuffer.length);
-  }
 }
 
 // ══════════════════════════════════════════════════════
