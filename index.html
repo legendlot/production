@@ -9,7 +9,6 @@
   <title>LOT Scanner</title>
   <link rel="manifest" href="manifest.json">
   <link href="https://fonts.googleapis.com/css2?family=Tomorrow:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
   <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
   <style>
     :root {
@@ -371,6 +370,27 @@
     @keyframes beam{0%{top:4px;opacity:0.9}50%{top:calc(100% - 6px);opacity:0.7}100%{top:4px;opacity:0.9}}
     .scan-hint{font-size:10px;color:rgba(255,255,255,0.35);letter-spacing:0.15em;text-transform:uppercase}
 
+    /* QC_PASS remote scan band */
+    .qcp-remote-band{
+      display:none;position:absolute;top:0;left:0;right:0;
+      background:rgba(34,197,94,0.92);color:#000;
+      padding:12px 20px;z-index:50;pointer-events:auto;
+      font-family:'Tomorrow',sans-serif;font-weight:700;
+      font-size:13px;letter-spacing:0.08em;text-align:center;
+      text-transform:uppercase;
+    }
+    .qcp-remote-band.show{display:block}
+    .qcp-remote-band small{
+      display:block;font-size:10px;font-weight:400;
+      font-family:'JetBrains Mono',monospace;margin-top:3px;
+      opacity:0.7;letter-spacing:0.05em;
+    }
+    .qcp-cancel-btn{
+      display:inline-block;margin-top:6px;padding:4px 14px;
+      background:rgba(0,0,0,0.15);border-radius:20px;
+      font-size:10px;cursor:pointer;letter-spacing:0.06em;
+    }
+
     /* RTD tally */
     .tally-panel{
       display:none;background:var(--surface);border-top:1px solid var(--border);
@@ -390,7 +410,7 @@
       scrollbar-width:thin;scrollbar-color:var(--border) transparent;
       position:relative;z-index:100;
     }
-    .log-empty{display:flex;align-items:center;justify-content:center;height:100%;font-size:11px;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase}
+    .log-empty{display:flex;align-items:center;justify-content:100%;height:100%;font-size:11px;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase;justify-content:center}
     .log-item{display:flex;align-items:flex-start;gap:9px;padding:8px 14px;border-bottom:1px solid var(--border);animation:rowIn 0.15s ease}
     @keyframes rowIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
     .log-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:4px}
@@ -421,9 +441,7 @@
       flex-direction:column;
     }
     .modal-backdrop.show{display:flex}
-    .defect-modal{
-      flex:1;display:flex;flex-direction:column;overflow:hidden;
-    }
+    .defect-modal{flex:1;display:flex;flex-direction:column;overflow:hidden}
     .defect-header{
       padding:16px 20px;background:var(--surface);
       border-bottom:1px solid var(--border);flex-shrink:0;
@@ -455,9 +473,7 @@
       display:flex;align-items:center;justify-content:center;
       transition:all 0.12s;font-size:12px;
     }
-    .defect-option.selected .defect-check{
-      background:var(--red);border-color:var(--red);color:#fff;
-    }
+    .defect-option.selected .defect-check{background:var(--red);border-color:var(--red);color:#fff}
     .defect-option-info{flex:1}
     .defect-code{font-size:10px;color:var(--muted);margin-bottom:2px;letter-spacing:0.06em}
     .defect-name{font-size:13px;color:var(--text)}
@@ -466,11 +482,9 @@
     .sev-major{background:rgba(245,158,11,0.2);color:var(--orange)}
     .sev-minor{background:rgba(34,197,94,0.15);color:var(--green)}
     .sev-cosmetic{background:var(--surface3);color:var(--muted)}
-
     .defect-footer{
       padding:16px 20px;background:var(--surface);
-      border-top:1px solid var(--border);flex-shrink:0;
-      display:flex;gap:10px;
+      border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:10px;
     }
     .defect-cancel{
       flex:1;padding:14px;border-radius:10px;border:1px solid var(--border2);
@@ -498,21 +512,18 @@
     .wks-modal.show{display:flex}
     .wks-card{
       background:var(--surface);border:1px solid var(--border2);
-      border-radius:16px;padding:28px 24px;width:calc(100% - 48px);
-      max-width:320px;
+      border-radius:16px;padding:28px 24px;width:calc(100% - 48px);max-width:320px;
     }
     .wks-title{
       font-family:'Tomorrow',sans-serif;font-weight:700;font-size:14px;
-      text-transform:uppercase;letter-spacing:0.1em;
-      color:var(--orange);margin-bottom:20px;
+      text-transform:uppercase;letter-spacing:0.1em;color:var(--orange);margin-bottom:20px;
     }
     .wks-options{display:flex;flex-direction:column;gap:10px}
     .wks-opt{
       padding:16px;border-radius:10px;border:1px solid var(--border2);
       background:var(--surface2);cursor:pointer;
       font-family:'Tomorrow',sans-serif;font-weight:700;font-size:13px;
-      letter-spacing:0.1em;text-transform:uppercase;
-      transition:all 0.12s;
+      letter-spacing:0.1em;text-transform:uppercase;transition:all 0.12s;
     }
     .wks-opt.in{color:var(--orange);border-color:rgba(245,158,11,0.4)}
     .wks-opt.out{color:var(--green);border-color:rgba(34,197,94,0.4)}
@@ -532,8 +543,7 @@
     .pin-backdrop.show{display:flex}
     .pin-card{
       background:var(--surface);border:1px solid var(--border2);
-      border-radius:16px;padding:32px 28px;
-      width:calc(100% - 48px);max-width:300px;
+      border-radius:16px;padding:32px 28px;width:calc(100% - 48px);max-width:300px;
     }
     .pin-title{font-family:'Tomorrow',sans-serif;font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px}
     .pin-sub{font-size:11px;color:var(--muted);margin-bottom:20px}
@@ -677,7 +687,7 @@
     <div class="field">
       <div class="field-label">Device Code</div>
       <input type="text" id="s_deviceCode" placeholder="e.g. INW-L1">
-      <div class="field-sub">Must match a device code in the database.</div>
+      <div class="field-sub">Must match a device code in the database (e.g. INW-L1, QCP-L2, QCF-L3, WKS, RTO)</div>
     </div>
 
     <div class="sec-div">Activities</div>
@@ -686,8 +696,6 @@
         <div class="chip on" data-val="INW" onclick="toggleChip(this)">INW</div>
         <div class="chip" data-val="QC_PASS" onclick="toggleChip(this)">QC Pass</div>
         <div class="chip" data-val="QC_FAIL" onclick="toggleChip(this)">QC Fail</div>
-        <div class="chip" data-val="PKG" onclick="toggleChip(this)">PKG</div>
-        <div class="chip" data-val="RTD" onclick="toggleChip(this)">RTD</div>
         <div class="chip" data-val="WKS_IN" onclick="toggleChip(this)">WKS In</div>
         <div class="chip" data-val="WKS_OUT" onclick="toggleChip(this)">WKS Out</div>
         <div class="chip" data-val="RTO_IN" onclick="toggleChip(this)">RTO In</div>
@@ -712,8 +720,6 @@
           <option value="INW">INW</option>
           <option value="QC_PASS">QC Pass</option>
           <option value="QC_FAIL">QC Fail</option>
-          <option value="PKG">PKG</option>
-          <option value="RTD">RTD</option>
           <option value="WKS_IN">WKS In</option>
           <option value="WKS_OUT">WKS Out</option>
           <option value="RTO_IN">RTO In</option>
@@ -799,13 +805,19 @@
 
   <div class="camera-wrap">
     <div id="reader"></div>
+    <!-- QC_PASS remote scan prompt (shown during two-scan pairing flow) -->
+    <div class="qcp-remote-band" id="qcpRemoteBand">
+      📡 NOW SCAN REMOTE CONTROL
+      <small id="qcpRemoteProduct"></small>
+      <div class="qcp-cancel-btn" onclick="cancelQcPassFlow()">✕ Cancel</div>
+    </div>
     <div class="scan-overlay">
       <div class="scan-frame">
         <div class="sf-c tl"></div><div class="sf-c tr"></div>
         <div class="sf-c br"></div><div class="sf-c bl"></div>
         <div class="scan-beam"></div>
       </div>
-      <div class="scan-hint" id="scanHint">ALIGN BARCODE OR QR CODE</div>
+      <div class="scan-hint" id="scanHint">ALIGN QR CODE</div>
     </div>
   </div>
 
@@ -889,6 +901,7 @@
 // ══════════════════════════════════════════════════════
 // CONFIG
 // ══════════════════════════════════════════════════════
+const WORKER_URL = 'https://lotopsproxy.afshaan.workers.dev';
 const DEFAULT_SUPABASE_URL = 'https://jkxcnjabmrkteanzoofj.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'sb_publishable_1Dd-r3h9Mou2Wqgn6t24Dw_lmWdBtLh';
 
@@ -896,7 +909,8 @@ const DEFAULT_SUPABASE_KEY = 'sb_publishable_1Dd-r3h9Mou2Wqgn6t24Dw_lmWdBtLh';
 // STATE
 // ══════════════════════════════════════════════════════
 let cfg = {};
-let currentOperator = null;
+let currentOperator = null;   // { id: UUID, name, role, line }
+let operatorUUID = null;       // UUID stored in memory from scannerLogin
 let currentSession = null;
 let activeActivity = 'INW';
 let currentShift = 'Regular';
@@ -907,18 +921,37 @@ let loginScanner = null;
 let lastBarcode = '';
 let lastScanTs = 0;
 const DEBOUNCE_MS = 2000;
-let productMaster = {};
-let defectMaster = {};
+let defectMaster = {};         // keyed by code
 let operators = [];
 let rtdTally = {};
 let pendingDefectUpc = null;
+let pendingDefectComponent = null;  // 'car' | 'remote' | null
+let pendingQcPassCar = null;        // UPC string — set during two-scan pairing flow
+let pendingQcPassProduct = null;    // display name for remote prompt
 let pendingWksScan = null;
 let pinBuffer = '';
 let pinResolve = null;
 let currentCamTrack = null;
+let scanLoopActive = false;
 
 // ══════════════════════════════════════════════════════
-// SUPABASE API
+// WORKER API
+// ══════════════════════════════════════════════════════
+async function workerPost(action, data) {
+  try {
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, data })
+    });
+    return await res.json();
+  } catch(e) {
+    return { ok: false, error: 'Network error: ' + e.message };
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// SUPABASE API (read-only — for masters only)
 // ══════════════════════════════════════════════════════
 function sbUrl() { return cfg.url || DEFAULT_SUPABASE_URL; }
 function sbKey() { return cfg.key || DEFAULT_SUPABASE_KEY; }
@@ -935,9 +968,9 @@ async function sbGet(table, params = '') {
   return res.json();
 }
 
-async function sbPost(table, body) {
-  const res = await fetch(`${sbUrl()}/rest/v1/${table}`, {
-    method: 'POST',
+async function sbPatch(table, id, body) {
+  const res = await fetch(`${sbUrl()}/rest/v1/${table}?id=eq.${id}`, {
+    method: 'PATCH',
     headers: {
       'apikey': sbKey(),
       'Authorization': `Bearer ${sbKey()}`,
@@ -950,9 +983,9 @@ async function sbPost(table, body) {
   return res.json();
 }
 
-async function sbPatch(table, id, body) {
-  const res = await fetch(`${sbUrl()}/rest/v1/${table}?id=eq.${id}`, {
-    method: 'PATCH',
+async function sbPost(table, body) {
+  const res = await fetch(`${sbUrl()}/rest/v1/${table}`, {
+    method: 'POST',
     headers: {
       'apikey': sbKey(),
       'Authorization': `Bearer ${sbKey()}`,
@@ -974,10 +1007,7 @@ window.addEventListener('load', async () => {
   scanQueue = JSON.parse(localStorage.getItem('lot_queue') || '[]');
   currentShift = cfg.shift || 'Regular';
 
-  // Pre-load product and defect masters
   loadMasters();
-
-  // Login camera starts on user tap (required for Android permission prompt);
 
   window.addEventListener('online', onOnline);
   window.addEventListener('offline', onOffline);
@@ -987,30 +1017,19 @@ window.addEventListener('load', async () => {
 });
 
 async function loadMasters() {
+  // Load defect master for modal
   try {
-    // Load product master
-    const cached = localStorage.getItem('lot_product_master');
-    if (cached) productMaster = JSON.parse(cached);
-
-    const products = await sbGet('product_master', 'is_active=eq.true');
-    productMaster = {};
-    products.forEach(p => { productMaster[p.ean] = p; });
-    localStorage.setItem('lot_product_master', JSON.stringify(productMaster));
-  } catch(e) {}
-
-  try {
-    // Load defect master
     const cached = localStorage.getItem('lot_defect_master');
     if (cached) defectMaster = JSON.parse(cached);
 
-    const defects = await sbGet('defect_master', 'is_active=eq.true&order=code.asc');
+    const defects = await sbGet('defect_master', 'is_active=eq.true&order=category.asc,code.asc');
     defectMaster = {};
     defects.forEach(d => { defectMaster[d.code] = d; });
     localStorage.setItem('lot_defect_master', JSON.stringify(defectMaster));
   } catch(e) {}
 
+  // Load operators for manual select
   try {
-    // Load operators for manual select
     const ops = await sbGet('operators', 'is_active=eq.true&order=name.asc');
     operators = ops;
     buildManualSelect();
@@ -1083,34 +1102,54 @@ function startLoginCamera() {
 
 async function onLoginScan(raw) {
   if (loginScanner) {
-    try { loginScanner.stop().catch(() => {}); } catch(e) {}
+    try { loginScanner.stop(); } catch(e) {}
     loginScanner = null;
   }
   const status = document.getElementById('loginStatus');
-  status.textContent = 'Looking up operator...';
-  status.className = 'login-status';
 
-  try {
-    const ops = await sbGet('operators', `qr_code=eq.${encodeURIComponent(raw)}&is_active=eq.true`);
-    if (!ops || !ops.length) {
-      status.textContent = 'Operator not found. Try manual select.';
-      status.className = 'login-status err';
-      setTimeout(() => startLoginCamera(), 2000);
-      return;
-    }
-    loginOperator(ops[0]);
-  } catch(e) {
-    // Try local match if offline
+  if (!cfg.deviceCode) {
+    // No device configured yet — try local operator lookup for first-time setup
     const op = operators.find(o => o.qr_code === raw);
     if (op) { loginOperator(op); return; }
-    status.textContent = 'Error — check connection';
+    status.textContent = 'Set device code in settings first';
+    status.className = 'login-status err';
+    setTimeout(() => startLoginCamera(), 2500);
+    return;
+  }
+
+  status.textContent = 'Verifying...';
+  status.className = 'login-status';
+
+  const result = await workerPost('scannerLogin', {
+    qr_code: raw,
+    device_code: cfg.deviceCode
+  });
+
+  if (!result.ok) {
+    // Try local fallback (offline)
+    const op = operators.find(o => o.qr_code === raw);
+    if (op) { loginOperator(op); return; }
+    status.textContent = result.error || 'Login failed';
     status.className = 'login-status err';
     setTimeout(() => startLoginCamera(), 2000);
+    return;
   }
+
+  operatorUUID = result.data.operator_id;
+  currentOperator = {
+    id:   result.data.operator_id,
+    name: result.data.operator_name,
+    role: result.data.operator_role,
+    line: result.data.operator_line,
+  };
+  loginOperator(currentOperator);
 }
 
 function loginOperator(op) {
   currentOperator = op;
+  // Fallback for manual select (operator object has .id from sbGet)
+  if (!operatorUUID) operatorUUID = op.id;
+
   const status = document.getElementById('loginStatus');
   status.textContent = `Welcome, ${op.name}`;
   status.className = 'login-status ok';
@@ -1132,8 +1171,7 @@ function buildManualSelect() {
 }
 
 function toggleManualSelect() {
-  const el = document.getElementById('manualSelect');
-  el.classList.toggle('show');
+  document.getElementById('manualSelect').classList.toggle('show');
 }
 
 // ══════════════════════════════════════════════════════
@@ -1141,23 +1179,21 @@ function toggleManualSelect() {
 // ══════════════════════════════════════════════════════
 function goToSetup() {
   if (loginScanner) {
-    try { loginScanner.stop().catch(() => {}); } catch(e) {}
+    try { loginScanner.stop(); } catch(e) {}
     loginScanner = null;
   }
-  // Fill operator info
   const initials = currentOperator.name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
   document.getElementById('setupAvatar').textContent = initials;
   document.getElementById('setupOpName').textContent = currentOperator.name;
   document.getElementById('setupOpRole').textContent = currentOperator.role;
 
-  // Pre-fill saved config
   document.getElementById('s_url').value = cfg.url || DEFAULT_SUPABASE_URL;
   document.getElementById('s_key').value = cfg.key || DEFAULT_SUPABASE_KEY;
   document.getElementById('s_deviceCode').value = cfg.deviceCode || '';
 
   if (cfg.station) {
+    const isStd = ['Assembly','QC','PKG','RTD','Workshop','RTO'].includes(cfg.station);
     document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => {
-      const isStd = ['Assembly','QC','PKG','RTD','Workshop','RTO'].includes(cfg.station);
       if (b.dataset.val === cfg.station) b.classList.add('on');
       if (!isStd && b.dataset.val === 'Custom') {
         b.classList.add('on');
@@ -1222,7 +1258,8 @@ function saveSetup() {
   const lineEl = document.querySelector('.seg-btn.line-on');
   const acts = [...document.querySelectorAll('#s_actChips .chip.on')].map(c => c.dataset.val);
   const locked = document.getElementById('s_locked').checked;
-  const camEl = document.querySelector('.seg-row .seg-btn.on[data-val="environment"], .seg-row .seg-btn.on[data-val="user"]');
+  const camEl = document.querySelector('.seg-row .seg-btn.on[data-val="environment"]') ||
+                document.querySelector('.seg-row .seg-btn.on[data-val="user"]');
 
   if (!stationEl) { showToast('Select a station', 'err'); return; }
   const station = stationEl.dataset.val === 'Custom'
@@ -1232,16 +1269,21 @@ function saveSetup() {
   if (!lineEl) { showToast('Select a line', 'err'); return; }
   if (acts.length === 0 && !locked) { showToast('Select at least one activity', 'err'); return; }
 
+  const deviceCode = document.getElementById('s_deviceCode').value.trim();
+  if (!deviceCode) { showToast('Device code required', 'err'); return; }
+
   cfg = {
-    url: document.getElementById('s_url').value.trim() || DEFAULT_SUPABASE_URL,
-    key: document.getElementById('s_key').value.trim() || DEFAULT_SUPABASE_KEY,
-    station, line: lineEl.dataset.val,
-    deviceCode: document.getElementById('s_deviceCode').value.trim(),
-    shift: currentShift,
-    activities: acts, locked,
-    lockAct: document.getElementById('s_lockAct').value,
-    pin: locked ? (document.getElementById('s_pin').value.trim() || '') : '',
-    camFacing: camEl ? camEl.dataset.val : 'environment',
+    url:          document.getElementById('s_url').value.trim() || DEFAULT_SUPABASE_URL,
+    key:          document.getElementById('s_key').value.trim() || DEFAULT_SUPABASE_KEY,
+    station,
+    line:         lineEl.dataset.val,
+    deviceCode,
+    shift:        currentShift,
+    activities:   acts,
+    locked,
+    lockAct:      document.getElementById('s_lockAct').value,
+    pin:          locked ? (document.getElementById('s_pin').value.trim() || '') : '',
+    camFacing:    camEl ? camEl.dataset.val : 'environment',
     torchEnabled: document.getElementById('s_torch').checked,
   };
   localStorage.setItem('lot_cfg', JSON.stringify(cfg));
@@ -1254,26 +1296,24 @@ function saveSetup() {
 async function startSession() {
   if (!currentOperator) return;
   try {
-    // Close any existing active session for this operator
     const existing = await sbGet('operator_sessions',
       `operator_id=eq.${currentOperator.id}&is_active=eq.true`);
     for (const s of existing) {
       await sbPatch('operator_sessions', s.id, { is_active: false, shift_end: new Date().toISOString() });
     }
-    // Find device id
     let deviceId = null;
     if (cfg.deviceCode) {
       const devs = await sbGet('devices', `device_code=eq.${cfg.deviceCode}`);
       if (devs && devs.length) deviceId = devs[0].id;
     }
     const sess = await sbPost('operator_sessions', {
-      operator_id: currentOperator.id,
-      device_id: deviceId,
-      shift_type: currentShift,
-      line: cfg.line,
-      station: cfg.station,
-      shift_start: new Date().toISOString(),
-      is_active: true
+      operator_id:  currentOperator.id,
+      device_id:    deviceId,
+      shift_type:   currentShift,
+      line:         cfg.line,
+      station:      cfg.station,
+      shift_start:  new Date().toISOString(),
+      is_active:    true
     });
     currentSession = sess[0];
   } catch(e) {}
@@ -1330,6 +1370,8 @@ function buildActivityUI() {
         activeActivity = act;
         updateTallyVisibility();
         updateScanHint();
+        // Clear any pending QC_PASS state if switching away
+        if (act !== 'QC_PASS') cancelQcPassFlow();
       };
       strip.appendChild(ch);
     });
@@ -1339,30 +1381,28 @@ function buildActivityUI() {
 }
 
 function actClass(act) {
-  const m = {INW:'inw',QC_PASS:'qcp',QC_FAIL:'qcf',PKG:'pkg',RTD:'rtd',WKS_IN:'wks',WKS_OUT:'wks',RTO_IN:'rto'};
+  const m = {INW:'inw',QC_PASS:'qcp',QC_FAIL:'qcf',WKS_IN:'wks',WKS_OUT:'wks',RTO_IN:'rto'};
   return m[act] || 'inw';
 }
 function actBg(act) {
-  const m = {INW:'#213CE2',QC_PASS:'#22c55e',QC_FAIL:'#DE2A2A',PKG:'#a855f7',RTD:'#F2CD1A',WKS_IN:'#f59e0b',WKS_OUT:'#f59e0b',RTO_IN:'#14b8a6'};
+  const m = {INW:'#213CE2',QC_PASS:'#22c55e',QC_FAIL:'#DE2A2A',WKS_IN:'#f59e0b',WKS_OUT:'#f59e0b',RTO_IN:'#14b8a6'};
   return m[act] || '#333';
 }
 function actFg(act) {
-  return ['QC_PASS','RTD','WKS_IN','WKS_OUT','RTO_IN','PKG'].includes(act) ? '#000' : '#fff';
+  return ['QC_PASS','WKS_IN','WKS_OUT','RTO_IN'].includes(act) ? '#000' : '#fff';
 }
 
 function updateScanHint() {
   const hints = {
-    INW: 'SCAN 17-DIGIT UPC',
-    QC_PASS: 'SCAN 17-DIGIT UPC',
-    QC_FAIL: 'SCAN 17-DIGIT UPC — DEFECT SELECT FOLLOWS',
-    PKG: 'SCAN 17-DIGIT UPC — LABEL WILL PRINT',
-    RTD: 'SCAN BATCH LABEL',
-    WKS_IN: 'SCAN 17-DIGIT UPC',
-    WKS_OUT: 'SCAN 17-DIGIT UPC',
-    RTO_IN: 'SCAN EAN OR UPC'
+    INW:     'SCAN LOT UPC — LOT-XXXXXXXX',
+    QC_PASS: 'SCAN LOT UPC (CAR)',
+    QC_FAIL: 'SCAN LOT UPC — DEFECT SELECT FOLLOWS',
+    WKS_IN:  'SCAN LOT UPC',
+    WKS_OUT: 'SCAN LOT UPC',
+    RTO_IN:  'SCAN LOT UPC OR EAN',
   };
   const act = cfg.locked ? cfg.lockAct : activeActivity;
-  document.getElementById('scanHint').textContent = hints[act] || 'ALIGN BARCODE OR QR CODE';
+  document.getElementById('scanHint').textContent = hints[act] || 'ALIGN QR CODE';
 }
 
 // ══════════════════════════════════════════════════════
@@ -1372,9 +1412,7 @@ function initCamera() {
   document.getElementById('reader').innerHTML = '';
   currentCamTrack = null;
 
-  // Show tap-to-start overlay (required for Android camera permission prompt)
   const wrap = document.querySelector('.camera-wrap');
-  // Remove any existing overlay
   const existing = wrap.querySelector('.cam-start-overlay');
   if (existing) existing.remove();
 
@@ -1390,7 +1428,6 @@ function startMainCamera() {
   const readerEl = document.getElementById('reader');
   readerEl.innerHTML = '';
 
-  // Create video element directly
   const video = document.createElement('video');
   video.setAttribute('playsinline', '');
   video.setAttribute('autoplay', '');
@@ -1398,7 +1435,6 @@ function startMainCamera() {
   video.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover';
   readerEl.appendChild(video);
 
-  // Create canvas for frame capture
   const canvas = document.createElement('canvas');
   canvas.style.display = 'none';
   readerEl.appendChild(canvas);
@@ -1419,17 +1455,14 @@ function startMainCamera() {
       }, 1000);
     }
 
-    // Start ZXing decode loop
     const hints = new Map();
-    const formats = [
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
       ZXing.BarcodeFormat.QR_CODE,
       ZXing.BarcodeFormat.EAN_13,
-      ZXing.BarcodeFormat.EAN_8,
       ZXing.BarcodeFormat.CODE_128,
       ZXing.BarcodeFormat.CODE_39,
       ZXing.BarcodeFormat.DATA_MATRIX
-    ];
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, formats);
+    ]);
     const reader = new ZXing.BrowserMultiFormatReader(hints);
 
     video.addEventListener('playing', () => {
@@ -1448,13 +1481,12 @@ function startMainCamera() {
     const wrap = document.querySelector('.camera-wrap');
     const overlay = document.createElement('div');
     overlay.style.cssText = 'position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;cursor:pointer;background:rgba(0,0,0,0.75);z-index:10;border-radius:0';
-    overlay.innerHTML = '<div style="font-size:48px;line-height:1">📷</div><div style="font-size:13px;color:var(--red);letter-spacing:0.1em;text-transform:uppercase">' + e.message + '</div><div style="font-size:11px;color:rgba(255,255,255,0.5)">Tap to retry</div>';
+    overlay.innerHTML = `<div style="font-size:48px;line-height:1">📷</div><div style="font-size:13px;color:var(--red);letter-spacing:0.1em;text-transform:uppercase">${e.message}</div><div style="font-size:11px;color:rgba(255,255,255,0.5)">Tap to retry</div>`;
     overlay.onclick = () => { overlay.remove(); startMainCamera(); };
     wrap.appendChild(overlay);
   });
 }
 
-let scanLoopActive = false;
 function scanFrame(reader, video, canvas) {
   scanLoopActive = true;
   const ctx = canvas.getContext('2d');
@@ -1466,16 +1498,11 @@ function scanFrame(reader, video, canvas) {
       canvas.height = video.videoHeight;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       try {
-        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
         const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
         const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
         const result = reader.decodeBitmap(binaryBitmap);
-        if (result) {
-          onScan(result.getText());
-        }
-      } catch(e) {
-        // No barcode found in frame — normal, keep looping
-      }
+        if (result) onScan(result.getText());
+      } catch(e) {}
     }
     requestAnimationFrame(loop);
   }
@@ -1494,55 +1521,149 @@ function onScan(raw) {
   const barcode = raw.replace(/\s+/g, '').trim();
   const act = cfg.locked ? cfg.lockAct : activeActivity;
 
-  // WKS — show sub-activity modal first
-  if (act === 'WKS_IN' || act === 'WKS_OUT') {
-    if (cfg.activities && cfg.activities.includes('WKS_IN') && cfg.activities.includes('WKS_OUT')) {
-      pendingWksScan = barcode;
-      document.getElementById('wksModal').classList.add('show');
-      return;
-    }
+  // WKS — show sub-activity modal if both WKS_IN and WKS_OUT are in activities
+  if ((act === 'WKS_IN' || act === 'WKS_OUT') &&
+      cfg.activities && cfg.activities.includes('WKS_IN') && cfg.activities.includes('WKS_OUT')) {
+    pendingWksScan = barcode;
+    document.getElementById('wksModal').classList.add('show');
+    return;
   }
 
   processBarcode(barcode, act);
 }
 
-function processBarcode(barcode, act) {
-  // Length validation
-  if (!cfg.anyLength) {
-    const isEanScan = act === 'RTD' || act === 'RTO_IN';
-    const expectedLen = isEanScan ? 13 : 17;
-    if (act !== 'RTO_IN' && barcode.length !== expectedLen) {
-      if (act === 'RTD' && barcode.length !== 13 && !barcode.includes('-')) {
-        showReject('WRONG BARCODE', `Expected batch label — got ${barcode.length} digits`);
-        playErrBeep(); vibrate([100,50,100]);
-        addLog({barcode, status:'err', tag:'ERR', label:`WRONG (${barcode.length}d)`});
-        return;
-      }
+async function processBarcode(barcode, act) {
+  // ── UPC format validation ──
+  // LOT UPCs: LOT-XXXXXXXX (starts with LOT-)
+  // EAN: 13-digit numeric
+  // RTO_IN accepts both
+  const isLotUpc = /^LOT-\d+$/.test(barcode);
+  const isEan = /^\d{13}$/.test(barcode);
+
+  if (act !== 'RTO_IN') {
+    if (!isLotUpc) {
+      showReject('WRONG BARCODE', 'Expected LOT-XXXXXXXX format');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'ERR', label:'WRONG FORMAT' });
+      return;
     }
   }
 
-  // QC Fail — open defect modal
-  if (act === 'QC_FAIL') {
-    pendingDefectUpc = barcode;
-    openDefectModal(barcode);
-    flash('warn');
-    vibrate([80]);
+  // ── QC_PASS — two-scan pairing flow ──
+  if (act === 'QC_PASS') {
+    if (pendingQcPassCar) {
+      // Second scan = remote
+      await doQcPassRemote(barcode);
+    } else {
+      // First scan = car (or single scan for no-remote products)
+      await doQcPassCar(barcode);
+    }
     return;
   }
 
-  // Good scan
-  const product = lookupProduct(barcode);
-  flash('ok');
-  vibrate([50]);
-  playSuccessBeep();
-
-  if (act === 'RTD' || act === 'WKS_IN') {
-    if (act === 'RTD') updateTally(barcode, product);
+  // ── QC_FAIL — open defect modal ──
+  if (act === 'QC_FAIL') {
+    pendingDefectUpc = barcode;
+    flash('warn'); vibrate([80]);
+    await openDefectModal(barcode);
+    return;
   }
 
-  addLog({ barcode, status:'ok', tag: act, label: act.replace('_',' '), product });
-  showToast('✓ ' + (product ? [product.product, product.model, product.color].filter(Boolean).join(' ') : barcode.slice(-8)), 'ok');
-  submitScan(barcode, act);
+  // ── All other scan types ──
+  flash('ok'); vibrate([50]); playSuccessBeep();
+  addLog({ barcode, status:'ok', tag: act, label: act.replace('_',' ') });
+  showToast('✓ ' + barcode, 'ok');
+  await submitScanWorker(barcode, act);
+}
+
+// ══════════════════════════════════════════════════════
+// QC_PASS FLOW
+// ══════════════════════════════════════════════════════
+async function doQcPassCar(carUpc) {
+  if (!isOnline) {
+    showReject('OFFLINE', 'QC Pass requires connection');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  const result = await workerPost('postQcPass', {
+    car_upc:     carUpc,
+    device_code: cfg.deviceCode,
+    operator_id: operatorUUID || currentOperator?.id,
+    line:        cfg.line,
+  });
+
+  if (!result.ok) {
+    if (result.error && result.error.includes('remote_upc required')) {
+      // Product has a remote — start two-scan flow
+      pendingQcPassCar = carUpc;
+      pendingQcPassProduct = null;
+      showQcPassRemotePrompt();
+      flash('ok'); vibrate([50]); playSuccessBeep();
+      addLog({ barcode: carUpc, status:'pending', tag:'QC_PASS', label:'CAR ✓ — SCAN REMOTE' });
+      showToast('✓ Car scanned — now scan REMOTE', 'ok');
+    } else {
+      flash('err'); vibrate([100,50,100]); playErrBeep();
+      showReject('QC PASS FAILED', result.error || 'Unknown error');
+      addLog({ barcode: carUpc, status:'err', tag:'QC_PASS', label:'QCP ERR' });
+    }
+    return;
+  }
+
+  // Single scan success (Bracey / no-remote product)
+  flash('ok'); vibrate([50]); playSuccessBeep();
+  addLog({ barcode: carUpc, status:'ok', tag:'QC_PASS', label:'QC PASS' });
+  showToast('✓ QC Pass — ' + (result.data?.product || carUpc), 'ok');
+}
+
+async function doQcPassRemote(remoteUpc) {
+  if (!isOnline) {
+    showReject('OFFLINE', 'QC Pass requires connection');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  const result = await workerPost('postQcPass', {
+    car_upc:     pendingQcPassCar,
+    remote_upc:  remoteUpc,
+    device_code: cfg.deviceCode,
+    operator_id: operatorUUID || currentOperator?.id,
+    line:        cfg.line,
+  });
+
+  const carUpc = pendingQcPassCar;
+  pendingQcPassCar = null;
+  pendingQcPassProduct = null;
+  hideQcPassRemotePrompt();
+
+  if (!result.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('PAIRING FAILED', result.error || 'Unknown error');
+    addLog({ barcode: remoteUpc, status:'err', tag:'QC_PASS', label:'PAIR ERR' });
+    return;
+  }
+
+  flash('ok'); vibrate([50, 30, 50]); playSuccessBeep();
+  addLog({ barcode: carUpc + ' + ' + remoteUpc, status:'ok', tag:'QC_PASS', label:'PAIRED ✓' });
+  showToast('✓ Pair confirmed — ' + (result.data?.product || ''), 'ok');
+}
+
+function showQcPassRemotePrompt() {
+  const band = document.getElementById('qcpRemoteBand');
+  band.classList.add('show');
+  document.getElementById('scanHint').textContent = 'NOW SCAN REMOTE CONTROL';
+}
+
+function hideQcPassRemotePrompt() {
+  document.getElementById('qcpRemoteBand').classList.remove('show');
+  updateScanHint();
+}
+
+function cancelQcPassFlow() {
+  pendingQcPassCar = null;
+  pendingQcPassProduct = null;
+  hideQcPassRemotePrompt();
+  showToast('QC Pass flow cancelled', 'warn');
 }
 
 // ══════════════════════════════════════════════════════
@@ -1563,33 +1684,57 @@ function cancelWks() {
 // ══════════════════════════════════════════════════════
 // DEFECT MODAL
 // ══════════════════════════════════════════════════════
-function openDefectModal(upc) {
+async function openDefectModal(upc) {
   document.getElementById('defectUpc').textContent = upc;
   document.getElementById('defectCount').textContent = '0 defects selected';
   document.getElementById('defectSubmit').disabled = true;
+  document.getElementById('defectBody').innerHTML =
+    '<div style="color:var(--muted);text-align:center;padding:30px;font-size:12px;letter-spacing:0.08em">LOADING DEFECTS...</div>';
+  document.getElementById('defectModal').classList.add('show');
 
+  // Fetch component_type so we can filter the defect list
+  let componentType = null;
+  try {
+    const units = await sbGet('units', `upc=eq.${encodeURIComponent(upc)}&select=component_type&limit=1`);
+    if (units && units[0]) componentType = units[0].component_type;
+  } catch(e) {}
+
+  pendingDefectComponent = componentType;
+  buildDefectList(componentType);
+}
+
+function buildDefectList(componentType) {
   const body = document.getElementById('defectBody');
   body.innerHTML = '';
 
-  const categories = ['Car-Visual', 'Car-Functional', 'Remote-Visual', 'Remote-Functional', 'Packaging'];
-  const catLabels = {
-    'Car-Visual': 'Car — Visual',
-    'Car-Functional': 'Car — Functional',
-    'Remote-Visual': 'Remote — Visual',
-    'Remote-Functional': 'Remote — Functional',
-    'Packaging': 'Packaging'
-  };
+  // Filter defects by component type
+  const filtered = Object.values(defectMaster).filter(d => {
+    if (!d.component) return true; // null component = universal
+    if (d.component === 'both') return true;
+    if (componentType && d.component !== componentType) return false;
+    return true;
+  });
 
-  categories.forEach(cat => {
-    const codes = Object.values(defectMaster).filter(d => d.category === cat);
-    if (!codes.length) return;
+  if (!filtered.length) {
+    body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:30px;font-size:12px">No defects configured. Seed defect_master table.</div>';
+    return;
+  }
 
+  // Group by category
+  const cats = {};
+  filtered.forEach(d => {
+    const cat = d.category || 'Other';
+    if (!cats[cat]) cats[cat] = [];
+    cats[cat].push(d);
+  });
+
+  Object.entries(cats).sort(([a],[b]) => a.localeCompare(b)).forEach(([cat, codes]) => {
     const catDiv = document.createElement('div');
     catDiv.className = 'defect-cat';
 
     const label = document.createElement('div');
     label.className = 'defect-cat-label';
-    label.textContent = catLabels[cat] || cat;
+    label.textContent = cat;
     catDiv.appendChild(label);
 
     const opts = document.createElement('div');
@@ -1600,15 +1745,16 @@ function openDefectModal(upc) {
       opt.className = 'defect-option';
       opt.dataset.code = d.code;
 
-      const sevClass = {Critical:'sev-critical',Major:'sev-major',Minor:'sev-minor',Cosmetic:'sev-cosmetic'}[d.severity] || 'sev-cosmetic';
+      const sev = d.severity || 'Minor';
+      const sevClass = {Critical:'sev-critical',Major:'sev-major',Minor:'sev-minor',Cosmetic:'sev-cosmetic'}[sev] || 'sev-minor';
 
       opt.innerHTML = `
         <div class="defect-check"></div>
         <div class="defect-option-info">
           <div class="defect-code">${d.code}</div>
-          <div class="defect-name">${d.issue}</div>
+          <div class="defect-name">${d.issue || d.description || d.code}</div>
         </div>
-        <span class="defect-sev ${sevClass}">${d.severity}</span>
+        <span class="defect-sev ${sevClass}">${sev}</span>
       `;
       opt.onclick = () => toggleDefect(opt);
       opts.appendChild(opt);
@@ -1617,8 +1763,6 @@ function openDefectModal(upc) {
     catDiv.appendChild(opts);
     body.appendChild(catDiv);
   });
-
-  document.getElementById('defectModal').classList.add('show');
 }
 
 function toggleDefect(opt) {
@@ -1631,6 +1775,7 @@ function toggleDefect(opt) {
 function cancelDefect() {
   document.getElementById('defectModal').classList.remove('show');
   pendingDefectUpc = null;
+  pendingDefectComponent = null;
 }
 
 async function submitDefects() {
@@ -1640,133 +1785,80 @@ async function submitDefects() {
   const upc = pendingDefectUpc;
   document.getElementById('defectModal').classList.remove('show');
   pendingDefectUpc = null;
+  pendingDefectComponent = null;
 
-  showToast(`QC Fail — ${selected.length} defect(s) logged`, 'err');
-  addLog({ barcode: upc, status:'err', tag:'QC_FAIL', label:'QC FAIL', product: lookupProduct(upc) });
+  flash('err'); vibrate([80, 40, 80]); playErrBeep();
+  addLog({ barcode: upc, status:'err', tag:'QC_FAIL', label:'QC FAIL' });
+  showToast(`QC Fail — ${selected.length} defect(s) logging...`, 'err');
 
-  // Submit scan first
-  const scanId = await submitScan(upc, 'QC_FAIL');
+  if (!isOnline) {
+    enqueue('postQcFail', {
+      upc,
+      device_code: cfg.deviceCode,
+      operator_id: operatorUUID || currentOperator?.id,
+      defect_codes: selected,
+      line: cfg.line,
+    });
+    showToast('Queued — offline', 'warn');
+    return;
+  }
 
-  // Then log each defect
-  if (scanId) {
-    for (const code of selected) {
-      try {
-        await sbPost('defects', {
-          upc,
-          scan_id: scanId,
-          defect_code: code,
-          source: 'inline_qc',
-          logged_by: currentOperator ? currentOperator.id : null,
-          status: 'open'
-        });
-      } catch(e) {}
-    }
+  const result = await workerPost('postQcFail', {
+    upc,
+    device_code:  cfg.deviceCode,
+    operator_id:  operatorUUID || currentOperator?.id,
+    defect_codes: selected,
+    line:         cfg.line,
+  });
+
+  if (!result.ok) {
+    showToast('QC Fail error: ' + result.error, 'err');
+  } else {
+    showToast(`✓ QC Fail logged — ${result.data?.defects_logged || selected.length} defects`, 'err');
   }
 }
 
 // ══════════════════════════════════════════════════════
-// SUBMIT TO SUPABASE
+// SCAN SUBMISSION (worker)
 // ══════════════════════════════════════════════════════
-async function submitScan(barcode, act) {
-  const entry = {
-    upc: barcode.length === 17 ? barcode : null,
-    ean: barcode.length === 13 ? barcode : (barcode.length > 13 ? barcode.slice(0, 13) : null),
-    activity: act,
-    line: cfg.line,
-    station: cfg.station,
-    operator_id: currentOperator ? currentOperator.id : null,
-    shift: currentShift,
-    raw_input: barcode,
-    timestamp: new Date().toISOString()
+async function submitScanWorker(barcode, act) {
+  const payload = {
+    upc:          barcode,
+    device_code:  cfg.deviceCode,
+    operator_id:  operatorUUID || currentOperator?.id,
+    activity:     act,
+    line:         cfg.line,
   };
 
-  if (!isOnline) { enqueue(entry); return null; }
-
-  try {
-    // Ensure unit exists for UPC scans
-    if (entry.upc && act === 'INW') {
-      await ensureUnit(entry.upc, entry.ean);
-    }
-
-    // Update unit status
-    if (entry.upc) {
-      await updateUnitStatus(entry.upc, act);
-    }
-
-    const result = await sbPost('scans', entry);
-    const scanId = result && result[0] ? result[0].id : null;
-
-    // Update log dot
-    return scanId;
-  } catch(e) {
-    enqueue(entry);
-    showToast('Queued — offline', 'warn');
+  if (!isOnline) {
+    enqueue('postScan', payload);
     return null;
   }
-}
 
-async function ensureUnit(upc, ean) {
-  try {
-    const existing = await sbGet('units', `upc=eq.${upc}`);
-    if (existing && existing.length) return;
-
-    const product = ean ? productMaster[ean] : null;
-    await sbPost('units', {
-      upc, ean: ean || upc.slice(0,13),
-      sku: product ? product.sku : null,
-      product: product ? product.product : null,
-      model: product ? product.model : null,
-      color: product ? product.color : null,
-      current_status: 'inwarded',
-      loop_count: 0,
-      is_fresh: true
-    });
-  } catch(e) {}
-}
-
-async function updateUnitStatus(upc, act) {
-  const statusMap = {
-    INW: 'inwarded', QC_PASS: 'qc_pass', QC_FAIL: 'qc_fail',
-    PKG: 'packed', RTD: 'rtd', WKS_IN: 'in_repair',
-    WKS_OUT: 'repaired', RTO_IN: 'rto_in'
-  };
-  const newStatus = statusMap[act];
-  if (!newStatus) return;
-
-  try {
-    const updates = { current_status: newStatus, updated_at: new Date().toISOString() };
-    if (act === 'WKS_IN') {
-      // Increment loop count
-      const units = await sbGet('units', `upc=eq.${upc}`);
-      if (units && units.length) {
-        updates.loop_count = (units[0].loop_count || 0) + 1;
-      }
+  const result = await workerPost('postScan', payload);
+  if (!result.ok) {
+    // Duplicate or validation error — show reject
+    if (result.error && (result.error.includes('already been') || result.error.includes('Duplicate'))) {
+      showReject('DUPLICATE', result.error);
+      playErrBeep(); vibrate([100,50,100]);
+    } else if (result.error && result.error.includes('Network error')) {
+      enqueue('postScan', payload);
+      showToast('Queued — no connection', 'warn');
+    } else {
+      showReject('SCAN FAILED', result.error || 'Unknown error');
+      playErrBeep(); vibrate([100,50,100]);
     }
-    await fetch(`${sbUrl()}/rest/v1/units?upc=eq.${upc}`, {
-      method: 'PATCH',
-      headers: {
-        'apikey': sbKey(),
-        'Authorization': `Bearer ${sbKey()}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(updates)
-    });
-  } catch(e) {}
+    return null;
+  }
+
+  return result.data?.scan_id || null;
 }
 
 // ══════════════════════════════════════════════════════
-// PRODUCT LOOKUP
+// QUEUE (offline)
 // ══════════════════════════════════════════════════════
-function lookupProduct(barcode) {
-  const ean = barcode.slice(0, 13);
-  return productMaster[ean] || productMaster[barcode] || null;
-}
-
-// ══════════════════════════════════════════════════════
-// QUEUE
-// ══════════════════════════════════════════════════════
-function enqueue(entry) {
-  scanQueue.push(entry);
+function enqueue(action, data) {
+  scanQueue.push({ action, data, ts: Date.now() });
   localStorage.setItem('lot_queue', JSON.stringify(scanQueue));
   updateQueueBadge();
 }
@@ -1777,57 +1869,35 @@ async function flushQueue() {
   scanQueue = [];
   localStorage.setItem('lot_queue', '[]');
   updateQueueBadge();
-  for (const e of batch) {
-    try { await sbPost('scans', e); }
-    catch { scanQueue.push(e); }
+
+  let synced = 0;
+  for (const item of batch) {
+    const result = await workerPost(item.action, item.data);
+    if (!result.ok && !result.error?.includes('already been')) {
+      // Re-queue failures except duplicates
+      scanQueue.push(item);
+    } else {
+      synced++;
+    }
   }
   localStorage.setItem('lot_queue', JSON.stringify(scanQueue));
   updateQueueBadge();
-  if (batch.length) showToast(`✓ Synced ${batch.length} scans`, 'ok');
-}
-
-// ══════════════════════════════════════════════════════
-// RTD TALLY
-// ══════════════════════════════════════════════════════
-function updateTally(barcode, product) {
-  const key = barcode.slice(0, 13);
-  const name = product ? [product.product, product.model, product.color].filter(Boolean).join(' ') : key;
-  if (!rtdTally[key]) rtdTally[key] = { name, count: 0 };
-  rtdTally[key].count++;
-  renderTally();
-}
-
-function renderTally() {
-  const grid = document.getElementById('tallyGrid');
-  grid.innerHTML = '';
-  Object.entries(rtdTally).sort((a,b) => b[1].count - a[1].count).forEach(([ean, d]) => {
-    const row = document.createElement('div');
-    row.className = 'tally-row';
-    row.innerHTML = `<div class="tally-name">${d.name}</div><div class="tally-ean">${ean}</div><div class="tally-count">${d.count}</div>`;
-    grid.appendChild(row);
-  });
-}
-
-function updateTallyVisibility() {
-  const act = cfg.locked ? cfg.lockAct : activeActivity;
-  document.getElementById('tallyPanel').classList.toggle('show', act === 'RTD');
+  if (synced > 0) showToast(`✓ Synced ${synced} scan${synced !== 1 ? 's' : ''}`, 'ok');
 }
 
 // ══════════════════════════════════════════════════════
 // LOG FEED
 // ══════════════════════════════════════════════════════
-function addLog({ barcode, status, tag, label, product }) {
+function addLog({ barcode, status, tag, label }) {
   const feed = document.getElementById('logFeed');
   const empty = feed.querySelector('.log-empty');
   if (empty) empty.remove();
 
   const item = document.createElement('div');
   item.className = 'log-item';
-  item.id = 'li-' + Date.now();
 
   const time = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const tagCls = actClass(tag);
-  const productName = product ? [product.product, product.model, product.color].filter(Boolean).join(' ') : null;
 
   item.innerHTML = `
     <div class="log-dot ${status}"></div>
@@ -1836,12 +1906,19 @@ function addLog({ barcode, status, tag, label, product }) {
         <div class="log-bc">${barcode}</div>
         <div class="log-tag ${tagCls}">${label}</div>
       </div>
-      ${productName ? `<div class="log-product">${productName}</div>` : ''}
       <div class="log-meta">${time} · ${currentOperator ? currentOperator.name : '?'} · ${cfg.line || '?'}</div>
     </div>`;
 
   feed.insertBefore(item, feed.firstChild);
   while (feed.children.length > 50) feed.removeChild(feed.lastChild);
+}
+
+// ══════════════════════════════════════════════════════
+// RTD TALLY (kept for future RTE/RTR)
+// ══════════════════════════════════════════════════════
+function updateTallyVisibility() {
+  const act = cfg.locked ? cfg.lockAct : activeActivity;
+  document.getElementById('tallyPanel').classList.toggle('show', act === 'RTD');
 }
 
 // ══════════════════════════════════════════════════════
@@ -1879,25 +1956,25 @@ function requestSettings() {
 function openSettings() {
   scanLoopActive = false;
   if (qrScanner) {
-    try {
-      if (typeof qrScanner.stop === 'function') qrScanner.stop();
-    } catch(e) {}
+    try { qrScanner.stop(); } catch(e) {}
     qrScanner = null;
     currentCamTrack = null;
   }
-  // Remove tap overlay if present
   const overlay = document.querySelector('.camera-wrap .cam-start-overlay');
   if (overlay) overlay.remove();
+  cancelQcPassFlow();
   document.getElementById('scannerScreen').classList.remove('active');
   document.getElementById('setupScreen').classList.add('active');
 }
 
 function switchOperator() {
   if (qrScanner) {
-    try { qrScanner.stop().catch(() => {}); } catch(e) {}
+    try { qrScanner.stop(); } catch(e) {}
     qrScanner = null;
   }
+  cancelQcPassFlow();
   currentOperator = null;
+  operatorUUID = null;
   currentSession = null;
   document.getElementById('setupScreen').classList.remove('active');
   document.getElementById('loginScreen').classList.add('active');
@@ -1956,7 +2033,7 @@ function onOnline() {
 function onOffline() {
   isOnline = false;
   document.getElementById('offlineBar').classList.add('show');
-  showToast('Offline — queuing scans', 'warn');
+  showToast('Offline — scans will queue', 'warn');
 }
 
 // ══════════════════════════════════════════════════════
