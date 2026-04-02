@@ -1570,10 +1570,14 @@ async function processBarcode(barcode, act) {
   }
 
   // ── All other scan types ──
-  flash('ok'); vibrate([50]); playSuccessBeep();
-  addLog({ barcode, status:'ok', tag: act, label: act.replace('_',' ') });
-  showToast('✓ ' + barcode, 'ok');
-  await submitScanWorker(barcode, act);
+  // Submit first, show feedback only after worker confirms
+  const scanId = await submitScanWorker(barcode, act);
+  if (scanId !== null) {
+    flash('ok'); vibrate([50]); playSuccessBeep();
+    addLog({ barcode, status:'ok', tag: act, label: act.replace('_',' ') });
+    showToast('✓ ' + barcode, 'ok');
+  }
+  // If scanId is null, submitScanWorker already called showReject
 }
 
 // ══════════════════════════════════════════════════════
@@ -1832,21 +1836,25 @@ async function submitScanWorker(barcode, act) {
 
   if (!isOnline) {
     enqueue('postScan', payload);
+    showToast('Queued — offline', 'warn');
     return null;
   }
 
   const result = await workerPost('postScan', payload);
   if (!result.ok) {
-    // Duplicate or validation error — show reject
-    if (result.error && (result.error.includes('already been') || result.error.includes('Duplicate'))) {
-      showReject('DUPLICATE', result.error);
-      playErrBeep(); vibrate([100,50,100]);
-    } else if (result.error && result.error.includes('Network error')) {
+    const msg = result.error || 'Unknown error';
+    playErrBeep(); vibrate([100,50,100]);
+
+    if (msg.includes('already been') || msg.includes('Duplicate')) {
+      showReject('DUPLICATE SCAN', msg);
+    } else if (msg.includes('must be available') || msg.includes('generated')) {
+      showReject('NOT AVAILABLE', 'Batch not received yet — mark batch as Received in dashboard first');
+    } else if (msg.includes('Network error')) {
       enqueue('postScan', payload);
       showToast('Queued — no connection', 'warn');
+      return null;
     } else {
-      showReject('SCAN FAILED', result.error || 'Unknown error');
-      playErrBeep(); vibrate([100,50,100]);
+      showReject('SCAN FAILED', msg);
     }
     return null;
   }
