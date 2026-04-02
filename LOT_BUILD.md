@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 1.1 | **Last Updated:** April 2026
+**Version:** 1.2 | **Last Updated:** April 2026
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -10,11 +10,12 @@
 |---|---|---|
 | Database | Supabase (Postgres) | `jkxcnjabmrkteanzoofj.supabase.co` — Micro compute |
 | API layer | Cloudflare Workers | `lotopsproxy.afshaan.workers.dev` — Worker v4 |
-| Scanner PWA | Vanilla JS + ZXing | `scanner.legendoftoys.com` — GitHub Pages |
-| Scanner APK | TWA (PWA Builder) | Wraps PWA |
+| Scanner PWA | Vanilla JS + ZXing | `scanner.legendoftoys.com` — GitHub Pages, repo `legendlot/production` |
+| Scanner APK | TWA (PWA Builder) | Wraps PWA — camera permissions + assetlinks.json resolved |
 | Dashboard | Vanilla JS | `dashboard.legendoftoys.com` — GitHub Pages |
 | Camera/scanning | Native `getUserMedia` + ZXing | Replaced html5-qrcode (MIUI incompatibility) |
 | Fonts | Tomorrow + JetBrains Mono | Google Fonts |
+| QR generation (dashboard) | QRCode.js from cdnjs | Used in UPC Generator print flow — renders off-screen, extracts data URLs, prints in new window |
 
 ---
 
@@ -67,150 +68,184 @@ Public schema RPC calls use `sbPublic()` helper — no profile headers.
 
 ---
 
-### Production Schema — New Tables Required (not yet built)
+### Production Schema — Current State (as of April 2026)
+
+All tables below are live in the database. Columns confirmed against `information_schema` after migration fixes this session.
+
+#### `units` — One row per physical unit
+```
+upc             TEXT PRIMARY KEY
+ean             TEXT
+sku             TEXT
+product         TEXT
+model           TEXT
+color           TEXT
+current_status  TEXT (enum)
+loop_count      INT
+is_fresh        BOOLEAN
+created_at      TIMESTAMPTZ
+updated_at      TIMESTAMPTZ
+component_type  TEXT          -- 'car' | 'remote' — ADDED this session
+paired_with     TEXT          -- references units(upc) — ADDED this session
+production_run_id UUID        -- ADDED this session
+```
+> Note: PK is `upc` (TEXT), not `id` (UUID). `paired_with` references `units(upc)`.
+
+#### `scans` — All scan activity
+```
+id              UUID PRIMARY KEY
+timestamp       TIMESTAMPTZ
+upc             TEXT
+ean             TEXT
+activity        TEXT          -- INW | QC_PASS | QC_FAIL | WKS_IN | WKS_OUT | RTO_IN
+line            TEXT
+station         TEXT
+device_id       UUID
+operator_id     UUID
+shift           TEXT
+plan_id         TEXT
+batch_label     TEXT
+notes           TEXT
+raw_input       TEXT
+loop_count      INT DEFAULT 1   -- ADDED this session
+voided          BOOLEAN DEFAULT false -- ADDED this session
+voided_by       UUID            -- ADDED this session
+voided_at       TIMESTAMPTZ     -- ADDED this session
+void_reason     TEXT            -- ADDED this session
+superseded_by   UUID REFERENCES scans(id) -- ADDED this session
+```
 
 #### `upc_pool` — UPC sticker inventory
-```sql
-upc_id          TEXT PRIMARY KEY,           -- 'LOT-00000001'
-product         TEXT NOT NULL,              -- 'Knox', 'Knox-Remote', 'Flare', etc.
-batch_id        TEXT NOT NULL,              -- print batch reference
-status          TEXT NOT NULL,              -- generated | printed | received | available | applied | damaged | unused
-applied_to      TEXT,                       -- unit_id from `units` table, null until applied
-created_at      TIMESTAMPTZ DEFAULT now(),
-updated_at      TIMESTAMPTZ DEFAULT now()
 ```
-Indexes: `product`, `batch_id`, `status`
+upc_id          TEXT PRIMARY KEY    -- 'LOT-00000001'
+product         TEXT
+batch_id        TEXT
+status          TEXT                -- generated | available | applied | damaged | unused
+applied_to      TEXT
+created_at      TIMESTAMPTZ
+updated_at      TIMESTAMPTZ
+product_code    TEXT                -- 4-char code e.g. 'KNAK', or 5-char remote e.g. 'KNAKR'
+product_seq     INT                 -- per-product sequential number (KNAK-1, KNAK-2...)
+```
 
 #### `upc_batches` — Print batch records
-```sql
-batch_id        TEXT PRIMARY KEY,           -- 'B-001'
-product         TEXT NOT NULL,
-quantity        INT NOT NULL,
-upc_from        TEXT NOT NULL,              -- first UPC in batch
-upc_to          TEXT NOT NULL,              -- last UPC in batch (informational only — not used for range queries)
-status          TEXT NOT NULL,              -- generated | sent_to_print | printed | received | fully_applied
-generated_by    TEXT,
-generated_at    TIMESTAMPTZ DEFAULT now(),
-sent_at         TIMESTAMPTZ,
-received_at     TIMESTAMPTZ,
+```
+batch_id        TEXT PRIMARY KEY    -- 'B-001'
+product         TEXT
+quantity        INT
+upc_from        TEXT
+upc_to          TEXT
+status          TEXT                -- generated | sent_to_print | printed | received | fully_applied
+generated_by    TEXT
+generated_at    TIMESTAMPTZ
+sent_at         TIMESTAMPTZ
+received_at     TIMESTAMPTZ
 notes           TEXT
 ```
 
-#### `units` — One row per physical unit (car or remote)
-```sql
-unit_id         TEXT PRIMARY KEY,           -- same as upc_id for simplicity, or separate surrogate key
-upc_id          TEXT REFERENCES upc_pool,
-product         TEXT NOT NULL,
-component_type  TEXT NOT NULL,              -- 'car' | 'remote'
-paired_with     TEXT REFERENCES units,      -- for cars: points to remote unit_id; for remotes: points to car unit_id
-current_stage   TEXT NOT NULL,              -- inw | qc_pass | wks | rte | rtr | rto_in | converted | scrapped
-loop_count      INT DEFAULT 0,
-production_run_id TEXT,
-created_at      TIMESTAMPTZ DEFAULT now(),
-updated_at      TIMESTAMPTZ DEFAULT now()
-```
-
-#### `scan_events` — All scan activity
-```sql
-scan_event_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-unit_id         TEXT REFERENCES units,
-scan_point      TEXT NOT NULL,              -- INW | QC_PASS | QC_FAIL | WKS_IN | WKS_OUT | RTE | RTR | RTO_IN
-device_id       TEXT NOT NULL,
-operator_id     TEXT NOT NULL,
-line            TEXT,                       -- L1 | L2 | L3
-product         TEXT,
-loop_count      INT,
-scanned_at      TIMESTAMPTZ DEFAULT now(),
-voided          BOOLEAN DEFAULT false,
-voided_by       TEXT,
-voided_at       TIMESTAMPTZ,
-void_reason     TEXT,
-superseded_by   UUID REFERENCES scan_events -- for amendments: points to the correcting scan event
-```
-Indexes: `unit_id`, `scan_point`, `line`, `scanned_at`, `voided`
-Partition by month at ~500K events/month
-
 #### `qc_fail_events` — Parent table for QC failures
-```sql
-scan_event_id   UUID PRIMARY KEY REFERENCES scan_events,
-unit_id         TEXT NOT NULL,
-component_type  TEXT NOT NULL,              -- 'car' | 'remote'
-line            TEXT,
-operator_id     TEXT,
-product         TEXT,
-loop_count      INT,
-failed_at       TIMESTAMPTZ DEFAULT now()
+```
+id              UUID PRIMARY KEY
+scan_id         UUID
+upc             TEXT
+component_type  TEXT
+line            TEXT
+operator_id     UUID
+product         TEXT
+loop_count      INT
+failed_at       TIMESTAMPTZ
 ```
 
 #### `qc_fail_defects` — Child table, one row per defect per failure
-```sql
-id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-scan_event_id   UUID REFERENCES qc_fail_events,
-defect_code     TEXT NOT NULL,
-severity        TEXT                        -- Critical | Major | Minor (denormalised from defect_master for history)
 ```
-Index: `scan_event_id`, `defect_code`
+id              UUID PRIMARY KEY
+qc_fail_event_id UUID REFERENCES qc_fail_events
+defect_code     TEXT
+severity        TEXT
+```
 
 #### `defect_master` — Defect code definitions
-```sql
-defect_code     TEXT PRIMARY KEY,           -- e.g. 'VIS-001', 'RMT-001'
-category        TEXT NOT NULL,              -- Visual | Functional | Assembly | ...
-description     TEXT NOT NULL,
-component       TEXT NOT NULL,              -- 'car' | 'remote' | 'both'
-product         TEXT,                       -- null = universal; specific product code = product-specific
-severity        TEXT NOT NULL,              -- Critical | Major | Minor
-training_flag   BOOLEAN DEFAULT false,      -- flag for corrective action tracking
-active          BOOLEAN DEFAULT true,
-created_at      TIMESTAMPTZ DEFAULT now()
+```
+id              UUID PRIMARY KEY
+code            TEXT
+category        TEXT
+issue           TEXT
+severity        TEXT
+sub_issues      JSONB
+is_active       BOOLEAN
+created_at      TIMESTAMPTZ
+component       TEXT            -- ADDED this session
+product         TEXT            -- ADDED this session
+training_flag   BOOLEAN DEFAULT false -- ADDED this session
 ```
 
-#### `unit_pairs` — Pairing history
-```sql
-pair_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-car_unit_id     TEXT REFERENCES units,
-remote_unit_id  TEXT REFERENCES units,
-paired_at       TIMESTAMPTZ DEFAULT now(),
-paired_by       TEXT,                       -- operator_id
-scan_event_id   UUID REFERENCES scan_events,-- the QC_PASS event that created this pair
-status          TEXT DEFAULT 'active'       -- active | broken (if pair broken due to rework)
+#### `unit_pairs` — QC pairing records
+```
+id              UUID PRIMARY KEY
+car_upc         TEXT
+remote_upc      TEXT
+paired_at       TIMESTAMPTZ
+paired_by       UUID
+scan_id         UUID
+status          TEXT            -- active | broken
 ```
 
-#### `scan_amendments` — Tier 3 post-shift amendment log
-```sql
-amendment_id    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-original_event_id UUID REFERENCES scan_events,
-amended_by      TEXT NOT NULL,
-amended_at      TIMESTAMPTZ DEFAULT now(),
-reason          TEXT NOT NULL,
-original_value  JSONB,                      -- snapshot of original scan_event row
-new_value       JSONB                       -- snapshot of amended scan_event row
+#### `scan_amendments` — Tier 3 amendment log
 ```
+id              UUID PRIMARY KEY
+original_scan_id UUID
+amended_by      UUID
+amended_at      TIMESTAMPTZ
+reason          TEXT
+original_value  JSONB
+new_value       JSONB
+```
+
+#### `product_master` — Product/SKU reference
+```
+ean             TEXT PRIMARY KEY
+sku             TEXT
+product         TEXT
+model           TEXT
+color           TEXT
+is_active       BOOLEAN
+created_at      TIMESTAMPTZ
+has_remote      BOOLEAN         -- true for RC cars
+product_code    TEXT            -- 4-char code e.g. 'KNAK' (car), 'KNAKR' (remote = car code + 'R')
+```
+All 86 SKUs seeded with product codes.
 
 #### `devices` — Device configuration
-```sql
-device_id       TEXT PRIMARY KEY,           -- e.g. 'DEV-001'
-device_name     TEXT,
-scan_point      TEXT NOT NULL,              -- INW | QC_PASS | QC_FAIL | WKS | RTE | RTR | RTO_IN
-line            TEXT,                       -- L1 | L2 | L3 | null (shared)
-active          BOOLEAN DEFAULT true,
-last_seen       TIMESTAMPTZ,
-notes           TEXT
 ```
+id              UUID PRIMARY KEY
+device_code     TEXT            -- 'INW-L1', 'QCP-L1', etc.
+label           TEXT
+line            TEXT
+station         TEXT            -- INW | QC_PASS | QC_FAIL | WKS | PKG | RTD | RTO_IN
+is_active       BOOLEAN
+created_at      TIMESTAMPTZ
+last_seen       TIMESTAMPTZ     -- ADDED this session
+notes           TEXT            -- ADDED this session
+```
+All 13 devices configured.
 
 #### `operators` — Operator records
-```sql
-operator_id     TEXT PRIMARY KEY,           -- encoded in QR card
-full_name       TEXT NOT NULL,
-line            TEXT,                       -- primary line assignment
-role            TEXT,                       -- assembler | qc | packing | supervisor
-active          BOOLEAN DEFAULT true,
-qr_generated_at TIMESTAMPTZ,
-created_at      TIMESTAMPTZ DEFAULT now()
 ```
+id              UUID PRIMARY KEY
+name            TEXT
+qr_code         TEXT            -- encoded in QR card e.g. 'OP-0001'
+role            TEXT
+reports_to      UUID
+is_active       BOOLEAN
+created_at      TIMESTAMPTZ
+line            TEXT
+qr_generated_at TIMESTAMPTZ
+```
+6 test operators seeded (OP-0001 through OP-0006).
 
 ---
 
-### Production Schema — Existing Views
+### Production Schema — Views
 
 | View | Purpose |
 |---|---|
@@ -232,19 +267,30 @@ created_at      TIMESTAMPTZ DEFAULT now()
 | `bulk_update_stock_received(p_updates)` | Bulk add to stock |
 | `bulk_update_stock_issued(p_updates)` | Bulk deduct from stock |
 
-### Production Schema RPCs (existing)
+---
 
-| RPC | Purpose |
-|---|---|
-| `get_executive_dashboard(p_date)` | Today/WTD/MTD summary blob |
-| `get_open_runs()` | Active production runs |
-| `get_plan_vs_actual(p_date_from, p_date_to, p_line)` | Plan vs actual per run |
-| `get_line_view(p_date, p_line)` | Per-line stats |
-| `get_defect_heatmap(p_date_from, p_date_to, p_line)` | Defect counts by code/category |
+## 3. Product Code System ✅ LOCKED
+
+**Format:** 4-char alphanumeric — PP+M+C (2-char product prefix + 1-char model + 1-char color)
+
+**Color key:** K=Black, B=Blue, G=Green, R=Red, W=White, E=Grey, S=Silver, P=Purple, V=Purple2, M=Multi, N=Pink, X=Excavator, Y=Yellow, O=Orange, D=Desert
+
+**Remote code:** car code + 'R' (5 chars). e.g. KNAK (Knox Adventure Black car) → KNAKR (remote).
+
+**Sticker display:** QR encodes `LOT-XXXXXXXX`, text below shows `KNAK-7` (product code + per-product sequential number). Human-readable and scannable.
+
+**Per-product sequences:** Each product_code has its own counter in `upc_pool.product_seq`. KNAK-1, KNAK-2... independent of FLBG-1, FLBG-2... Numbers will get large over time — this is fine, operators match visually.
+
+**Sample codes:**
+- Knox Adventure Black = KNAK, remote = KNAKR
+- Flare Race Grey = FLRE, remote = FLRER
+- Bumble Base Blue = BMBB, remote = BMBBR
+
+All 86 SKUs mapped and seeded in `product_master.product_code`.
 
 ---
 
-## 3. Roles & Permissions
+## 4. Roles & Permissions
 
 Permission keys on roles.permissions JSONB:
 ```
@@ -258,104 +304,123 @@ scan_void_supervisor    -- Tier 2: void scans within current shift
 scan_amend_manager      -- Tier 3: post-shift amendments
 ```
 
-**Mahesh's role:** `reports` only. No write permissions of any kind. Enforced at worker level.
+**Mahesh's role:** `reports` only. No write permissions of any kind. Enforced at worker level. Permanent constraint.
 
 ---
 
-## 4. Scan Architecture
+## 5. Scan Architecture
 
 ### Scan Flow Per Point
 
 **INW**
-- Single scan
-- System looks up UPC in `upc_pool` — identifies product + component_type (car/remote)
-- Creates row in `units` (if first scan) and `scan_events`
+- Single scan on LOT-XXXXXXXX UPC
+- Looks up `upc_pool` — must be status `available`
+- Determines `component_type` from `upc_pool.product_code` (ends with 'R' = remote)
+- Creates/updates row in `units`, creates row in `scans`
 - Marks UPC as `applied` in `upc_pool`
+- Returns `display_code` (e.g. KNAK-7) for operator feedback
 
 **QC_FAIL**
 - Single scan — whichever component failed
-- Creates `scan_events` row + `qc_fail_events` parent row
-- Scanner shows component-filtered defect list (car or remote based on UPC lookup)
+- Creates `scans` row + `qc_fail_events` parent row
+- Scanner shows component-filtered defect list (filtered by `defect_master.component`)
 - Operator multi-selects → creates N rows in `qc_fail_defects`
 
 **QC_PASS — `has_remote = false`**
-- Single scan
-- Creates `scan_events` row
-- Updates `units.current_stage` to `qc_pass`
+- Single scan, creates `scans` row, updates `units.current_status`
 
 **QC_PASS — `has_remote = true`**
-1. Operator scans car UPC → system confirms it's a car, shows product name
-2. Scanner prompts: "Now scan remote"
-3. Operator scans remote UPC → system confirms it's the correct remote type for this product
-4. System creates:
-   - `scan_events` row for car (QC_PASS)
-   - `scan_events` row for remote (QC_PASS)
-   - `unit_pairs` row linking car + remote
-   - Updates `units.paired_with` on both rows
-   - Updates `units.current_stage` = `qc_pass` on both
+1. Operator scans car UPC → system confirms car, shows product name
+2. Scanner shows green band: "📡 NOW SCAN REMOTE CONTROL"
+3. Operator scans remote UPC → system confirms correct remote type (product_code ends with 'R', car code matches)
+4. System creates: scan row for car + scan row for remote + `unit_pairs` row + updates `units.paired_with` on both
+5. Error on wrong remote: "Wrong remote — expected KNAKR, got FLRER"
 
-**RTE / RTR**
-- Operator scans car UPC + remote UPC (pair verification)
-- System checks `unit_pairs` — are these a confirmed pair?
-- If yes: creates `scan_events` row (RTE or RTR), updates `units.current_stage`
-- If no: scanner blocks, shows error
+**WKS**
+- Per-scan modal: operator chooses WKS_IN or WKS_OUT
+- Single scan, creates `scans` row
 
-**Batch label scan at RTE/RTR:** The batch label (`EAN-YYYYMMDD-NNN`) is scanned at the shrink wrap machine, not the UPC. Batch label links back to the QC_PASS event. This prevents duplicate dispatch scans.
+**RTO_IN**
+- Accepts LOT UPC or EAN (13-digit)
 
 ---
 
-## 5. Scan Correction — Technical Implementation
+## 6. Scan Correction
 
-### Tier 1 — Operator undo
-- `scan_events` row remains, `voided = true`, `voided_by = operator_id`, `void_reason = 'operator_undo'`
-- Available until unit's next scan_event is created
-- Enforced: check `scan_events WHERE unit_id = ? AND voided = false ORDER BY scanned_at DESC` — if latest scan for this unit is newer than the scan being undone, undo is blocked
+### Tier 1 — Operator (self-serve)
+- `voided = true` on scan row, available until unit's next scan in flow
 
-### Tier 2 — Supervisor void
-- Same as Tier 1 but mandatory `void_reason` text
-- Permission check: `scan_void_supervisor`
-- Restricted to scans within current shift (`scanned_at >= shift_start`)
+### Tier 2 — Supervisor void (within shift)
+- Same as Tier 1 + mandatory reason, permission: `scan_void_supervisor`
 
 ### Tier 3 — Post-shift amendment
-- `scan_events` row updated directly (or voided + new row created)
-- Row created in `scan_amendments` with full before/after snapshot
-- Permission check: `scan_amend_manager`
-- No time restriction
+- Scan row voided + new row created + `scan_amendments` row with full before/after snapshot
+- Permission: `scan_amend_manager`, no time restriction
 
 ---
 
-## 6. Scanner PWA
+## 7. Scanner PWA ✅ LIVE
 
 **URL:** `scanner.legendoftoys.com`
 **Repo:** `legendlot/production` (GitHub Pages)
 **Tech:** Vanilla JS, native `getUserMedia`, ZXing (WASM)
+
+### Screens
+1. **Login** — operator scans QR card (OP-XXXX format), or manual name select fallback
+2. **Device setup** — simplified: Station + Line only (2 taps). Device code auto-resolved from DB lookup on launch. No URL/key fields, no activities, no lock/PIN.
+3. **Scan screen** — live camera, station label in top bar (e.g. "ASSEMBLY · L1"), operator name, shift selector, scan log feed
+
+### Station → Activity Mapping (locked, no UI selection needed)
+| Station label | DB station code | Activity |
+|---|---|---|
+| Assembly | INW | INW |
+| QC Pass | QC_PASS | QC_PASS |
+| QC Fail | QC_FAIL | QC_FAIL |
+| Workshop | WKS | WKS (modal per scan) |
+| RTO In | RTO_IN | RTO_IN |
+
+### Device Auto-Resolution
+On "Launch Scanner": `sbGet('devices', 'station=eq.INW&line=eq.L1&is_active=eq.true')` → sets `cfg.deviceCode` automatically. If no device found, shows error in setup screen.
+
+### cfg Object (saved to localStorage)
+```javascript
+{
+  url:          DEFAULT_SUPABASE_URL,  // hardcoded, not user-editable
+  key:          DEFAULT_SUPABASE_KEY,  // hardcoded, not user-editable
+  stationCode:  'INW',                 // DB station code
+  stationLabel: 'Assembly',            // display name
+  line:         'L1',
+  deviceCode:   'INW-L1',              // auto-resolved from DB
+  activity:     'INW',                 // derived from stationCode
+  shift:        'Regular',
+  camFacing:    'environment',
+  torchEnabled: false
+}
+```
 
 ### Key Technical Decisions (do not reverse)
 - `html5-qrcode` → fails silently on MIUI/Xiaomi — replaced with native `getUserMedia` + ZXing
 - Android requires user gesture before camera prompt → tap-to-start overlay
 - GitHub Pages won't serve `.well-known/` without Jekyll `_config.yml` include directive
 - APK via PWA Builder (TWA) — camera permissions + assetlinks.json resolved
+- Success feedback fires AFTER worker confirms — not optimistically
+- Offline queue stores `{action, data}` and replays via worker on reconnect
 
-### Current Scanner Screens
-1. **Login** — operator scans QR card, no typing
-2. **Device setup** — scan point + line selection (first boot or reconfiguration)
-3. **Scan screen** — live camera, shows scan point + operator name, writes to Supabase on scan
+### Scan Feedback Ordering (important)
+```
+onScan → processBarcode → submitScanWorker → if ok: flash green + beep + log
+                                            → if err: showReject(title, message)
+```
 
-### Scanner UX Principles (non-negotiable)
-- No text input by operators ever
-- Every successful scan: product name shown prominently + success sound/vibration
-- Every failed/blocked scan: clear error + fail sound
-- Device pre-configured to scan point — operator never chooses scan type
-- QR card login only
-
-### QC_PASS Flow Change Required
-Current: single scan → write to DB.
-Required: guided two-step flow (car → prompt → remote → confirm → write pair + two scan events).
-Triggered only when `has_remote = true` on the scanned product.
+### QC_PASS Two-Scan Flow
+- `pendingQcPassCar` stores first scan UPC
+- Green band shown: "📡 NOW SCAN REMOTE CONTROL"
+- Second scan triggers `doQcPassRemote()` → calls `postQcPass` worker endpoint
+- `cancelQcPassFlow()` cancels and resets state
 
 ---
 
-## 7. Dashboard
+## 8. Dashboard ✅ LIVE
 
 **URL:** `dashboard.legendoftoys.com`
 **Tech:** Vanilla JS single-file HTML
@@ -364,7 +429,7 @@ Triggered only when `has_remote = true` on the scanned product.
 ### Design System
 ```
 Colors:
-  --yellow: #F2CD1A    primary accent, LOT brand
+  --yellow: #F2CD1A    primary accent
   --blue:   #213CE2
   --red:    #DE2A2A
   --green:  #22c55e
@@ -387,103 +452,156 @@ Fonts:
 | Lines | Siddhant, Kishan | Per-line cards, operator table |
 | QC | Karthik, Mahesh | FPY, defect heatmap, repeat failures |
 | Runs | All production_view | Plan vs actual |
+| UPC Generator | Afshaan, Varun | Batch generation, print, receive |
 
-Auto-refresh: 30 seconds. Green dot = live, orange = fetching.
-Tab access control: deferred. All tabs visible to all roles currently.
+Auto-refresh: 30 seconds. Date bar hidden on UPC Generator tab.
+
+### UPC Generator Tab
+- Product dropdown (from `getProductCodes` worker endpoint)
+- Car / Remote toggle (shown only when `has_remote = true`)
+- Quantity input (1–10,000)
+- Generate → calls `generateUpcBatch` → shows "Batch B-001 · 500 stickers · KNAK-1 to KNAK-500 · 2 A3 sheets"
+- Print → fetches batch rows with `getUpcBatch?include_rows=true` → generates QR codes off-screen → extracts canvas data URLs → opens new browser tab with embedded images → auto-prints
+- Print layout: A3 portrait, 16 cols × 23 rows = 368 stickers per sheet, 15mm × 15mm stickers
+- Batch history table: Print / Sent / Received actions
+
+### Print Architecture (important)
+The print flow opens a **new browser tab** with standalone HTML. This is intentional — `@media print` + `display:none` approaches failed because canvas elements don't render inside hidden containers. New window approach is reliable.
+```
+printBatch(batchId)
+  → fetch rows (getUpcBatch?include_rows=true)
+  → generateQrDataUrls(rows)      // renders QR into off-screen container, extracts PNG data URLs
+  → openPrintWindow(batch, rows, qrUrls)  // new tab, embedded <img src="data:...">, auto-prints
+```
 
 ---
 
-## 8. Cloudflare Worker v4
+## 9. Cloudflare Worker v4 ✅ LIVE
 
 **URL:** `lotopsproxy.afshaan.workers.dev`
-**Auth:** Supabase JWT on every request (except login)
+**Auth:** Supabase JWT on every request except `scannerLogin`
 
-### Production Dashboard GET Endpoints
+### Scanner POST Endpoints (no JWT — device_code auth)
 | Action | Description |
 |---|---|
-| `getProductionDashboard` | Executive summary: today/WTD/MTD + open runs + hourly chart |
-| `getPlanVsActual` | Plan vs actual by date range, optional line |
-| `getLineView` | Per-line stats + hourly + operator table |
+| `scannerLogin` | Resolves QR code (OP-XXXX) → operator UUID + name |
+| `postScan` | INW, WKS_IN, WKS_OUT, RTO_IN scans |
+| `postQcPass` | QC_PASS — single scan or two-scan car+remote pairing |
+| `postQcFail` | QC_FAIL — with parent event + defect list |
+| `voidScanSelf` | Tier 1 operator self-void |
+
+### Dashboard GET Endpoints (JWT required)
+| Action | Description |
+|---|---|
+| `getProductCodes` | All active SKUs with product_code, has_remote |
+| `getOperators` | List all operators |
+| `getDevices` | List all devices |
+| `getDefectMaster` | Defect codes, filtered by is_active |
+| `getUpcBatches` | List print batches |
+| `getUpcBatch` | Single batch — supports `?include_rows=true` for print |
+| `getScanHistory` | Scan history for a UPC |
+| `getPairingStatus` | Check if car+remote are a valid pair |
+| `getProductionDashboard` | Executive summary |
+| `getPlanVsActual` | Plan vs actual by date range |
+| `getLineView` | Per-line stats + operator table |
 | `getQCView` | Defect heatmap + FPY + repeat defects |
-| `getDispatchStock` | RTD stock by product |
-| `getRepairQueue` | Units in workshop |
-| `getDailyProduction` | Daily production summary |
 
-### Store GET Endpoints (existing — unchanged)
-getManpower, getActivityLog, getRoles, getUsers, getStock, getMaterials, getBOM, getGRN, getGRNSummary, getIssues, getReturns, getRecentWOs, getWOParts, getWorkOrders, getDashboard, calcKit, getReportSummary, downloadReport, getShipments, getShipment, getBags, getForwarders, getForwarder, getVendors, getVendor, getFlushes, getFlush, getQuarantine, getPOs, getPO, getPendingInward, getProductionRuns, getProductionRun, getIssueReceipts
+### Dashboard POST Endpoints (JWT required)
+| Action | Description |
+|---|---|
+| `generateUpcBatch` | Create batch — takes `product_code` (4/5 char), assigns `product_seq` per-product |
+| `receiveUpcBatch` | Mark batch received → all UPCs flip to `available` |
+| `voidUpc` | Mark individual UPC as damaged/unused |
+| `voidScan` | Tier 2 supervisor void |
+| `amendScan` | Tier 3 post-shift amendment |
+| `createOperator` | Add operator + generate QR code |
+| `updateOperator` | Update operator record |
+| `configureDevice` | Update device station/line |
 
-### Store POST Endpoints (existing — unchanged)
-postGRN, updateWorkOrder, postWorkOrder, postIssue, postReturn, postStockCount, postShipment, postShippingMark, updateShippingMark, postReceivingLine, updateReceivingLine, generateBags, raiseGRNFromReceiving, updateShipmentStatus, postForwarder, updateForwarder, postVendor, updateVendor, postFlush, verifyFlush, postPO, approvePO, updatePOStatus, amendPO, cancelPO, updatePOLineReceived, postManpower, createRole, updateRole, deleteRole, createUser, updateUser, resetPassword, changeMyPassword, createProductionRun, submitProductionRun, cancelProductionRun, rejectProductionRun, issueAgainstRun, postIssueReceipt, reappealIssueReceipt, postShortIssue, forceResolveReceipt
+### generateUpcBatch Logic
+- Input: `{ product_code, quantity, notes }`
+- `product_code` is 4-char (car) or 5-char ending in 'R' (remote)
+- Looks up `product_master` by car code to get product name
+- Finds `MAX(product_seq)` for this product_code in `upc_pool` → starts from +1
+- Finds `MAX(upc_id)` globally → assigns next LOT- numbers
+- Inserts in chunks of 500 to avoid payload limits
 
-### New Endpoints Required (production scan system)
-```
-GET:
-  getOperators           -- list all operators
-  getDevices             -- list all configured devices
-  getUpcBatches          -- list UPC print batches
-  getUpcBatch            -- single batch detail
-  getScanHistory         -- scan history for a unit (by UPC)
-  getRepairQueue         -- units in workshop (existing view)
-  getPairingStatus       -- check if car+remote are a valid pair
-
-POST:
-  postScan               -- write a scan event (INW, QC_FAIL, WKS_IN, WKS_OUT, RTE, RTR, RTO_IN)
-  postQcPass             -- QC_PASS with optional pairing (has_remote flow)
-  voidScan               -- Tier 1/2 scan void
-  amendScan              -- Tier 3 post-shift amendment
-  generateUpcBatch       -- create a print batch, assign sequential UPCs
-  receiveUpcBatch        -- mark batch as received from printer
-  voidUpc                -- mark individual UPC as damaged/unused
-  createOperator         -- add operator record
-  updateOperator         -- update operator
-  configureDevice        -- set scan_point + line for a device
-```
+### Store GET/POST Endpoints (existing — unchanged)
+All original store endpoints unchanged. See v1.1 for full list.
 
 ---
 
-## 9. Device Inventory (13 total)
+## 10. Device Inventory (13 total, all configured)
 
-| # | Device ID | Scan Point | Line | Notes |
-|---|---|---|---|---|
-| 1 | DEV-001 | INW | L1 | |
-| 2 | DEV-002 | INW | L2 | |
-| 3 | DEV-003 | INW | L3 | |
-| 4 | DEV-004 | QC_PASS | L1 | Two-scan flow for RC cars |
-| 5 | DEV-005 | QC_PASS | L2 | Two-scan flow for RC cars |
-| 6 | DEV-006 | QC_PASS | L3 | Two-scan flow for RC cars |
-| 7 | DEV-007 | QC_FAIL | L1 | Multi-defect, component-filtered list |
-| 8 | DEV-008 | QC_FAIL | L2 | Multi-defect, component-filtered list |
-| 9 | DEV-009 | QC_FAIL | L3 | Multi-defect, component-filtered list |
-| 10 | DEV-010 | WKS | Shared | WKS_IN + WKS_OUT (toggle or inferred) |
-| 11 | DEV-011 | RTE | Shared | Scans batch label; verifies pair |
-| 12 | DEV-012 | RTR | Shared | Scans batch label; verifies pair |
-| 13 | DEV-013 | RTO_IN | Shared | |
+| Device Code | Station | Line | Notes |
+|---|---|---|---|
+| INW-L1 | INW | L1 | |
+| INW-L2 | INW | L2 | |
+| INW-L3 | INW | L3 | |
+| QCP-L1 | QC_PASS | L1 | Two-scan flow for RC cars |
+| QCP-L2 | QC_PASS | L2 | |
+| QCP-L3 | QC_PASS | L3 | |
+| QCF-L1 | QC_FAIL | L1 | Component-filtered defect list |
+| QCF-L2 | QC_FAIL | L2 | |
+| QCF-L3 | QC_FAIL | L3 | |
+| WKS | WKS | SHARED | WKS_IN + WKS_OUT modal per scan |
+| PKG | PKG | SHARED | Future |
+| RTD | RTD | SHARED | Future |
+| RTO | RTO_IN | SHARED | |
 
 ---
 
-## 10. Build Phases & Status
+## 11. Build Phases & Status
 
 | Phase | Module | Status |
 |---|---|---|
-| 1 | DB + Scanner App | ✅ Largely complete |
-| 2 | Reporting Dashboard | ✅ Live |
+| 1 | DB + Scanner App | ✅ **Complete** |
+| 2 | Reporting Dashboard | ✅ **Live** |
 | 3 | Repair Module | 🔲 Not started |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
-| — | Operator seeding + QR cards | 🔲 Next up |
-| — | Device configuration (all 13) | 🔲 Next up |
-| — | UPC generation + print workflow | 🔲 Design locked, build pending |
-| — | `has_remote` flag + QC_PASS pairing flow | 🔲 Design locked, build pending |
-| — | QC_FAIL schema (parent/child) | 🔲 Design locked, build pending |
-| — | Scan correction UI (3 tiers) | 🔲 Design locked, build pending |
-| — | Packing pair verification | 🔲 Design locked, build pending |
-| — | Rework module | 🔲 Partial design, open questions remain |
-| — | Dashboard tab access control | 🔲 Deferred |
+
+### Phase 1 Detailed Status
+| Item | Status |
+|---|---|
+| DB schema — all tables | ✅ Live (fixed missing columns this session) |
+| 86 SKUs in product_master | ✅ |
+| Product code system (4-char + R for remote) | ✅ Seeded |
+| 6 test operators seeded | ✅ |
+| 13 devices configured | ✅ |
+| UPC generation + print (dashboard) | ✅ Live — A3, 16×23 grid, 368/sheet |
+| Batch receive workflow | ✅ Live |
+| Scanner operator login (QR + manual) | ✅ Live |
+| Scanner simplified setup (station+line only) | ✅ Live |
+| INW scan → DB | ✅ **Confirmed working this session** |
+| QC_PASS two-scan pairing flow | ✅ Built, not yet tested end-to-end |
+| QC_FAIL defect modal | ✅ Built, not yet tested end-to-end |
+| WKS modal | ✅ Built, not yet tested |
+| Offline queue | ✅ Built |
+| Scan correction UI | ✅ Worker endpoints done, dashboard UI pending |
+| Packing pair verification | 🔲 Not started |
+| RTE/RTR scan flow | 🔲 Not started |
+| Operator QR card printing | 🔲 Not started |
 
 ---
 
-## 11. Technical Decisions Log
+## 12. Next Session — Where to Pick Up
+
+**Immediate tests to run (scanner is working, test these flows):**
+1. QC_PASS — scan a car UPC, then its remote → confirm pairing in `unit_pairs` table
+2. QC_FAIL — scan a unit, select defects → confirm rows in `qc_fail_events` + `qc_fail_defects`
+3. Duplicate scan rejection — scan same UPC twice → should get DUPLICATE SCAN screen
+
+**Then build:**
+- Scan correction UI on dashboard (Tier 2 void + Tier 3 amend)
+- Operator QR card generation + print flow
+- RTE/RTR scan flow (scans batch label, not UPC)
+- Packing pair verification
+
+---
+
+## 13. Technical Decisions Log
 
 | Decision | Choice | Reason |
 |---|---|---|
@@ -492,39 +610,43 @@ POST:
 | Schema separation | store vs public | Legacy origin; RPCs must not include profile headers |
 | RTD definition | Calculated (RTE + RTR) | Not a physical scan point |
 | Operator login | QR card scan only | Operators can't type reliably |
-| UPC format | LOT-00000001 (8 digit global sequential) | Simple, no collision risk, scalable |
-| UPC storage | Individual row per UPC in upc_pool | Enables per-unit tracking, product queries, voiding |
+| UPC format | LOT-XXXXXXXX (8 digit, global sequential) | Simple, no collision risk, scalable |
+| Display code | KNAK-7 (product_code + per-product seq) | Human readable, scannable on floor |
+| QR encodes | LOT- number (not display code) | Permanent anchor; display code is derived |
+| Product codes | 4-char PP+M+C, remote = car code + R | Unique per variant/color, operator-readable |
+| Per-product sequence | Independent counter per product_code | Short readable numbers; car/remote independent |
 | Remote UPC | Independent from car, same pool | Remote travels separately, needs own scan history |
-| Remote pairing | Created at QC_PASS, not before | No tentative pair state — cleaner model |
+| Remote pairing | Created at QC_PASS only | No tentative pair state — cleaner model |
 | QC_FAIL storage | Parent + child rows | Enables both defect-level and unit-level queries |
-| Defect list filtering | By component type at scan time | Shorter list, no wrong-component defect codes |
+| Defect list filtering | By component type at scan time | Shorter list, no wrong-component codes |
 | Scan correction | Tier 1/2/3 model | Prevent first, correct second; Mahesh read-only always |
-| Void mechanism | voided flag on scan_events row | Records never deleted; audit trail always complete |
-| DB hosting | Supabase Micro | Upgraded for compute |
-| API layer | Cloudflare Workers | Edge, cheap, fast |
-| Frontend hosting | GitHub Pages | Free, static PWA |
+| Void mechanism | voided flag on scans row | Records never deleted; audit trail always complete |
+| Scanner setup | Station + line only | Device auto-resolved from DB; no manual entry |
+| Lock mechanism | Station definition = lock | No PIN needed; each station = one activity |
+| Print approach | New browser window with embedded data URLs | canvas @media print unreliable; new window always works |
+| Scanner feedback | After worker confirms | Not optimistic — prevents false success signals |
 | Token storage | Memory only | Security; session expires on tab close |
 | Mahesh access | Read-only permanently | Audit independence — cannot be changed per role |
 
 ---
 
-## 12. Open Technical Questions
+## 14. Open Technical Questions
 
-1. **WKS device mode:** Manual toggle (operator switches between WKS_IN and WKS_OUT) vs system-inferred (system checks unit's current stage and determines correct scan type). Inferred is smarter but has edge cases if unit state is wrong.
+1. **WKS device toggle:** Operator manually chooses WKS_IN vs WKS_OUT per scan via modal (current). Could be system-inferred from unit's current state — smarter but has edge cases.
 
-2. **Scan events partitioning:** Implement month-based partitioning now (future-proof) or after volume warrants it (~month 10)? Recommend planning the DDL now even if not deploying partitions yet.
+2. **Scan events partitioning:** Defer to month 10 (~500K events/month). Plan DDL now even if not deploying yet.
 
-3. **`units` table primary key:** Use `upc_id` directly as primary key (simpler joins) or a separate surrogate UUID (more flexible if UPC ever needs to be corrected)? Given UPC is permanent and never reassigned, `upc_id` as PK is fine.
+3. **QC_PASS timeout:** Should second scan (remote) time out after N seconds? If operator walks away mid-flow, scanner is stuck. Recommend yes — configurable timeout with explicit cancel.
 
-4. **QC_PASS scanner flow (two-step):** Should the second scan (remote) time out if the operator doesn't scan within N seconds? If yes, what happens — cancel the flow or hold? Timeout prevents a stuck scanner if operator walks away mid-flow.
+4. **Rework module schema:** Minimum viable: `rework_orders` table linked to original scan, consumes parts from store. Full design pending resolution of open business questions.
 
-5. **Rework module schema:** Minimum viable: `rework_orders` table linked to original `scan_events`, consumes parts from store, produces re-inspected unit. Full design pending resolution of open business questions.
+5. **Dashboard tab access control:** Deferred — role-gate later when feature set is stable.
 
-6. **`product_master` table:** Currently `bom_current` carries product info. A dedicated `product_master` table with `has_remote`, `product_code`, `category` (RC car / die cast / DIY), `active` would be cleaner — especially as new product categories launch.
+6. **Defect master ownership:** Who can add/modify defect codes after initial seeding?
 
 ---
 
-## 13. Environment Reference
+## 15. Environment Reference
 
 > ⚠️ Do not commit to git.
 
@@ -537,4 +659,4 @@ POST:
 
 ---
 
-*Update at end of every build session. "Open Technical Questions" and "Build Phases" are the source of truth for what to work on next.*
+*Update at end of every build session. "Next Session" and "Build Phases" are the source of truth for what to work on next.*
