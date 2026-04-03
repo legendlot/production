@@ -17,6 +17,9 @@
       --red: #DE2A2A;
       --green: #22c55e;
       --orange: #f59e0b;
+      --teal: #14b8a6;
+      --purple: #8b5cf6;
+      --sky: #0ea5e9;
       --bg: #080808;
       --surface: #111111;
       --surface2: #181818;
@@ -32,7 +35,7 @@
     body{color:var(--text);font-family:'JetBrains Mono',monospace;display:flex;flex-direction:column}
 
     /* ── SCREENS ── */
-    .screen{display:none;flex-direction:column;height:100%;overflow:hidden}
+    .screen{display:none;flex-direction:column;height:100%;overflow:hidden;position:relative}
     .screen.active{display:flex}
 
     /* ══════════════════════════════════
@@ -97,488 +100,410 @@
     }
     .login-status.ok{color:var(--green)}
     .login-status.err{color:var(--red)}
-
-    /* Manual operator select */
-    .manual-select{
-      display:none;width:100%;
-      background:var(--surface);border:1px solid var(--border2);
-      border-radius:10px;padding:0;overflow:hidden;
-      max-height:240px;overflow-y:auto;margin-top:12px;
-    }
+    .manual-select{display:none;width:100%;margin-top:12px;max-height:200px;overflow-y:auto}
     .manual-select.show{display:block}
     .op-item{
-      padding:13px 16px;border-bottom:1px solid var(--border);
-      cursor:pointer;font-size:13px;
-      transition:background 0.1s;
+      padding:12px 16px;border-bottom:1px solid var(--border);
+      cursor:pointer;display:flex;justify-content:space-between;align-items:center;
     }
-    .op-item:last-child{border-bottom:none}
-    .op-item:active{background:var(--surface2)}
-    .op-item-role{font-size:10px;color:var(--muted);margin-top:2px;letter-spacing:0.06em}
+    .op-item:active{background:var(--surface)}
+    .op-item-role{font-size:10px;color:var(--muted)}
 
     /* ══════════════════════════════════
        SETUP SCREEN
     ══════════════════════════════════ */
     #setupScreen{background:var(--bg);overflow-y:auto}
     .setup-hero{
-      padding:40px 24px 28px;
-      background:linear-gradient(160deg,#0f0f0f,#080808);
-      border-bottom:1px solid var(--border);
-      position:relative;overflow:hidden;flex-shrink:0;
+      background:var(--surface);border-bottom:1px solid var(--border);
+      padding:20px 20px 16px;display:flex;align-items:center;justify-content:space-between;
     }
-    .setup-hero::after{
-      content:'';position:absolute;bottom:-40px;right:-40px;
-      width:140px;height:140px;background:var(--yellow);
-      opacity:0.04;border-radius:50%;
-    }
-    .setup-op-badge{
-      display:flex;align-items:center;gap:10px;margin-bottom:20px;
-    }
+    .setup-op-badge{display:flex;align-items:center;gap:12px}
     .op-avatar{
-      width:36px;height:36px;border-radius:50%;
-      background:rgba(242,205,26,0.15);border:1px solid var(--yellow);
-      display:flex;align-items:center;justify-content:center;
-      font-size:13px;font-weight:700;color:var(--yellow);
-      font-family:'Tomorrow',sans-serif;flex-shrink:0;
+      width:40px;height:40px;border-radius:50%;
+      background:var(--blue);display:flex;align-items:center;justify-content:center;
+      font-weight:700;font-size:14px;letter-spacing:0.05em;flex-shrink:0;
     }
-    .op-name-label{font-size:12px;color:var(--yellow);font-weight:600}
-    .op-role-label{font-size:10px;color:var(--muted);margin-top:1px;letter-spacing:0.06em}
+    .op-name-label{font-size:14px;font-weight:600}
+    .op-role-label{font-size:10px;color:var(--muted);letter-spacing:0.08em;margin-top:2px}
     .setup-headline{
-      font-family:'Tomorrow',sans-serif;font-weight:900;
-      font-size:26px;line-height:1.05;text-transform:uppercase;
+      font-family:'Tomorrow',sans-serif;font-weight:900;font-size:22px;
+      text-align:right;text-transform:uppercase;letter-spacing:0.02em;
+      line-height:1.1;
     }
     .setup-headline em{color:var(--yellow);font-style:normal}
-    .setup-body{padding:24px 24px 40px;display:flex;flex-direction:column;gap:20px}
+    .setup-body{padding:16px 20px 40px}
     .sec-div{
-      font-size:9px;letter-spacing:0.3em;text-transform:uppercase;
-      color:var(--muted);padding-bottom:8px;border-bottom:1px solid var(--border);
+      font-size:10px;color:var(--muted);letter-spacing:0.15em;
+      text-transform:uppercase;padding:16px 0 8px;
     }
-    .field{display:flex;flex-direction:column;gap:6px}
-    .field-label{font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text2)}
-    .field-sub{font-size:10px;color:var(--muted);line-height:1.5}
-
-    input[type=text],input[type=url],input[type=password],select{
-      background:var(--surface);border:1px solid var(--border2);
-      border-radius:8px;padding:12px 14px;color:var(--text);
-      font-family:'JetBrains Mono',monospace;font-size:13px;
-      width:100%;outline:none;transition:border-color 0.15s;
-      -webkit-appearance:none;
-    }
-    input:focus,select:focus{border-color:var(--yellow)}
-    input::placeholder{color:var(--muted)}
-    select option{background:#1a1a1a}
-
-    .seg-group{display:flex;flex-direction:column;gap:8px}
-    .seg-row{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+    .field{margin-bottom:8px}
+    .field-label{font-size:11px;color:var(--text2);margin-bottom:6px;letter-spacing:0.06em}
+    .field-sub{font-size:10px;color:var(--muted);margin-top:4px}
+    .seg-group{display:flex;flex-direction:column;gap:6px}
+    .seg-row{display:flex;gap:6px}
     .seg-btn{
+      flex:1;padding:10px 6px;text-align:center;
       background:var(--surface);border:1px solid var(--border2);
-      border-radius:8px;padding:11px 10px;
-      font-family:'JetBrains Mono',monospace;font-size:12px;
-      cursor:pointer;text-align:center;
-      transition:all 0.12s;color:var(--text2);
-    }
-    .seg-btn.on{background:var(--yellow);color:#080808;border-color:var(--yellow);font-weight:700}
-    .seg-btn.line-on{background:var(--blue);color:#fff;border-color:var(--blue);font-weight:700}
-
-    .chips{display:flex;flex-wrap:wrap;gap:8px}
-    .chip{
-      background:var(--surface);border:1px solid var(--border2);
-      border-radius:6px;padding:7px 13px;font-size:11px;cursor:pointer;
-      transition:all 0.12s;letter-spacing:0.05em;
+      border-radius:8px;font-size:11px;letter-spacing:0.06em;
+      cursor:pointer;color:var(--text2);transition:all 0.15s;
       font-family:'JetBrains Mono',monospace;
     }
-    .chip.on{background:var(--yellow);color:#080808;border-color:var(--yellow);font-weight:700}
-
+    .seg-btn.on{background:var(--yellow);border-color:var(--yellow);color:#000;font-weight:700}
     .toggle-row{
       display:flex;align-items:center;justify-content:space-between;
-      background:var(--surface);border:1px solid var(--border2);
-      border-radius:8px;padding:12px 14px;
+      padding:12px 0;border-bottom:1px solid var(--border);
     }
-    .toggle-info span{font-size:12px;color:var(--text);display:block}
-    .toggle-info small{font-size:10px;color:var(--muted)}
-    .toggle{position:relative;width:44px;height:24px;flex-shrink:0}
+    .toggle-info span{font-size:12px}
+    .toggle-info small{display:block;font-size:10px;color:var(--muted);margin-top:2px}
+    .toggle{position:relative;display:inline-block;width:44px;height:24px}
     .toggle input{opacity:0;width:0;height:0}
-    .toggle-slider{position:absolute;inset:0;background:var(--border2);border-radius:12px;cursor:pointer;transition:background 0.2s}
-    .toggle-slider::after{content:'';position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;top:3px;left:3px;transition:transform 0.2s}
-    .toggle input:checked+.toggle-slider{background:var(--yellow)}
-    .toggle input:checked+.toggle-slider::after{transform:translateX(20px)}
-
-    .custom-wrap{margin-top:8px;display:none}
-    .custom-wrap.show{display:block}
-
+    .toggle-slider{
+      position:absolute;cursor:pointer;inset:0;
+      background:var(--surface3);border-radius:24px;transition:0.2s;
+    }
+    .toggle-slider:before{
+      content:'';position:absolute;height:18px;width:18px;
+      left:3px;bottom:3px;background:var(--text2);border-radius:50%;transition:0.2s;
+    }
+    input:checked+.toggle-slider{background:var(--yellow)}
+    input:checked+.toggle-slider:before{transform:translateX(20px);background:#000}
+    .setup-status{min-height:20px;font-size:12px;text-align:center;margin:12px 0;letter-spacing:0.06em}
     .btn-primary{
-      background:var(--yellow);color:#080808;border:none;border-radius:10px;
-      padding:16px;font-family:'Tomorrow',sans-serif;font-weight:700;
-      font-size:13px;letter-spacing:0.2em;text-transform:uppercase;
-      cursor:pointer;width:100%;transition:opacity 0.15s,transform 0.1s;
+      width:100%;padding:16px;background:var(--yellow);color:#000;
+      font-weight:900;font-size:13px;letter-spacing:0.12em;
+      border:none;border-radius:12px;cursor:pointer;
+      font-family:'JetBrains Mono',monospace;margin-bottom:8px;
     }
-    .btn-primary:active{opacity:0.85;transform:scale(0.99)}
     .btn-secondary{
-      background:transparent;color:var(--text2);
-      border:1px solid var(--border2);border-radius:10px;
-      padding:12px;font-family:'JetBrains Mono',monospace;
-      font-size:11px;letter-spacing:0.1em;cursor:pointer;width:100%;
-      transition:all 0.15s;
+      width:100%;padding:14px;background:transparent;color:var(--text2);
+      font-size:11px;letter-spacing:0.1em;border:1px solid var(--border2);
+      border-radius:12px;cursor:pointer;font-family:'JetBrains Mono',monospace;
     }
-    .btn-secondary:active{background:var(--surface)}
-    .setup-status{font-size:11px;min-height:16px;text-align:center;letter-spacing:.04em;padding:0 4px}
-
-    /* Volume slider */
-    input[type=range]{
-      -webkit-appearance:none;width:100%;height:4px;
-      background:var(--border2);border-radius:2px;outline:none;cursor:pointer;
-    }
-    input[type=range]::-webkit-slider-thumb{
-      -webkit-appearance:none;width:18px;height:18px;
-      border-radius:50%;background:var(--yellow);cursor:pointer;
-    }
+    .s_stationCustomWrap{display:none}
+    .s_stationCustomWrap.show{display:block}
 
     /* ══════════════════════════════════
        SCANNER SCREEN
     ══════════════════════════════════ */
-    #scannerScreen{position:relative}
-
     .offline-bar{
-      background:var(--orange);color:#000;text-align:center;
-      padding:6px;font-size:10px;font-weight:700;
-      letter-spacing:0.12em;text-transform:uppercase;
-      display:none;flex-shrink:0;
+      display:none;background:var(--orange);color:#000;
+      text-align:center;padding:6px;font-size:11px;font-weight:700;letter-spacing:0.08em;
     }
     .offline-bar.show{display:block}
-
     .topbar{
       display:flex;align-items:center;justify-content:space-between;
-      padding:10px 14px;background:var(--surface);
-      border-bottom:1px solid var(--border);flex-shrink:0;gap:8px;
-      position:relative;z-index:100;
+      padding:10px 14px;background:var(--surface);border-bottom:1px solid var(--border);
+      flex-shrink:0;
     }
-    .device-info{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0}
-    .device-line{font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted)}
-    .device-station{
-      font-family:'Tomorrow',sans-serif;font-weight:700;font-size:14px;
-      color:var(--yellow);text-transform:uppercase;
-      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;
-    }
-    .topbar-right{display:flex;align-items:center;gap:6px}
+    .device-info{display:flex;flex-direction:column;gap:2px}
+    .device-line{font-size:10px;color:var(--muted);letter-spacing:0.1em}
+    .device-station{font-size:13px;font-weight:700;letter-spacing:0.06em}
+    .topbar-right{display:flex;align-items:center;gap:8px}
     .queue-pill{
-      background:rgba(245,158,11,0.15);border:1px solid var(--orange);
-      color:var(--orange);border-radius:20px;padding:3px 10px;
-      font-size:10px;font-weight:700;display:none;
+      display:none;background:var(--orange);color:#000;
+      font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;
+      letter-spacing:0.06em;
     }
     .queue-pill.show{display:block}
     .top-btn{
-      background:var(--surface2);border:1px solid var(--border);
-      border-radius:8px;padding:8px 10px;color:var(--text2);
-      font-size:14px;cursor:pointer;flex-shrink:0;
-      min-width:38px;min-height:38px;
-      display:flex;align-items:center;justify-content:center;
-      transition:all 0.12s;
+      padding:6px 10px;background:var(--surface2);border:1px solid var(--border2);
+      border-radius:6px;font-size:11px;cursor:pointer;letter-spacing:0.06em;color:var(--text2);
     }
-    .top-btn:active{background:var(--surface3)}
-
-    /* Operator strip */
     .op-strip{
-      display:flex;align-items:center;gap:8px;
-      padding:7px 14px;background:var(--surface2);
-      border-bottom:1px solid var(--border);flex-shrink:0;
-      position:relative;z-index:100;
+      display:flex;align-items:center;gap:10px;
+      padding:8px 14px;background:var(--surface2);border-bottom:1px solid var(--border);
+      flex-shrink:0;
     }
     .op-strip-avatar{
-      width:24px;height:24px;border-radius:50%;
-      background:rgba(242,205,26,0.1);border:1px solid rgba(242,205,26,0.3);
+      width:28px;height:28px;border-radius:50%;background:var(--blue);
       display:flex;align-items:center;justify-content:center;
-      font-size:9px;font-weight:700;color:var(--yellow);flex-shrink:0;
+      font-size:11px;font-weight:700;flex-shrink:0;
     }
-    .op-strip-name{font-size:11px;color:var(--text2);flex:1}
+    .op-strip-name{font-size:12px;font-weight:600;flex:1}
     .op-strip-shift{font-size:10px;color:var(--muted)}
 
-    /* Shift bar */
+    /* ── CHANNEL TOGGLE (PKG only) ── */
+    .channel-toggle{
+      display:none;align-items:center;gap:8px;
+      padding:8px 14px;background:var(--surface);border-bottom:1px solid var(--border);
+      flex-shrink:0;
+    }
+    .channel-toggle.show{display:flex}
+    .ch-label{font-size:10px;color:var(--muted);letter-spacing:0.1em;white-space:nowrap}
+    .ch-btn{
+      flex:1;padding:9px 8px;text-align:center;
+      font-size:12px;font-weight:700;letter-spacing:0.1em;
+      border:1px solid var(--border2);border-radius:8px;
+      cursor:pointer;color:var(--text2);background:var(--surface2);
+      font-family:'JetBrains Mono',monospace;transition:all 0.15s;
+    }
+    .ch-btn.active.ecom{background:var(--sky);color:#fff;border-color:var(--sky)}
+    .ch-btn.active.retail{background:var(--yellow);color:#000;border-color:var(--yellow)}
+
     .shift-bar{
-      display:flex;background:var(--surface);
-      border-bottom:1px solid var(--border);flex-shrink:0;
-      position:relative;z-index:100;
+      display:flex;gap:0;flex-shrink:0;
+      border-bottom:1px solid var(--border);
     }
     .shift-btn{
-      flex:1;padding:7px 4px;font-family:'JetBrains Mono',monospace;
-      font-size:10px;font-weight:600;letter-spacing:0.06em;
-      text-transform:uppercase;background:transparent;border:none;
-      color:var(--muted);cursor:pointer;border-right:1px solid var(--border);
-      transition:all 0.12s;
+      flex:1;padding:8px;text-align:center;font-size:11px;
+      letter-spacing:0.08em;cursor:pointer;color:var(--muted);
+      background:transparent;border:none;
+      font-family:'JetBrains Mono',monospace;
+      border-bottom:2px solid transparent;
     }
-    .shift-btn:last-child{border-right:none}
-    .shift-btn.active{color:var(--yellow);background:rgba(242,205,26,0.06)}
-
-    /* Activity strip */
+    .shift-btn.active{color:var(--yellow);border-bottom-color:var(--yellow)}
     .act-strip{
-      display:flex;gap:8px;padding:9px 14px;overflow-x:auto;
-      flex-shrink:0;scrollbar-width:none;
-      background:var(--surface);border-bottom:1px solid var(--border);
-      position:relative;z-index:100;
+      display:flex;gap:6px;padding:8px 14px;flex-shrink:0;
+      border-bottom:1px solid var(--border);overflow-x:auto;
     }
-    .act-strip::-webkit-scrollbar{display:none}
-    .act-strip.locked{display:none}
     .act-chip{
-      background:var(--surface2);border:1px solid var(--border);
-      border-radius:20px;padding:5px 14px;font-size:11px;
-      letter-spacing:0.05em;cursor:pointer;white-space:nowrap;
-      transition:all 0.12s;flex-shrink:0;
+      padding:6px 12px;border-radius:6px;font-size:11px;
+      font-weight:700;letter-spacing:0.08em;cursor:pointer;flex-shrink:0;
+      border:none;font-family:'JetBrains Mono',monospace;
     }
-    .act-chip.active.inw{background:var(--blue);border-color:var(--blue);color:#fff;font-weight:700}
-    .act-chip.active.qcp{background:var(--green);border-color:var(--green);color:#000;font-weight:700}
-    .act-chip.active.qcf{background:var(--red);border-color:var(--red);color:#fff;font-weight:700}
-    .act-chip.active.pkg{background:#a855f7;border-color:#a855f7;color:#fff;font-weight:700}
-    .act-chip.active.rtd{background:var(--yellow);border-color:var(--yellow);color:#000;font-weight:700}
-    .act-chip.active.wks{background:var(--orange);border-color:var(--orange);color:#000;font-weight:700}
-    .act-chip.active.rto{background:#14b8a6;border-color:#14b8a6;color:#000;font-weight:700}
-
-    /* Locked badge */
-    .locked-badge{
-      display:none;align-items:center;justify-content:center;
-      gap:8px;padding:7px 16px;flex-shrink:0;
-      border-bottom:1px solid var(--border);position:relative;z-index:100;
+    .camera-wrap{
+      flex:1;position:relative;overflow:hidden;background:#000;
     }
-    .locked-badge.show{display:flex}
-    .locked-inner{
-      font-family:'Tomorrow',sans-serif;font-weight:700;font-size:12px;
-      letter-spacing:0.12em;text-transform:uppercase;
-      padding:5px 20px;border-radius:20px;
+    #reader{position:absolute;inset:0}
+    #reader video{position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover}
+    .qcp-remote-band{
+      display:none;position:absolute;top:0;left:0;right:0;z-index:20;
+      background:var(--green);color:#000;
+      padding:10px 14px;font-size:12px;font-weight:700;letter-spacing:0.06em;
+      text-align:center;
     }
-
-    /* Camera */
-    .camera-wrap{flex:1;position:relative;overflow:hidden;background:#000;min-height:120px;z-index:1}
-    #reader{position:absolute;top:0;left:0;right:0;bottom:0}
-    #reader video{position:absolute!important;top:0!important;left:0!important;width:100%!important;height:100%!important;object-fit:cover!important}
-    #reader img{display:none!important}
-    #reader canvas{display:none!important}
-    #reader__scan_region{width:100%!important;height:100%!important;position:relative!important}
-    #reader__dashboard{display:none!important}
-    #reader__scan_region img{display:none!important}
-
+    .qcp-remote-band.show{display:block}
+    .qcp-remote-band small{display:block;font-size:10px;font-weight:400;margin-top:2px;opacity:0.8}
+    .qcp-cancel-btn{
+      display:inline-block;margin-top:6px;padding:4px 12px;
+      background:rgba(0,0,0,0.2);border-radius:6px;font-size:11px;cursor:pointer;
+    }
+    /* PKG remote band — same pattern, different color */
+    .pkg-remote-band{
+      display:none;position:absolute;top:0;left:0;right:0;z-index:20;
+      background:var(--purple);color:#fff;
+      padding:10px 14px;font-size:12px;font-weight:700;letter-spacing:0.06em;
+      text-align:center;
+    }
+    .pkg-remote-band.show{display:block}
+    .pkg-remote-band small{display:block;font-size:10px;font-weight:400;margin-top:2px;opacity:0.8}
+    .pkg-cancel-btn{
+      display:inline-block;margin-top:6px;padding:4px 12px;
+      background:rgba(0,0,0,0.2);border-radius:6px;font-size:11px;cursor:pointer;
+    }
     .scan-overlay{
       position:absolute;inset:0;pointer-events:none;
-      display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;
+      display:flex;flex-direction:column;align-items:center;justify-content:center;
     }
-    .scan-frame{width:220px;height:140px;position:relative}
-    .sf-c{position:absolute;width:20px;height:20px;border-color:var(--yellow);border-style:solid}
+    .scan-frame{width:220px;height:220px;position:relative}
+    .sf-c{position:absolute;width:24px;height:24px;border-color:var(--yellow);border-style:solid}
     .sf-c.tl{top:0;left:0;border-width:3px 0 0 3px}
     .sf-c.tr{top:0;right:0;border-width:3px 3px 0 0}
     .sf-c.br{bottom:0;right:0;border-width:0 3px 3px 0}
     .sf-c.bl{bottom:0;left:0;border-width:0 0 3px 3px}
+    @keyframes beam{0%,100%{top:10%}50%{top:80%}}
     .scan-beam{
-      position:absolute;left:4px;right:4px;height:2px;
+      position:absolute;left:0;right:0;height:2px;
       background:linear-gradient(90deg,transparent,var(--yellow),transparent);
-      animation:beam 2.2s ease-in-out infinite;border-radius:1px;
+      animation:beam 2s ease-in-out infinite;
     }
-    @keyframes beam{0%{top:4px;opacity:0.9}50%{top:calc(100% - 6px);opacity:0.7}100%{top:4px;opacity:0.9}}
-    .scan-hint{font-size:10px;color:rgba(255,255,255,0.35);letter-spacing:0.15em;text-transform:uppercase}
-
-    /* QC_PASS remote scan band */
-    .qcp-remote-band{
-      display:none;position:absolute;top:0;left:0;right:0;
-      background:rgba(34,197,94,0.92);color:#000;
-      padding:12px 20px;z-index:50;pointer-events:auto;
-      font-family:'Tomorrow',sans-serif;font-weight:700;
-      font-size:13px;letter-spacing:0.08em;text-align:center;
-      text-transform:uppercase;
+    .scan-hint{
+      margin-top:20px;font-size:11px;color:rgba(255,255,255,0.5);
+      letter-spacing:0.12em;text-align:center;
     }
-    .qcp-remote-band.show{display:block}
-    .qcp-remote-band small{
-      display:block;font-size:10px;font-weight:400;
-      font-family:'JetBrains Mono',monospace;margin-top:3px;
-      opacity:0.7;letter-spacing:0.05em;
-    }
-    .qcp-cancel-btn{
-      display:inline-block;margin-top:6px;padding:4px 14px;
-      background:rgba(0,0,0,0.15);border-radius:20px;
-      font-size:10px;cursor:pointer;letter-spacing:0.06em;
-    }
-
-    /* RTD tally */
     .tally-panel{
-      display:none;background:var(--surface);border-top:1px solid var(--border);
-      padding:9px 14px;flex-shrink:0;position:relative;z-index:100;
+      display:none;padding:10px 14px;
+      background:var(--surface);border-top:1px solid var(--border);flex-shrink:0;
     }
     .tally-panel.show{display:block}
-    .tally-header{font-size:9px;letter-spacing:0.2em;text-transform:uppercase;color:var(--muted);margin-bottom:6px}
-    .tally-grid{display:flex;flex-direction:column;gap:5px;max-height:90px;overflow-y:auto}
-    .tally-row{display:flex;align-items:center;gap:8px}
-    .tally-name{font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .tally-ean{font-size:10px;color:var(--muted)}
-    .tally-count{font-family:'Tomorrow',sans-serif;font-weight:700;font-size:15px;color:var(--yellow);flex-shrink:0}
-
-    /* Log feed */
-    .log-feed{
-      height:160px;overflow-y:auto;background:var(--bg);flex-shrink:0;
-      scrollbar-width:thin;scrollbar-color:var(--border) transparent;
-      position:relative;z-index:100;
+    .tally-header{font-size:10px;color:var(--muted);letter-spacing:0.1em;margin-bottom:8px}
+    .tally-grid{display:flex;gap:8px;flex-wrap:wrap}
+    .tally-item{
+      padding:6px 10px;background:var(--surface2);border-radius:6px;
+      font-size:11px;display:flex;gap:6px;align-items:center;
     }
-    .log-empty{display:flex;align-items:center;justify-content:100%;height:100%;font-size:11px;color:var(--muted);letter-spacing:0.12em;text-transform:uppercase;justify-content:center}
-    .log-item{display:flex;align-items:flex-start;gap:9px;padding:8px 14px;border-bottom:1px solid var(--border);animation:rowIn 0.15s ease}
-    @keyframes rowIn{from{opacity:0;transform:translateY(-5px)}to{opacity:1;transform:translateY(0)}}
-    .log-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:4px}
+    .tally-count{font-weight:700;color:var(--yellow)}
+    .log-feed{
+      height:120px;overflow-y:auto;flex-shrink:0;
+      background:var(--surface2);border-top:1px solid var(--border);
+    }
+    .log-empty{
+      padding:20px;text-align:center;font-size:11px;
+      color:var(--muted);letter-spacing:0.1em;
+    }
+    .log-item{
+      display:flex;align-items:flex-start;gap:10px;
+      padding:8px 14px;border-bottom:1px solid var(--border);
+    }
+    .log-dot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0}
     .log-dot.ok{background:var(--green)}
     .log-dot.err{background:var(--red)}
-    .log-dot.warn{background:var(--orange)}
-    .log-dot.pending{background:var(--muted)}
+    .log-dot.pending{background:var(--orange)}
     .log-body{flex:1;min-width:0}
-    .log-top{display:flex;align-items:center;gap:8px}
-    .log-bc{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
-    .log-product{font-size:11px;color:var(--text2);margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .log-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+    .log-bc{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+    .log-tag{font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:0.08em;flex-shrink:0}
+    .log-tag.inw{background:var(--blue);color:#fff}
+    .log-tag.qcp{background:var(--green);color:#000}
+    .log-tag.qcf{background:var(--red);color:#fff}
+    .log-tag.wks{background:var(--orange);color:#000}
+    .log-tag.rto{background:var(--teal);color:#000}
+    .log-tag.pkg{background:var(--purple);color:#fff}
+    .log-tag.rte{background:var(--sky);color:#fff}
+    .log-tag.rtr{background:var(--yellow);color:#000}
     .log-meta{font-size:10px;color:var(--muted);margin-top:2px}
-    .log-tag{font-size:10px;border-radius:4px;padding:2px 7px;flex-shrink:0;font-weight:600;letter-spacing:0.04em}
-    .log-tag.inw{color:var(--blue);background:rgba(33,60,226,0.15)}
-    .log-tag.qcp{color:var(--green);background:rgba(34,197,94,0.12)}
-    .log-tag.qcf{color:var(--red);background:rgba(222,42,42,0.15)}
-    .log-tag.pkg{color:#a855f7;background:rgba(168,85,247,0.12)}
-    .log-tag.rtd{color:var(--yellow);background:rgba(242,205,26,0.12)}
-    .log-tag.wks{color:var(--orange);background:rgba(245,158,11,0.12)}
-    .log-tag.rto{color:#14b8a6;background:rgba(20,184,166,0.12)}
-    .log-tag.err{color:var(--red);background:rgba(222,42,42,0.15)}
-    .log-tag.dup{color:var(--orange);background:rgba(245,158,11,0.12)}
 
-    /* ── DEFECT MODAL ── */
+    /* ── PKG RESULT OVERLAY ── */
+    .pkg-result{
+      display:none;position:absolute;inset:0;z-index:50;
+      background:rgba(8,8,8,0.97);
+      flex-direction:column;align-items:center;justify-content:center;
+      gap:14px;padding:32px 24px;
+    }
+    .pkg-result.show{display:flex}
+    .pkg-result-icon{font-size:52px;line-height:1}
+    .pkg-result-title{
+      font-size:11px;color:var(--green);letter-spacing:0.18em;
+      text-transform:uppercase;
+    }
+    .pkg-result-label{
+      font-size:18px;font-weight:700;color:var(--yellow);
+      letter-spacing:0.04em;background:var(--surface);
+      border:1px solid var(--border2);padding:12px 20px;
+      border-radius:8px;text-align:center;width:100%;
+    }
+    .pkg-result-channel{
+      font-size:12px;font-weight:700;padding:5px 16px;
+      border-radius:6px;letter-spacing:0.12em;
+    }
+    .pkg-result-channel.ecom{background:var(--sky);color:#fff}
+    .pkg-result-channel.retail{background:var(--yellow);color:#000}
+    .pkg-result-product{
+      font-size:11px;color:var(--text2);text-align:center;
+      letter-spacing:0.04em;
+    }
+    .pkg-result-sub{
+      font-size:10px;color:var(--muted);letter-spacing:0.06em;
+      text-align:center;line-height:1.5;
+    }
+    .pkg-result-done{
+      margin-top:4px;padding:16px 40px;
+      background:var(--green);color:#000;
+      font-weight:900;font-size:13px;letter-spacing:0.1em;
+      border:none;border-radius:12px;cursor:pointer;
+      font-family:'JetBrains Mono',monospace;width:100%;
+    }
+
+    /* ── MODALS ── */
     .modal-backdrop{
-      display:none;position:fixed;inset:0;
-      background:rgba(0,0,0,0.88);z-index:500;
-      flex-direction:column;
+      display:none;position:fixed;inset:0;z-index:100;
+      background:rgba(0,0,0,0.85);
+      align-items:flex-end;justify-content:center;
     }
     .modal-backdrop.show{display:flex}
-    .defect-modal{flex:1;display:flex;flex-direction:column;overflow:hidden}
-    .defect-header{
-      padding:16px 20px;background:var(--surface);
-      border-bottom:1px solid var(--border);flex-shrink:0;
+    .defect-modal{
+      width:100%;max-height:85vh;background:var(--surface);
+      border-radius:20px 20px 0 0;display:flex;flex-direction:column;
+      border-top:1px solid var(--border2);
     }
-    .defect-title{
-      font-family:'Tomorrow',sans-serif;font-weight:700;font-size:14px;
-      text-transform:uppercase;letter-spacing:0.1em;color:var(--red);
-    }
-    .defect-upc{font-size:11px;color:var(--muted);margin-top:3px;font-family:'JetBrains Mono',monospace}
-    .defect-body{flex:1;overflow-y:auto;padding:16px 20px}
-    .defect-cat{margin-bottom:20px}
+    .defect-header{padding:18px 20px 14px;border-bottom:1px solid var(--border)}
+    .defect-title{font-size:14px;font-weight:700;letter-spacing:0.06em}
+    .defect-upc{font-size:11px;color:var(--muted);margin-top:4px;letter-spacing:0.04em}
+    .defect-body{flex:1;overflow-y:auto;padding:12px 16px}
+    .defect-cat{margin-bottom:16px}
     .defect-cat-label{
-      font-size:10px;letter-spacing:0.2em;text-transform:uppercase;
-      color:var(--muted);margin-bottom:8px;
-      display:flex;align-items:center;gap:8px;
+      font-size:9px;color:var(--muted);letter-spacing:0.15em;
+      text-transform:uppercase;margin-bottom:8px;
     }
-    .defect-cat-label::after{content:'';flex:1;height:1px;background:var(--border)}
     .defect-options{display:flex;flex-direction:column;gap:6px}
     .defect-option{
-      display:flex;align-items:center;gap:12px;
-      background:var(--surface);border:1px solid var(--border2);
-      border-radius:8px;padding:11px 14px;cursor:pointer;
-      transition:all 0.12s;
+      display:flex;align-items:center;gap:10px;
+      padding:10px 12px;background:var(--surface2);
+      border:1px solid var(--border);border-radius:8px;cursor:pointer;
     }
-    .defect-option.selected{border-color:var(--red);background:rgba(222,42,42,0.08)}
+    .defect-option.selected{border-color:var(--red);background:rgba(222,42,42,0.1)}
     .defect-check{
-      width:20px;height:20px;border-radius:4px;
-      border:2px solid var(--border2);flex-shrink:0;
-      display:flex;align-items:center;justify-content:center;
-      transition:all 0.12s;font-size:12px;
+      width:18px;height:18px;border-radius:4px;border:2px solid var(--border2);
+      flex-shrink:0;display:flex;align-items:center;justify-content:center;
     }
-    .defect-option.selected .defect-check{background:var(--red);border-color:var(--red);color:#fff}
-    .defect-option-info{flex:1}
-    .defect-code{font-size:10px;color:var(--muted);margin-bottom:2px;letter-spacing:0.06em}
-    .defect-name{font-size:13px;color:var(--text)}
-    .defect-sev{font-size:10px;padding:1px 8px;border-radius:20px;flex-shrink:0}
-    .sev-critical{background:rgba(222,42,42,0.2);color:var(--red)}
-    .sev-major{background:rgba(245,158,11,0.2);color:var(--orange)}
-    .sev-minor{background:rgba(34,197,94,0.15);color:var(--green)}
+    .defect-option.selected .defect-check{background:var(--red);border-color:var(--red)}
+    .defect-option.selected .defect-check::after{content:'✓';color:#fff;font-size:11px;font-weight:700}
+    .defect-option-info{flex:1;min-width:0}
+    .defect-code{font-size:10px;color:var(--muted);letter-spacing:0.06em}
+    .defect-name{font-size:12px;font-weight:600;margin-top:1px}
+    .defect-sev{font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:0.06em;flex-shrink:0}
+    .sev-critical{background:var(--red);color:#fff}
+    .sev-major{background:var(--orange);color:#000}
+    .sev-minor{background:var(--surface3);color:var(--text2)}
     .sev-cosmetic{background:var(--surface3);color:var(--muted)}
+    .defect-count{
+      padding:10px 20px;font-size:12px;
+      color:var(--text2);border-top:1px solid var(--border);
+      letter-spacing:0.06em;
+    }
     .defect-footer{
-      padding:16px 20px;background:var(--surface);
-      border-top:1px solid var(--border);flex-shrink:0;display:flex;gap:10px;
+      display:flex;gap:8px;padding:12px 16px;
+      border-top:1px solid var(--border);
     }
     .defect-cancel{
-      flex:1;padding:14px;border-radius:10px;border:1px solid var(--border2);
-      background:transparent;color:var(--text2);font-family:'JetBrains Mono',monospace;
-      font-size:12px;cursor:pointer;letter-spacing:0.06em;
+      flex:1;padding:14px;background:var(--surface2);
+      border:1px solid var(--border2);border-radius:10px;
+      font-size:12px;letter-spacing:0.08em;cursor:pointer;
+      color:var(--text2);font-family:'JetBrains Mono',monospace;
     }
     .defect-submit{
-      flex:2;padding:14px;border-radius:10px;border:none;
-      background:var(--red);color:#fff;font-family:'Tomorrow',sans-serif;
-      font-weight:700;font-size:13px;letter-spacing:0.15em;text-transform:uppercase;
-      cursor:pointer;transition:opacity 0.15s;
+      flex:2;padding:14px;background:var(--red);color:#fff;
+      border:none;border-radius:10px;font-weight:700;
+      font-size:12px;letter-spacing:0.08em;cursor:pointer;
+      font-family:'JetBrains Mono',monospace;
     }
-    .defect-submit:disabled{opacity:0.4;cursor:not-allowed}
-    .defect-count{
-      font-size:11px;color:var(--muted);text-align:center;
-      padding:8px 0;flex-shrink:0;
-    }
+    .defect-submit:disabled{background:var(--surface3);color:var(--muted);cursor:not-allowed}
 
-    /* WKS sub-activity select */
+    /* WKS modal */
     .wks-modal{
-      display:none;position:fixed;inset:0;
-      background:rgba(0,0,0,0.88);z-index:500;
-      align-items:center;justify-content:center;
+      display:none;position:fixed;inset:0;z-index:100;
+      background:rgba(0,0,0,0.85);align-items:center;justify-content:center;
     }
     .wks-modal.show{display:flex}
     .wks-card{
-      background:var(--surface);border:1px solid var(--border2);
-      border-radius:16px;padding:28px 24px;width:calc(100% - 48px);max-width:320px;
+      width:calc(100% - 40px);background:var(--surface);
+      border-radius:16px;padding:24px;border:1px solid var(--border2);
     }
-    .wks-title{
-      font-family:'Tomorrow',sans-serif;font-weight:700;font-size:14px;
-      text-transform:uppercase;letter-spacing:0.1em;color:var(--orange);margin-bottom:20px;
-    }
-    .wks-options{display:flex;flex-direction:column;gap:10px}
+    .wks-title{font-size:13px;font-weight:700;letter-spacing:0.06em;margin-bottom:16px;text-align:center}
+    .wks-options{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
     .wks-opt{
-      padding:16px;border-radius:10px;border:1px solid var(--border2);
-      background:var(--surface2);cursor:pointer;
-      font-family:'Tomorrow',sans-serif;font-weight:700;font-size:13px;
-      letter-spacing:0.1em;text-transform:uppercase;transition:all 0.12s;
+      padding:16px;border-radius:10px;font-size:12px;
+      font-weight:700;letter-spacing:0.06em;cursor:pointer;text-align:center;
     }
-    .wks-opt.in{color:var(--orange);border-color:rgba(245,158,11,0.4)}
-    .wks-opt.out{color:var(--green);border-color:rgba(34,197,94,0.4)}
-    .wks-opt:active{opacity:0.8}
+    .wks-opt.in{background:var(--orange);color:#000}
+    .wks-opt.out{background:var(--green);color:#000}
     .wks-cancel{
-      margin-top:12px;padding:12px;width:100%;border-radius:10px;
-      border:1px solid var(--border2);background:transparent;
-      color:var(--muted);font-family:'JetBrains Mono',monospace;
-      font-size:11px;cursor:pointer;letter-spacing:0.06em;
+      width:100%;padding:12px;background:var(--surface2);
+      border:1px solid var(--border2);border-radius:8px;
+      font-size:11px;letter-spacing:0.08em;cursor:pointer;
+      color:var(--text2);font-family:'JetBrains Mono',monospace;
     }
 
-    /* PIN modal */
-    .pin-backdrop{
-      display:none;position:fixed;inset:0;background:rgba(0,0,0,0.88);
-      z-index:600;align-items:center;justify-content:center;
+    /* flash / reject / toast */
+    .flash{
+      display:none;position:fixed;inset:0;z-index:200;pointer-events:none;
+      opacity:0;transition:opacity 0.08s;
     }
-    .pin-backdrop.show{display:flex}
-    .pin-card{
-      background:var(--surface);border:1px solid var(--border2);
-      border-radius:16px;padding:32px 28px;width:calc(100% - 48px);max-width:300px;
-    }
-    .pin-title{font-family:'Tomorrow',sans-serif;font-weight:700;font-size:15px;text-transform:uppercase;letter-spacing:0.08em;margin-bottom:5px}
-    .pin-sub{font-size:11px;color:var(--muted);margin-bottom:20px}
-    .pin-dots{display:flex;gap:12px;justify-content:center;margin-bottom:24px}
-    .pin-dot{width:14px;height:14px;border-radius:50%;border:2px solid var(--border2);transition:all 0.1s}
-    .pin-dot.filled{background:var(--yellow);border-color:var(--yellow)}
-    .numpad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
-    .num-key{
-      background:var(--surface2);border:1px solid var(--border);
-      border-radius:10px;padding:16px;font-size:18px;font-weight:600;
-      cursor:pointer;text-align:center;transition:background 0.1s;
-    }
-    .num-key:active{background:var(--surface3)}
-    .num-key.del{font-size:14px;color:var(--text2)}
-    .num-key.empty{visibility:hidden}
-    .pin-error{font-size:11px;color:var(--red);text-align:center;margin-top:12px;min-height:16px}
-
-    /* Flash + reject + toast */
-    .flash{position:fixed;inset:0;pointer-events:none;z-index:300;opacity:0;transition:opacity 0.08s}
-    .flash.ok{background:rgba(34,197,94,0.18)}
-    .flash.err{background:rgba(222,42,42,0.32)}
-    .flash.warn{background:rgba(245,158,11,0.22)}
-    .flash.show{opacity:1}
-
+    .flash.ok{background:rgba(34,197,94,0.25)}
+    .flash.err{background:rgba(222,42,42,0.35)}
+    .flash.warn{background:rgba(245,158,11,0.25)}
+    .flash.show{display:block;opacity:1}
     .reject-screen{
-      display:none;position:fixed;inset:0;background:#1a0000;z-index:350;
-      flex-direction:column;align-items:center;justify-content:center;gap:10px;
+      display:none;position:fixed;inset:0;z-index:300;
+      background:rgba(8,8,8,0.97);
+      flex-direction:column;align-items:center;justify-content:center;
+      gap:14px;
     }
     .reject-screen.show{display:flex}
-    .reject-icon{font-size:64px;line-height:1}
-    .reject-title{font-family:'Tomorrow',sans-serif;font-weight:900;font-size:26px;color:var(--red);text-transform:uppercase;letter-spacing:0.05em}
-    .reject-msg{font-size:13px;color:rgba(255,255,255,0.45);text-align:center;padding:0 20px}
+    .reject-icon{font-size:52px;line-height:1}
+    .reject-title{font-size:18px;font-weight:900;letter-spacing:0.06em;color:var(--red)}
+    .reject-msg{font-size:12px;color:var(--text2);letter-spacing:0.04em;text-align:center;padding:0 24px}
     .reject-sub{font-size:10px;color:rgba(255,255,255,0.25);letter-spacing:0.1em}
-
     .toast{
       position:fixed;top:14px;left:50%;
       transform:translateX(-50%) translateY(-80px);
@@ -641,20 +566,23 @@
   </div>
 
   <div class="setup-body">
-
     <div class="sec-div">Station</div>
     <div class="field">
       <div class="seg-group" id="s_stationGroup">
         <div class="seg-row">
-          <div class="seg-btn" data-val="Assembly" data-code="INW"     data-shared="0" onclick="pickStation(this)">Assembly</div>
-          <div class="seg-btn" data-val="QC Pass"  data-code="QC_PASS" data-shared="0" onclick="pickStation(this)">QC Pass</div>
+          <div class="seg-btn" data-val="Assembly"     data-code="INW"     data-shared="0" onclick="pickStation(this)">Assembly</div>
+          <div class="seg-btn" data-val="QC Pass"      data-code="QC_PASS" data-shared="0" onclick="pickStation(this)">QC Pass</div>
         </div>
         <div class="seg-row">
-          <div class="seg-btn" data-val="QC Fail"  data-code="QC_FAIL" data-shared="0" onclick="pickStation(this)">QC Fail</div>
-          <div class="seg-btn" data-val="Workshop" data-code="WKS"     data-shared="1" onclick="pickStation(this)">Workshop</div>
+          <div class="seg-btn" data-val="QC Fail"      data-code="QC_FAIL" data-shared="0" onclick="pickStation(this)">QC Fail</div>
+          <div class="seg-btn" data-val="Workshop"     data-code="WKS"     data-shared="1" onclick="pickStation(this)">Workshop</div>
         </div>
         <div class="seg-row">
-          <div class="seg-btn" data-val="RTO In"   data-code="RTO_IN"  data-shared="1" onclick="pickStation(this)">RTO In</div>
+          <div class="seg-btn" data-val="Packaging"    data-code="PKG"     data-shared="1" onclick="pickStation(this)">Packaging</div>
+          <div class="seg-btn" data-val="Dispatch Out" data-code="PKG_OUT" data-shared="1" onclick="pickStation(this)">Dispatch Out</div>
+        </div>
+        <div class="seg-row">
+          <div class="seg-btn" data-val="RTO In"       data-code="RTO_IN"  data-shared="1" onclick="pickStation(this)">RTO In</div>
         </div>
       </div>
     </div>
@@ -729,6 +657,13 @@
     <div class="op-strip-shift" id="scannerShift">Regular</div>
   </div>
 
+  <!-- Channel toggle — visible at PKG station only -->
+  <div class="channel-toggle" id="channelToggle">
+    <div class="ch-label">CHANNEL</div>
+    <div class="ch-btn active ecom" id="chEcom" onclick="setChannel('ecom',this)">📦 ECOM</div>
+    <div class="ch-btn retail" id="chRetail" onclick="setChannel('retail',this)">🏪 RETAIL</div>
+  </div>
+
   <div class="shift-bar">
     <button class="shift-btn active" data-shift="Regular" onclick="setShift('Regular',this)">Regular</button>
     <button class="shift-btn" data-shift="OT" onclick="setShift('OT',this)">OT</button>
@@ -739,12 +674,21 @@
 
   <div class="camera-wrap">
     <div id="reader"></div>
-    <!-- QC_PASS remote scan prompt (shown during two-scan pairing flow) -->
+
+    <!-- QC_PASS remote scan prompt -->
     <div class="qcp-remote-band" id="qcpRemoteBand">
       📡 NOW SCAN REMOTE CONTROL
       <small id="qcpRemoteProduct"></small>
       <div class="qcp-cancel-btn" onclick="cancelQcPassFlow()">✕ Cancel</div>
     </div>
+
+    <!-- PKG remote scan prompt -->
+    <div class="pkg-remote-band" id="pkgRemoteBand">
+      📦 NOW SCAN REMOTE CONTROL
+      <small id="pkgRemoteProduct"></small>
+      <div class="pkg-cancel-btn" onclick="cancelPkgFlow()">✕ Cancel</div>
+    </div>
+
     <div class="scan-overlay">
       <div class="scan-frame">
         <div class="sf-c tl"></div><div class="sf-c tr"></div>
@@ -753,10 +697,21 @@
       </div>
       <div class="scan-hint" id="scanHint">ALIGN QR CODE</div>
     </div>
+
+    <!-- PKG result overlay — shown after successful pair verify -->
+    <div class="pkg-result" id="pkgResult">
+      <div class="pkg-result-icon">✅</div>
+      <div class="pkg-result-title">PAIR VERIFIED — LABEL READY</div>
+      <div class="pkg-result-label" id="pkgResultLabel">—</div>
+      <div class="pkg-result-channel" id="pkgResultChannel">ECOM</div>
+      <div class="pkg-result-product" id="pkgResultProduct">—</div>
+      <div class="pkg-result-sub">Label sent to printer · Apply to box before sealing</div>
+      <button class="pkg-result-done" onclick="clearPkgResult()">NEXT UNIT →</button>
+    </div>
   </div>
 
   <div class="tally-panel" id="tallyPanel">
-    <div class="tally-header">Session Tally — RTD</div>
+    <div class="tally-header">Session Tally</div>
     <div class="tally-grid" id="tallyGrid"></div>
   </div>
 
@@ -795,8 +750,6 @@
   </div>
 </div>
 
-
-
 <div class="flash" id="flash"></div>
 <div class="reject-screen" id="rejectScreen">
   <div class="reject-icon">🚫</div>
@@ -818,30 +771,38 @@ const DEFAULT_SUPABASE_KEY = 'sb_publishable_1Dd-r3h9Mou2Wqgn6t24Dw_lmWdBtLh';
 // STATE
 // ══════════════════════════════════════════════════════
 let cfg = {};
-let currentOperator = null;   // { id: UUID, name, role, line }
-let operatorUUID = null;       // UUID stored in memory from scannerLogin
-let currentSession = null;
-let activeActivity = 'INW';
-let currentShift = 'Regular';
-let scanQueue = [];
-let isOnline = navigator.onLine;
-let qrScanner = null;
-let loginScanner = null;
-let lastBarcode = '';
-let lastScanTs = 0;
-const DEBOUNCE_MS = 2000;
-let defectMaster = {};         // keyed by code
-let operators = [];
-let rtdTally = {};
-let pendingDefectUpc = null;
-let pendingDefectComponent = null;  // 'car' | 'remote' | null
-let pendingQcPassCar = null;        // UPC string — set during two-scan pairing flow
-let pendingQcPassProduct = null;    // display name for remote prompt
-let pendingWksScan = null;
-let pinBuffer = '';
-let pinResolve = null;
+let currentOperator = null;
+let operatorUUID    = null;
+let currentSession  = null;
+let activeActivity  = 'INW';
+let currentShift    = 'Regular';
+let scanQueue       = [];
+let isOnline        = navigator.onLine;
+let qrScanner       = null;
+let loginScanner    = null;
+let lastBarcode     = '';
+let lastScanTs      = 0;
+const DEBOUNCE_MS   = 2000;
+let defectMaster    = {};
+let operators       = [];
+let rtdTally        = {};
+
+// QC_PASS state
+let pendingQcPassCar     = null;
+let pendingQcPassProduct = null;
+
+// PKG state
+let pendingPkgCar     = null;
+let pkgChannel        = 'ecom';
+let pkgResultShowing  = false;
+
+// WKS / Defect state
+let pendingDefectUpc       = null;
+let pendingDefectComponent = null;
+let pendingWksScan         = null;
+
 let currentCamTrack = null;
-let scanLoopActive = false;
+let scanLoopActive  = false;
 
 // ══════════════════════════════════════════════════════
 // WORKER API
@@ -913,12 +874,13 @@ async function sbPost(table, body) {
 window.addEventListener('load', async () => {
   const saved = localStorage.getItem('lot_cfg');
   if (saved) cfg = JSON.parse(saved);
-  scanQueue = JSON.parse(localStorage.getItem('lot_queue') || '[]');
+  scanQueue    = JSON.parse(localStorage.getItem('lot_queue') || '[]');
   currentShift = cfg.shift || 'Regular';
+  pkgChannel   = cfg.pkgChannel || 'ecom';
 
   loadMasters();
 
-  window.addEventListener('online', onOnline);
+  window.addEventListener('online',  onOnline);
   window.addEventListener('offline', onOffline);
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
@@ -926,18 +888,15 @@ window.addEventListener('load', async () => {
 });
 
 async function loadMasters() {
-  // Load defect master for modal
   try {
     const cached = localStorage.getItem('lot_defect_master');
     if (cached) defectMaster = JSON.parse(cached);
-
     const defects = await sbGet('defect_master', 'is_active=eq.true&order=category.asc,code.asc');
     defectMaster = {};
     defects.forEach(d => { defectMaster[d.code] = d; });
     localStorage.setItem('lot_defect_master', JSON.stringify(defectMaster));
   } catch(e) {}
 
-  // Load operators for manual select
   try {
     const ops = await sbGet('operators', 'is_active=eq.true&order=name.asc');
     operators = ops;
@@ -982,12 +941,12 @@ function startLoginCamera() {
     function loginLoop() {
       if (!loginLoopActive) return;
       if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width = video.videoWidth || 320;
+        canvas.width  = video.videoWidth  || 320;
         canvas.height = video.videoHeight || 240;
         ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
         try {
           const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-          const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+          const binaryBitmap    = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
           const result = reader.decodeBitmap(binaryBitmap);
           if (result) {
             loginLoopActive = false;
@@ -1017,7 +976,6 @@ async function onLoginScan(raw) {
   const status = document.getElementById('loginStatus');
 
   if (!cfg.deviceCode) {
-    // No device configured yet — try local operator lookup for first-time setup
     const op = operators.find(o => o.qr_code === raw);
     if (op) { loginOperator(op); return; }
     status.textContent = 'Set device code in settings first';
@@ -1030,12 +988,10 @@ async function onLoginScan(raw) {
   status.className = 'login-status';
 
   const result = await workerPost('scannerLogin', {
-    qr_code: raw,
-    device_code: cfg.deviceCode
+    qr_code: raw, device_code: cfg.deviceCode
   });
 
   if (!result.ok) {
-    // Try local fallback (offline)
     const op = operators.find(o => o.qr_code === raw);
     if (op) { loginOperator(op); return; }
     status.textContent = result.error || 'Login failed';
@@ -1056,9 +1012,7 @@ async function onLoginScan(raw) {
 
 function loginOperator(op) {
   currentOperator = op;
-  // Fallback for manual select (operator object has .id from sbGet)
   if (!operatorUUID) operatorUUID = op.id;
-
   const status = document.getElementById('loginStatus');
   status.textContent = `Welcome, ${op.name}`;
   status.className = 'login-status ok';
@@ -1092,17 +1046,15 @@ function goToSetup() {
     loginScanner = null;
   }
   const initials = currentOperator.name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
-  document.getElementById('setupAvatar').textContent = initials;
-  document.getElementById('setupOpName').textContent = currentOperator.name;
-  document.getElementById('setupOpRole').textContent = currentOperator.role;
+  document.getElementById('setupAvatar').textContent  = initials;
+  document.getElementById('setupOpName').textContent  = currentOperator.name;
+  document.getElementById('setupOpRole').textContent  = currentOperator.role;
 
-  // Pre-select saved station
   if (cfg.stationLabel) {
     document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => {
       const match = b.dataset.val === cfg.stationLabel;
       b.classList.toggle('on', match);
     });
-    // Show/hide line field based on saved station
     const savedBtn = document.querySelector(`#s_stationGroup .seg-btn[data-val="${cfg.stationLabel}"]`);
     if (savedBtn) {
       const isShared = savedBtn.dataset.shared === '1';
@@ -1110,14 +1062,12 @@ function goToSetup() {
     }
   }
 
-  // Pre-select saved line
   if (cfg.line && cfg.line !== 'SHARED') {
     document.querySelectorAll('#s_lineField .seg-btn').forEach(b => {
       b.classList.toggle('on', b.dataset.val === cfg.line);
     });
   }
 
-  // Camera
   document.querySelectorAll('.seg-btn[data-val="environment"], .seg-btn[data-val="user"]').forEach(b => {
     b.classList.toggle('on', b.dataset.val === (cfg.camFacing || 'environment'));
   });
@@ -1135,7 +1085,11 @@ function goToSetup() {
 function pickStation(el) {
   document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => b.classList.remove('on'));
   el.classList.add('on');
-  document.getElementById('s_stationCustomWrap').classList.toggle('show', el.dataset.val === 'Custom');
+  const isShared = el.dataset.shared === '1';
+  document.getElementById('s_lineField').style.display = isShared ? 'none' : '';
+  if (isShared) {
+    document.querySelectorAll('#s_lineField .seg-btn').forEach(b => b.classList.remove('on'));
+  }
 }
 
 function pickLine(el) {
@@ -1148,28 +1102,16 @@ function pickCam(el) {
   el.classList.add('on');
 }
 
-function toggleChip(el) { el.classList.toggle('on'); }
-
 // Station → activity and display mapping
 const STATION_DEFS = {
-  INW:     { label: 'Assembly', activity: 'INW',     hint: 'SCAN LOT UPC — LOT-XXXXXXXX' },
-  QC_PASS: { label: 'QC Pass',  activity: 'QC_PASS', hint: 'SCAN LOT UPC (CAR FIRST)' },
-  QC_FAIL: { label: 'QC Fail',  activity: 'QC_FAIL', hint: 'SCAN LOT UPC — DEFECT SELECT FOLLOWS' },
-  WKS:     { label: 'Workshop', activity: 'WKS',     hint: 'SCAN LOT UPC' },
-  RTO_IN:  { label: 'RTO In',   activity: 'RTO_IN',  hint: 'SCAN LOT UPC OR EAN' },
+  INW:     { label: 'Assembly',     activity: 'INW',     hint: 'SCAN LOT UPC — LOT-XXXXXXXX' },
+  QC_PASS: { label: 'QC Pass',      activity: 'QC_PASS', hint: 'SCAN LOT UPC (CAR FIRST)' },
+  QC_FAIL: { label: 'QC Fail',      activity: 'QC_FAIL', hint: 'SCAN LOT UPC — DEFECT SELECT FOLLOWS' },
+  WKS:     { label: 'Workshop',     activity: 'WKS',     hint: 'SCAN LOT UPC' },
+  PKG:     { label: 'Packaging',    activity: 'PKG',     hint: 'SCAN CAR UPC FIRST' },
+  PKG_OUT: { label: 'Dispatch Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
+  RTO_IN:  { label: 'RTO In',       activity: 'RTO_IN',  hint: 'SCAN LOT UPC OR EAN' },
 };
-
-function pickStation(el) {
-  document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => b.classList.remove('on'));
-  el.classList.add('on');
-  // Hide line selector for shared stations
-  const isShared = el.dataset.shared === '1';
-  document.getElementById('s_lineField').style.display = isShared ? 'none' : '';
-  if (isShared) {
-    // Clear any line selection — will use SHARED
-    document.querySelectorAll('#s_lineField .seg-btn').forEach(b => b.classList.remove('on'));
-  }
-}
 
 async function saveSetup() {
   const stationEl = document.querySelector('#s_stationGroup .seg-btn.on');
@@ -1183,7 +1125,6 @@ async function saveSetup() {
 
   const line = isShared ? 'SHARED' : lineEl.dataset.val;
 
-  // Look up device from DB
   const statusEl = document.getElementById('setupStatus');
   statusEl.textContent = 'Looking up device...';
   statusEl.style.color = 'var(--text2)';
@@ -1199,8 +1140,8 @@ async function saveSetup() {
     }
 
     const device = devices[0];
-    const camEl = document.querySelector('.seg-btn.on[data-val="environment"]') ||
-                  document.querySelector('.seg-btn.on[data-val="user"]');
+    const camEl  = document.querySelector('.seg-btn.on[data-val="environment"]') ||
+                   document.querySelector('.seg-btn.on[data-val="user"]');
 
     cfg = {
       url:          DEFAULT_SUPABASE_URL,
@@ -1213,6 +1154,7 @@ async function saveSetup() {
       shift:        currentShift,
       camFacing:    camEl ? camEl.dataset.val : 'environment',
       torchEnabled: document.getElementById('s_torch').checked,
+      pkgChannel:   pkgChannel,
     };
 
     localStorage.setItem('lot_cfg', JSON.stringify(cfg));
@@ -1241,13 +1183,13 @@ async function startSession() {
       if (devs && devs.length) deviceId = devs[0].id;
     }
     const sess = await sbPost('operator_sessions', {
-      operator_id:  currentOperator.id,
-      device_id:    deviceId,
-      shift_type:   currentShift,
-      line:         cfg.line,
-      station:      cfg.station,
-      shift_start:  new Date().toISOString(),
-      is_active:    true
+      operator_id: currentOperator.id,
+      device_id:   deviceId,
+      shift_type:  currentShift,
+      line:        cfg.line,
+      station:     cfg.stationCode,
+      shift_start: new Date().toISOString(),
+      is_active:   true
     });
     currentSession = sess[0];
   } catch(e) {}
@@ -1260,9 +1202,8 @@ function bootScanner() {
   document.getElementById('setupScreen').classList.remove('active');
   document.getElementById('scannerScreen').classList.add('active');
 
-  // Top bar: show station label and line
   const stationDef = STATION_DEFS[cfg.stationCode] || {};
-  document.getElementById('tb_line').textContent = cfg.line + ' · ' + currentShift;
+  document.getElementById('tb_line').textContent    = cfg.line + ' · ' + currentShift;
   document.getElementById('tb_station').textContent = stationDef.label || cfg.stationCode;
 
   const initials = currentOperator
@@ -1270,28 +1211,46 @@ function bootScanner() {
     : '?';
   document.getElementById('scannerAvatar').textContent = initials;
   document.getElementById('scannerOpName').textContent = currentOperator ? currentOperator.name : '—';
-  document.getElementById('scannerShift').textContent = currentShift;
+  document.getElementById('scannerShift').textContent  = currentShift;
+
+  // Channel toggle — show only at PKG
+  const isPkg = cfg.activity === 'PKG';
+  document.getElementById('channelToggle').classList.toggle('show', isPkg);
+  if (isPkg) {
+    pkgChannel = cfg.pkgChannel || 'ecom';
+    document.getElementById('chEcom').classList.toggle('active', pkgChannel === 'ecom');
+    document.getElementById('chRetail').classList.toggle('active', pkgChannel === 'retail');
+  }
+
+  // Tally — show at PKG_OUT
+  document.getElementById('tallyPanel').classList.toggle('show', cfg.activity === 'PKG_OUT');
 
   setShift(currentShift, document.querySelector(`.shift-btn[data-shift="${currentShift}"]`), true);
   updateScanHint();
   updateQueueBadge();
-  updateTallyVisibility();
   initCamera();
 }
 
-// buildActivityUI kept as no-op for any residual calls
 function buildActivityUI() {}
 
 function actClass(act) {
-  const m = {INW:'inw',QC_PASS:'qcp',QC_FAIL:'qcf',WKS_IN:'wks',WKS_OUT:'wks',RTO_IN:'rto'};
+  const m = {
+    INW:'inw', QC_PASS:'qcp', QC_FAIL:'qcf',
+    WKS_IN:'wks', WKS_OUT:'wks', RTO_IN:'rto',
+    PKG:'pkg', PKG_OUT:'pkg', RTE:'rte', RTR:'rtr'
+  };
   return m[act] || 'inw';
 }
 function actBg(act) {
-  const m = {INW:'#213CE2',QC_PASS:'#22c55e',QC_FAIL:'#DE2A2A',WKS_IN:'#f59e0b',WKS_OUT:'#f59e0b',RTO_IN:'#14b8a6'};
+  const m = {
+    INW:'#213CE2', QC_PASS:'#22c55e', QC_FAIL:'#DE2A2A',
+    WKS_IN:'#f59e0b', WKS_OUT:'#f59e0b', RTO_IN:'#14b8a6',
+    PKG:'#8b5cf6', PKG_OUT:'#8b5cf6', RTE:'#0ea5e9', RTR:'#F2CD1A'
+  };
   return m[act] || '#333';
 }
 function actFg(act) {
-  return ['QC_PASS','WKS_IN','WKS_OUT','RTO_IN'].includes(act) ? '#000' : '#fff';
+  return ['QC_PASS','WKS_IN','WKS_OUT','RTO_IN','RTE','RTR'].includes(act) ? '#000' : '#fff';
 }
 
 function updateScanHint() {
@@ -1360,7 +1319,7 @@ function startMainCamera() {
     const reader = new ZXing.BrowserMultiFormatReader(hints);
 
     video.addEventListener('playing', () => {
-      canvas.width = video.videoWidth || 640;
+      canvas.width  = video.videoWidth  || 640;
       canvas.height = video.videoHeight || 480;
       scanFrame(reader, video, canvas);
     });
@@ -1388,12 +1347,12 @@ function scanFrame(reader, video, canvas) {
   function loop() {
     if (!scanLoopActive) return;
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width = video.videoWidth;
+      canvas.width  = video.videoWidth;
       canvas.height = video.videoHeight;
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       try {
         const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-        const binaryBitmap = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+        const binaryBitmap    = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
         const result = reader.decodeBitmap(binaryBitmap);
         if (result) onScan(result.getText());
       } catch(e) {}
@@ -1407,15 +1366,17 @@ function scanFrame(reader, video, canvas) {
 // SCAN HANDLER
 // ══════════════════════════════════════════════════════
 function onScan(raw) {
+  if (pkgResultShowing) return;  // ignore scans while PKG result overlay is up
+
   const now = Date.now();
   if (raw === lastBarcode && now - lastScanTs < DEBOUNCE_MS) return;
   lastBarcode = raw;
-  lastScanTs = now;
+  lastScanTs  = now;
 
   const barcode = raw.replace(/\s+/g, '').trim();
-  const act = cfg.activity || 'INW';
+  const act     = cfg.activity || 'INW';
 
-  // WKS — show sub-activity modal to choose WKS_IN vs WKS_OUT
+  // WKS — show sub-activity modal
   if (act === 'WKS') {
     pendingWksScan = barcode;
     document.getElementById('wksModal').classList.add('show');
@@ -1426,13 +1387,23 @@ function onScan(raw) {
 }
 
 async function processBarcode(barcode, act) {
-  // ── UPC format validation ──
-  // LOT UPCs: LOT-XXXXXXXX (starts with LOT-)
-  // EAN: 13-digit numeric
-  // RTO_IN accepts both
-  const isLotUpc = /^LOT-\d+$/.test(barcode);
-  const isEan = /^\d{13}$/.test(barcode);
+  const isLotUpc     = /^LOT-\d+$/.test(barcode);
+  const isBatchLabel = /^LOT-\d+-[ER]$/.test(barcode);
+  const isEan        = /^\d{13}$/.test(barcode);
 
+  // ── PKG_OUT — scans batch label, not UPC ──
+  if (act === 'PKG_OUT') {
+    if (!isBatchLabel) {
+      showReject('WRONG BARCODE', 'Expected LOT-XXXXXXXX-E or LOT-XXXXXXXX-R');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'PKG_OUT', label:'WRONG FORMAT' });
+      return;
+    }
+    await doPkgOut(barcode);
+    return;
+  }
+
+  // ── All other stations expect LOT UPC (except RTO_IN) ──
   if (act !== 'RTO_IN') {
     if (!isLotUpc) {
       showReject('WRONG BARCODE', 'Expected LOT-XXXXXXXX format');
@@ -1445,10 +1416,8 @@ async function processBarcode(barcode, act) {
   // ── QC_PASS — two-scan pairing flow ──
   if (act === 'QC_PASS') {
     if (pendingQcPassCar) {
-      // Second scan = remote
       await doQcPassRemote(barcode);
     } else {
-      // First scan = car (or single scan for no-remote products)
       await doQcPassCar(barcode);
     }
     return;
@@ -1462,9 +1431,19 @@ async function processBarcode(barcode, act) {
     return;
   }
 
-  // ── All other scan types ──
+  // ── PKG — pair verify + print ──
+  if (act === 'PKG') {
+    if (pendingPkgCar) {
+      await doPkgRemote(barcode);
+    } else {
+      await doPkgCar(barcode);
+    }
+    return;
+  }
+
+  // ── All other scan types (INW, WKS_IN, WKS_OUT, RTO_IN) ──
   flash('ok'); vibrate([50]); playSuccessBeep();
-  addLog({ barcode, status:'ok', tag: act, label: act.replace('_',' ') });
+  addLog({ barcode, status:'ok', tag: act, label: act.replace(/_/g,' ') });
   showToast('✓ ' + barcode, 'ok');
   await submitScanWorker(barcode, act);
 }
@@ -1488,7 +1467,6 @@ async function doQcPassCar(carUpc) {
 
   if (!result.ok) {
     if (result.error && result.error.includes('remote_upc required')) {
-      // Product has a remote — start two-scan flow
       pendingQcPassCar = carUpc;
       pendingQcPassProduct = null;
       showQcPassRemotePrompt();
@@ -1503,7 +1481,6 @@ async function doQcPassCar(carUpc) {
     return;
   }
 
-  // Single scan success (Bracey / no-remote product)
   flash('ok'); vibrate([50]); playSuccessBeep();
   addLog({ barcode: carUpc, status:'ok', tag:'QC_PASS', label:'QC PASS' });
   showToast('✓ QC Pass — ' + (result.data?.product || carUpc), 'ok');
@@ -1542,21 +1519,206 @@ async function doQcPassRemote(remoteUpc) {
 }
 
 function showQcPassRemotePrompt() {
-  const band = document.getElementById('qcpRemoteBand');
-  band.classList.add('show');
+  document.getElementById('qcpRemoteBand').classList.add('show');
   document.getElementById('scanHint').textContent = 'NOW SCAN REMOTE CONTROL';
 }
-
 function hideQcPassRemotePrompt() {
   document.getElementById('qcpRemoteBand').classList.remove('show');
   updateScanHint();
 }
-
 function cancelQcPassFlow() {
   pendingQcPassCar = null;
   pendingQcPassProduct = null;
   hideQcPassRemotePrompt();
   showToast('QC Pass flow cancelled', 'warn');
+}
+
+// ══════════════════════════════════════════════════════
+// PKG FLOW
+// ══════════════════════════════════════════════════════
+function setChannel(ch, el) {
+  pkgChannel    = ch;
+  cfg.pkgChannel = ch;
+  localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+  document.querySelectorAll('.ch-btn').forEach(b => {
+    b.classList.remove('active');
+  });
+  el.classList.add('active');
+  showToast('Channel: ' + (ch === 'ecom' ? 'ECOM 📦' : 'RETAIL 🏪'), 'ok');
+}
+
+async function doPkgCar(carUpc) {
+  if (!isOnline) {
+    showReject('OFFLINE', 'Packaging requires connection');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  // First attempt — no remote_upc yet
+  const result = await workerPost('postPkg', {
+    car_upc:     carUpc,
+    device_code: cfg.deviceCode,
+    operator_id: operatorUUID || currentOperator?.id,
+    channel:     pkgChannel,
+    line:        cfg.line,
+  });
+
+  if (!result.ok) {
+    if (result.error && result.error.includes('remote_upc required')) {
+      // RC car — start two-scan flow
+      pendingPkgCar = carUpc;
+      showPkgRemotePrompt();
+      flash('ok'); vibrate([50]); playSuccessBeep();
+      addLog({ barcode: carUpc, status:'pending', tag:'PKG', label:'CAR ✓ — SCAN REMOTE' });
+      showToast('✓ Car scanned — now scan REMOTE', 'ok');
+    } else {
+      flash('err'); vibrate([100,50,100]); playErrBeep();
+      showReject('PKG FAILED', result.error || 'Unknown error');
+      addLog({ barcode: carUpc, status:'err', tag:'PKG', label:'PKG ERR' });
+    }
+    return;
+  }
+
+  // No-remote product — complete
+  flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+  addLog({ barcode: carUpc, status:'ok', tag:'PKG', label:'PKG ✓' });
+  showPkgResult(result.data);
+}
+
+async function doPkgRemote(remoteUpc) {
+  if (!isOnline) {
+    showReject('OFFLINE', 'Packaging requires connection');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  const result = await workerPost('postPkg', {
+    car_upc:     pendingPkgCar,
+    remote_upc:  remoteUpc,
+    device_code: cfg.deviceCode,
+    operator_id: operatorUUID || currentOperator?.id,
+    channel:     pkgChannel,
+    line:        cfg.line,
+  });
+
+  const carUpc = pendingPkgCar;
+  pendingPkgCar = null;
+  hidePkgRemotePrompt();
+
+  if (!result.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('PACKAGING FAILED', result.error || 'Unknown error');
+    addLog({ barcode: remoteUpc, status:'err', tag:'PKG', label:'PKG ERR' });
+    return;
+  }
+
+  flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+  addLog({ barcode: carUpc + ' + ' + remoteUpc, status:'ok', tag:'PKG', label:'PKG ✓' });
+  showPkgResult(result.data);
+}
+
+async function doPkgOut(batchLabel) {
+  if (!isOnline) {
+    showReject('OFFLINE', 'Dispatch scan requires connection');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  const result = await workerPost('postPkgOut', {
+    batch_label: batchLabel,
+    device_code: cfg.deviceCode,
+    operator_id: operatorUUID || currentOperator?.id,
+    line:        cfg.line,
+  });
+
+  if (!result.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('DISPATCH FAILED', result.error || 'Unknown error');
+    addLog({ barcode: batchLabel, status:'err', tag:'PKG_OUT', label:'DISPATCH ERR' });
+    return;
+  }
+
+  const channelCode = result.data.activity === 'RTE' ? 'E' : 'R';
+  const tagLabel    = channelCode === 'E' ? 'RTE ✓' : 'RTR ✓';
+  const tagType     = channelCode === 'E' ? 'RTE' : 'RTR';
+
+  flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+  addLog({ barcode: batchLabel, status:'ok', tag: tagType, label: tagLabel });
+  showToast(`✓ ${result.data.channel.toUpperCase()} — ${result.data.product || batchLabel}`, 'ok');
+
+  // Show channel badge
+  showChannelBadge(channelCode);
+
+  // Update tally
+  const key = result.data.channel;
+  rtdTally[key] = (rtdTally[key] || 0) + 1;
+  updateTally();
+}
+
+function showPkgResult(data) {
+  const ch    = data.channel === 'ecom' ? 'ECOM' : 'RETAIL';
+  const chCls = data.channel;
+  document.getElementById('pkgResultLabel').textContent   = data.batch_label;
+  const chEl = document.getElementById('pkgResultChannel');
+  chEl.textContent = ch;
+  chEl.className   = `pkg-result-channel ${chCls}`;
+  document.getElementById('pkgResultProduct').textContent =
+    [data.product, data.model, data.color].filter(Boolean).join(' · ');
+  pkgResultShowing = true;
+  document.getElementById('pkgResult').classList.add('show');
+}
+
+function clearPkgResult() {
+  pkgResultShowing = false;
+  document.getElementById('pkgResult').classList.remove('show');
+  // Reset debounce so next scan isn't suppressed
+  lastBarcode = '';
+  lastScanTs  = 0;
+}
+
+function showChannelBadge(channelCode) {
+  const existing = document.querySelector('.pkgout-badge');
+  if (existing) existing.remove();
+
+  const badge = document.createElement('div');
+  badge.className = 'pkgout-badge';
+  badge.style.cssText = [
+    'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%)',
+    'font-size:28px;font-weight:900;padding:20px 40px;border-radius:12px',
+    'z-index:200;pointer-events:none;letter-spacing:0.06em',
+    channelCode === 'E'
+      ? 'background:var(--sky);color:#fff'
+      : 'background:var(--yellow);color:#000'
+  ].join(';');
+  badge.textContent = channelCode === 'E' ? '📦 ECOM' : '🏪 RETAIL';
+  document.body.appendChild(badge);
+  setTimeout(() => badge.remove(), 1500);
+}
+
+function updateTally() {
+  const grid = document.getElementById('tallyGrid');
+  grid.innerHTML = '';
+  const labels = { ecom: '📦 Ecom', retail: '🏪 Retail' };
+  Object.entries(rtdTally).forEach(([k, v]) => {
+    const item = document.createElement('div');
+    item.className = 'tally-item';
+    item.innerHTML = `<span>${labels[k] || k}</span><span class="tally-count">${v}</span>`;
+    grid.appendChild(item);
+  });
+}
+
+function showPkgRemotePrompt() {
+  document.getElementById('pkgRemoteBand').classList.add('show');
+  document.getElementById('scanHint').textContent = 'NOW SCAN REMOTE CONTROL';
+}
+function hidePkgRemotePrompt() {
+  document.getElementById('pkgRemoteBand').classList.remove('show');
+  updateScanHint();
+}
+function cancelPkgFlow() {
+  pendingPkgCar = null;
+  hidePkgRemotePrompt();
+  showToast('Packaging flow cancelled', 'warn');
 }
 
 // ══════════════════════════════════════════════════════
@@ -1578,14 +1740,13 @@ function cancelWks() {
 // DEFECT MODAL
 // ══════════════════════════════════════════════════════
 async function openDefectModal(upc) {
-  document.getElementById('defectUpc').textContent = upc;
+  document.getElementById('defectUpc').textContent  = upc;
   document.getElementById('defectCount').textContent = '0 defects selected';
-  document.getElementById('defectSubmit').disabled = true;
-  document.getElementById('defectBody').innerHTML =
+  document.getElementById('defectSubmit').disabled  = true;
+  document.getElementById('defectBody').innerHTML   =
     '<div style="color:var(--muted);text-align:center;padding:30px;font-size:12px;letter-spacing:0.08em">LOADING DEFECTS...</div>';
   document.getElementById('defectModal').classList.add('show');
 
-  // Fetch component_type so we can filter the defect list
   let componentType = null;
   try {
     const units = await sbGet('units', `upc=eq.${encodeURIComponent(upc)}&select=component_type&limit=1`);
@@ -1600,9 +1761,8 @@ function buildDefectList(componentType) {
   const body = document.getElementById('defectBody');
   body.innerHTML = '';
 
-  // Filter defects by component type
   const filtered = Object.values(defectMaster).filter(d => {
-    if (!d.component) return true; // null component = universal
+    if (!d.component) return true;
     if (d.component === 'both') return true;
     if (componentType && d.component !== componentType) return false;
     return true;
@@ -1613,7 +1773,6 @@ function buildDefectList(componentType) {
     return;
   }
 
-  // Group by category
   const cats = {};
   filtered.forEach(d => {
     const cat = d.category || 'Other';
@@ -1730,7 +1889,6 @@ async function submitScanWorker(barcode, act) {
 
   const result = await workerPost('postScan', payload);
   if (!result.ok) {
-    // Duplicate or validation error — show reject
     if (result.error && (result.error.includes('already been') || result.error.includes('Duplicate'))) {
       showReject('DUPLICATE', result.error);
       playErrBeep(); vibrate([100,50,100]);
@@ -1767,7 +1925,6 @@ async function flushQueue() {
   for (const item of batch) {
     const result = await workerPost(item.action, item.data);
     if (!result.ok && !result.error?.includes('already been')) {
-      // Re-queue failures except duplicates
       scanQueue.push(item);
     } else {
       synced++;
@@ -1782,14 +1939,14 @@ async function flushQueue() {
 // LOG FEED
 // ══════════════════════════════════════════════════════
 function addLog({ barcode, status, tag, label }) {
-  const feed = document.getElementById('logFeed');
+  const feed  = document.getElementById('logFeed');
   const empty = feed.querySelector('.log-empty');
   if (empty) empty.remove();
 
   const item = document.createElement('div');
   item.className = 'log-item';
 
-  const time = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const time   = new Date().toLocaleTimeString('en-IN', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
   const tagCls = actClass(tag);
 
   item.innerHTML = `
@@ -1807,51 +1964,44 @@ function addLog({ barcode, status, tag, label }) {
 }
 
 // ══════════════════════════════════════════════════════
-// RTD TALLY (kept for future RTE/RTR)
-// ══════════════════════════════════════════════════════
-function updateTallyVisibility() {
-  const act = cfg.activity || '';
-  document.getElementById('tallyPanel').classList.toggle('show', act === 'RTD');
-}
-
-// ══════════════════════════════════════════════════════
 // SHIFT
 // ══════════════════════════════════════════════════════
 function setShift(shift, el, silent = false) {
   currentShift = shift;
-  cfg.shift = shift;
+  cfg.shift    = shift;
   localStorage.setItem('lot_cfg', JSON.stringify(cfg));
   document.querySelectorAll('.shift-btn').forEach(b => b.classList.remove('active'));
   if (el) el.classList.add('active');
   document.getElementById('shiftDisplay').textContent = shift === 'Regular' ? 'REG' : shift === 'OT' ? 'OT' : 'D-OT';
-  document.getElementById('tb_line').textContent = cfg.line + ' · ' + shift;
+  document.getElementById('tb_line').textContent      = cfg.line + ' · ' + shift;
   document.getElementById('scannerShift').textContent = shift;
   if (!silent) showToast('Shift: ' + shift, 'ok');
 }
 
 function cycleShift() {
   const shifts = ['Regular', 'OT', 'Double OT'];
-  const next = shifts[(shifts.indexOf(currentShift) + 1) % shifts.length];
+  const next   = shifts[(shifts.indexOf(currentShift) + 1) % shifts.length];
   setShift(next, document.querySelector(`.shift-btn[data-shift="${next}"]`));
 }
 
 // ══════════════════════════════════════════════════════
 // SETTINGS
 // ══════════════════════════════════════════════════════
-function requestSettings() {
-  openSettings();
-}
+function requestSettings() { openSettings(); }
 
 function openSettings() {
   scanLoopActive = false;
   if (qrScanner) {
     try { qrScanner.stop(); } catch(e) {}
-    qrScanner = null;
+    qrScanner       = null;
     currentCamTrack = null;
   }
   const overlay = document.querySelector('.camera-wrap .cam-start-overlay');
   if (overlay) overlay.remove();
   cancelQcPassFlow();
+  cancelPkgFlow();
+  document.getElementById('pkgResult').classList.remove('show');
+  pkgResultShowing = false;
   document.getElementById('scannerScreen').classList.remove('active');
   document.getElementById('setupScreen').classList.add('active');
 }
@@ -1862,13 +2012,14 @@ function switchOperator() {
     qrScanner = null;
   }
   cancelQcPassFlow();
+  cancelPkgFlow();
   currentOperator = null;
-  operatorUUID = null;
-  currentSession = null;
+  operatorUUID    = null;
+  currentSession  = null;
   document.getElementById('setupScreen').classList.remove('active');
   document.getElementById('loginScreen').classList.add('active');
   document.getElementById('loginStatus').textContent = '';
-  document.getElementById('loginStatus').className = 'login-status';
+  document.getElementById('loginStatus').className   = 'login-status';
   startLoginCamera();
 }
 
@@ -1900,7 +2051,7 @@ function playSuccessBeep() {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const vol = getVolume();
     [0, 0.12].forEach(offset => {
-      const osc = ctx.createOscillator();
+      const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
       osc.type = 'sine'; osc.frequency.value = 1800;
@@ -1918,7 +2069,7 @@ function playErrBeep() {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
     const vol = getVolume();
     [0, 0.18].forEach(offset => {
-      const osc = ctx.createOscillator();
+      const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
       osc.type = 'sawtooth'; osc.frequency.value = 160;
@@ -1949,20 +2100,20 @@ function flash(type) {
 let rejectTimer;
 function showReject(title, msg) {
   document.getElementById('rejectTitle').textContent = title;
-  document.getElementById('rejectMsg').textContent = msg;
+  document.getElementById('rejectMsg').textContent   = msg;
   const el = document.getElementById('rejectScreen');
   el.classList.add('show');
   clearTimeout(rejectTimer);
-  rejectTimer = setTimeout(() => el.classList.remove('show'), 2200);
+  rejectTimer = setTimeout(() => el.classList.remove('show'), 2800);
 }
 
 function vibrate(pat) { if (navigator.vibrate) navigator.vibrate(pat); }
 
 let toastTimer;
 function showToast(msg, type = 'ok') {
-  const el = document.getElementById('toast');
+  const el   = document.getElementById('toast');
   el.textContent = msg;
-  el.className = 'toast ' + type + ' show';
+  el.className   = 'toast ' + type + ' show';
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => el.classList.remove('show'), 2500);
 }
