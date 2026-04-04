@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 1.3 | **Last Updated:** April 2026
+**Version:** 1.5 | **Last Updated:** April 2026
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -12,7 +12,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor.
+**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing.
 
 ---
 
@@ -106,8 +106,7 @@ Parts (Store) → Assembly (car + remote on same line) → QC → Packaging → 
 | INW | End of Assembly | 3 (one per line) | Single scan — car or remote independently |
 | QC_PASS | End of QC | 3 (one per line) | Two-scan flow if has_remote = true; pairing created here |
 | QC_FAIL | End of QC | 3 (one per line) | Single scan — whichever component failed |
-| WKS_IN | Workshop Entry | 1 shared | |
-| WKS_OUT | Workshop Exit | 1 shared | |
+| WKS | Workshop | 1 shared | System-inferred: qc_fail→WKS_IN, in_repair→WKS_OUT |
 | PKG | Packaging station | 1 shared | Two-scan (car + remote), channel toggle (E/R), prints batch label |
 | PKG_OUT | Dispatch Out | 1 shared | Scans batch label — auto-routes RTE or RTR from label suffix |
 | RTO_IN | Returns | 1 shared | Two paths: intact → direct RTD, damaged → full production flow |
@@ -123,14 +122,18 @@ Parts (Store) → Assembly (car + remote on same line) → QC → Packaging → 
 - *has_remote = false:* Single scan only.
 
 **Stage 3: Workshop (if QC_FAIL)**
-- WKS_IN → repair → WKS_OUT → re-enters QC. Loop count incremented.
+- Operator scans UPC at WKS device. System infers direction from unit status:
+  - `qc_fail` → WKS_IN recorded, unit → `in_repair`, defects from QC_FAIL shown on screen, loop_count+1
+  - `in_repair` → WKS_OUT_PENDING — operator taps REPAIRED or CANNOT FIX (SCRAP)
+  - REPAIRED → unit → `repaired`, eligible for QC again
+  - SCRAPPED → unit → `scrapped`, scrap loss note auto-created (pending Siddhant+ approval)
 
 **Stage 4: Packaging (PKG)**
 - Operator sets channel (ECOM / RETAIL) on device — prominent toggle.
 - Scans car UPC (must be qc_pass) → scans remote UPC → system verifies confirmed pair from QC_PASS.
 - System generates batch label: `LOT-XXXXXXXX-E` or `LOT-XXXXXXXX-R`.
-- Label printed on thermal printer at station. Operator applies to outside of box.
-- Box sealed → accessories in → shrink wrap.
+- Label printed automatically on TSC TE244 thermal printer at station.
+- Operator applies to outside of box → box sealed → accessories in → shrink wrap.
 - Unit status → `pending_rtd`.
 
 **Stage 5: Dispatch Out (PKG_OUT)**
@@ -140,14 +143,12 @@ Parts (Store) → Assembly (car + remote on same line) → QC → Packaging → 
 - Both car and remote status → `rtd`.
 
 **Stage 6: Returns (RTO_IN)**
-- Intact/untouched returns → direct to RTD, bypasses production flow.
-- Damaged returns → full production flow from INW.
-- All RTO activity visible in Mahesh's audit view.
+- Full return system built. See Section 11.
 
 ### Batch Label Format — LOCKED
 **`LOT-XXXXXXXX-E`** (ecom) or **`LOT-XXXXXXXX-R`** (retail)
 
-Visual print on label: Product · Model · Color · Channel · Date packed
+Visual print on label: Barcode · Batch label · Product name · Channel · Date packed — 50×25mm on TSC TE244.
 
 ---
 
@@ -160,12 +161,14 @@ Each device is permanently associated with one station and one activity. The sta
 | INW-L1/L2/L3 | INW | INW | L1/L2/L3 |
 | QCP-L1/L2/L3 | QC_PASS | QC_PASS | L1/L2/L3 |
 | QCF-L1/L2/L3 | QC_FAIL | QC_FAIL | L1/L2/L3 |
-| WKS | WKS | WKS (modal per scan) | SHARED |
+| WKS | WKS | WKS (system-inferred IN/OUT) | SHARED |
 | PKG | PKG | PKG (pair verify + print) | SHARED |
 | PKG-OUT | PKG_OUT | RTE or RTR (auto from label) | SHARED |
 | RTO | RTO_IN | RTO_IN | SHARED |
 
 Total: 14 devices. Scanner setup screen: operator selects Station + Line (2 taps). Device code auto-resolved from DB.
+
+**Print server URL** is configured per device in the scanner setup screen (field: Print Server URL). Defaults to `http://localhost:3000`. PKG station must have the laptop's local IP entered here.
 
 ---
 
@@ -176,15 +179,20 @@ Total: 14 devices. Scanner setup screen: operator selects Station + Line (2 taps
 ### Dashboard Tabs
 | Tab | Users | Content | Status |
 |---|---|---|---|
-| Executive | Afshaan, Vinay, Varun | Today KPIs, hourly output, open runs | ✅ Live |
-| Lines | Siddhant, Kishan | Per-line cards, operator stats | ✅ Live |
-| QC | Karthik, Mahesh | FPY by line, defect heatmap, repeat failures | ✅ Live |
+| Executive | Afshaan, Vinay, Varun | Today KPIs, hourly output (with counts), runs split Active/Upcoming | ✅ Live |
+| Lines | Siddhant, Kishan | Per-line cards (today only), first scan time, operator stats | ✅ Live |
+| QC | Karthik, Mahesh | QC cycle time cards, FPY by line, defect heatmap, repeat failures | ✅ Live |
 | Runs | All production_view | Plan vs actual | ✅ Live |
 | UPC Generator | Afshaan, Varun | Generate batches, print stickers, receive | ✅ Live |
 | Scans | All | Real-time scan feed, activity filter, UPC search | ✅ Live |
 | Corrections | Siddhant upwards | Tier 2 void + Tier 3 amend | ✅ Live |
+| Alerts | All (Kishan upwards to acknowledge) | Scan violations, badge count, acknowledge | ✅ Live |
+| Returns | Production team | Returns queue handed off from store | ✅ Live |
+| Reporting | Afshaan, Vinay, Varun | Date-range reporting — daily output, line breakdown | 🔶 Scaffold only |
 
-Auto-refresh: 30 seconds.
+**Lines tab is locked to today** — no date range. Historical line data lives in the Reporting tab.
+
+Auto-refresh: 30 seconds. Scans tab summary uses `get_scan_summary` RPC — accurate regardless of row limits.
 
 ---
 
@@ -193,11 +201,13 @@ Auto-refresh: 30 seconds.
 **Tier 1 — Operator (self-serve, no approval)**
 - Available until unit receives its next scan in the flow
 - `voided = true` on scan row, logged automatically
+- Unit status rolled back to previous scan's status automatically
 - Accessible from scanner app
 
 **Tier 2 — Supervisor within shift (Kishan / Karthik)**
 - Can void any scan from the current shift
 - Mandatory reason required
+- Unit status rolled back automatically on void
 - Permission: `scan_void_supervisor` on role
 - Accessible from Corrections tab on dashboard
 
@@ -208,6 +218,8 @@ Auto-refresh: 30 seconds.
 - Accessible from Corrections tab on dashboard
 
 **Mahesh:** Read-only. No amendment access at any tier, ever.
+
+**Important:** Voiding a scan now automatically rolls back `units.current_status` to match the previous non-voided scan. This prevents units getting stuck after incorrect voids.
 
 ---
 
@@ -224,7 +236,71 @@ Scanner filters defect list by `component_type` of unit being scanned — car sc
 
 ---
 
-## 10. Rework & Reverse Flow Scenarios
+## 10. Station Status Controls & Violations ✅ BUILT
+
+Every scan point validates the unit's previous status before accepting. Wrong-sequence scans are:
+1. Hard-rejected on the scanner with a specific, descriptive error message
+2. Logged to `scan_violations` table with full context
+3. Visible immediately on the Alerts tab of the dashboard
+
+**Validation rules:**
+- INW — rejects if UPC has been scanned before (already in system)
+- QC_PASS — rejects unless status is `inwarded` or `repaired`
+- QC_FAIL — rejects unless status is `inwarded` or `repaired`
+- WKS — rejects unless status is `qc_fail` or `in_repair`
+- PKG — rejects unless status is `qc_pass`
+
+**Alerts tab:** Permanent log of all violations. Supervisors (Kishan upwards) can acknowledge with optional note. Mahesh has read-only access. Acknowledged rows remain visible but dimmed. Badge on tab shows unacknowledged count.
+
+---
+
+## 11. Return System ✅ BUILT
+
+### Return Categories
+| Code | Name | Definition |
+|---|---|---|
+| UDR | Undamaged Return | Box sealed, product untouched. Batch label scannable on outside. |
+| CXR | Customer Return | Customer opened, returned for any reason. |
+| BRV | Bulk Return — Vendor | Platform or trade partner returning unsold/excess stock in bulk. |
+
+### Return Flow
+1. **Store — Intake:** Receive shipment, log each unit (RS-XXXX → RU-XXXX)
+2. **Store — Inspection:** Open return, record box condition, product condition, UPC if readable, disposition
+3. **Disposition options:**
+   - `rtd_direct` — UDR intact → production scans at RTO_IN → RTD
+   - `wks_repair` → production sends to WKS → repairs → QC → PKG → RTD
+   - `loss_damage` → damage note created (LN-XXXX), Siddhant+ approval required
+   - `loss_rejection` → rejection note created, Siddhant+ approval required
+4. **Production — Returns Queue tab:** Shows all units handed off from store. ACTION button marks unit as actioned.
+5. **Auto-linking:** When production scans a return unit at RTO_IN or WKS, `return_production_links` record closes automatically.
+
+### Loss Notes
+Three types: `damage`, `rejection`, `scrap`. All require Siddhant / Varun / Afshaan / Vinay approval (`loss_note_approve` permission). Scrap notes auto-created when WKS_OUT → scrapped. Permanent log, never deleted.
+
+### Channel Master (`store.channels`)
+Dynamic table of sales channels with platform, fulfilment model, return behaviour (segregated/unsegregated). Managed by Varun/Vinay/Afshaan (`channel_manage` permission).
+
+---
+
+## 12. Cycle Time Analytics 🔶 PARTIAL
+
+Three cycle time segments tracked across the production flow:
+
+| Segment | Measures | From → To | RPC | Status |
+|---|---|---|---|---|
+| QC Cycle Time | Time in assembly + QC queue | INW → QC_PASS or QC_FAIL | `get_qc_cycle_time` | ✅ Built |
+| PKG Cycle Time | Time from QC pass to packaging | QC_PASS → PKG | `get_pkg_cycle_time` | 🔲 Pending |
+| RTD Cycle Time | Time from packaging to dispatch | PKG → RTE or RTR | `get_rtd_cycle_time` | 🔲 Pending |
+
+**Design principles:**
+- All cycle time RPCs exclude gaps > 480 minutes to avoid overnight distortion
+- Display format: "14.2 min" for < 60 min, "1h 23m" for ≥ 60 min
+- Each RPC returns: `avg_mins_all`, split averages by outcome, `units_measured`, `fastest_mins`, `slowest_mins`
+- QC cycle time displayed on QC tab. PKG and RTD cycle times will be added to Reporting tab when built.
+
+---
+
+## 13. Rework & Reverse Flow Scenarios
 
 **Core principle:** Original records preserved. Rework captured as distinct event. Final state drives reports. Lineage always queryable.
 
@@ -236,15 +312,15 @@ Scanner filters defect list by `component_type` of unit being scanned — car sc
 - RTD stock: pulled back via internal rework order
 - Post-dispatch: RTO_IN → rework order
 
-### Scenario C: Workshop Repair
-Standard QC_FAIL → WKS_IN → WKS_OUT → re-QC. Loop count tracks cycles. ✅ Implemented.
+### Scenario C: Workshop Repair ✅ IMPLEMENTED
+Standard QC_FAIL → WKS (system-inferred WKS_IN) → WKS (REPAIRED or SCRAPPED) → re-QC or end. Loop count tracks cycles.
 
 ### Scenario D: Packaging Rework
 Original RTE/RTR voided via Tier 2/3; new scan created and linked.
 
 ---
 
-## 11. Open Design Questions
+## 14. Open Design Questions
 
 1. **Variant rework UPC:** Keep original UPC (preferred — history carries over) or new UPC?
 2. **Rework approval:** Who triggers and approves recall/rework orders?
@@ -252,14 +328,26 @@ Original RTE/RTR voided via Tier 2/3; new scan created and linked.
 4. **Unicommerce integration:** Formal API or reconciliation-based handoff?
 5. **Biometric integration:** Headcount only or individual operator clock-in/out?
 6. **Defect master ownership:** Who can add/modify defect codes post-seeding?
-7. **WKS device mode:** Modal per scan (current) vs system-inferred from unit state.
-8. **Return system:** Full design pending — market returns, RTO processing, direct-to-RTD credits.
-9. **Thermal printer spec:** 60mm ESC/POS, dedicated laptop print server. Printer model TBD once box label dimensions confirmed.
-10. **Box label dimensions:** Need available space on box to finalise sticker size and printer spec.
+7. **RTO_IN two-path:** Intact UDR with batch label → RTD direct path not yet wired in scanner.
+8. **QC_PASS timeout:** Should second scan time out after N seconds? Recommend yes.
+9. **Channel barcode scanning:** Currently manual entry. Future: scan platform return labels directly.
 
 ---
 
-## 12. Shift & Time
+## 15. Thermal Printer Setup
+
+- **Model:** TSC TE244 (confirmed, on-site)
+- **Label size:** 50mm × 25mm
+- **Connection:** USB to Windows laptop at PKG station
+- **Print server:** Node.js (`printserver.js`) running on laptop, port 3000
+- **Protocol:** TSPL commands via Windows printer driver (raw printing via `@thiagoelg/node-printer`)
+- **Auto-start:** Windows Startup shortcut created by `setup.bat`
+- **Scanner config:** Print Server URL field in setup screen per device
+- **Status:** Print server code built. Pending driver install + USB connection on floor.
+
+---
+
+## 16. Shift & Time
 
 - One shift: 9:00 AM – 6:00 PM. OT possible.
 - Biometric attendance exists on-site, not connected.
@@ -267,7 +355,7 @@ Original RTE/RTR voided via Tier 2/3; new scan created and linked.
 
 ---
 
-## 13. Lines & Factory
+## 17. Lines & Factory
 
 - 3 lines: L1, L2, L3. Each runs one product at a time.
 - Line switches happen mid-day when parts run out (parts availability = primary daily bottleneck).
@@ -275,7 +363,7 @@ Original RTE/RTR voided via Tier 2/3; new scan created and linked.
 
 ---
 
-## 14. Scale
+## 18. Scale
 
 | Month | Units/Month | Scan Events/Month | upc_pool rows (cumulative) |
 |---|---|---|---|
@@ -285,22 +373,23 @@ Original RTE/RTR voided via Tier 2/3; new scan created and linked.
 | +18 | 308,000 | ~1,540,000 | ~3M |
 | +24 | 763,000 | ~3,800,000 | ~10M |
 
-Scan events is the largest table. Partition by month at ~500K events/month (~month 10). Dashboard views must pre-aggregate — never query raw scan table for reporting.
+Scan events is the largest table. Partition by month at ~500K events/month (~month 10). Dashboard summary cards use `get_scan_summary` RPC — never queries raw scan table. Supabase max rows set to 5000. getAllScans display limit 2000.
 
 ---
 
-## 15. Compliance Readiness
+## 19. Compliance Readiness
 
 ### ISO
 - Full unit traceability (raw material → finished product)
-- Non-conformance records (QC_FAIL + defect codes)
-- Corrective action tracking (training flags on repeat defects)
-- BOM version history
+- Non-conformance records (QC_FAIL + defect codes + scan violations)
+- Corrective action tracking (training flags on repeat defects, Alerts tab)
+- Loss notes for scrapped/damaged/rejected units
 
 ### IND AS
 - WIP: units between INW and RTD
 - Finished goods: units at RTD
 - Valuation method: open question
+- Loss notes carry estimated_value field (filled by Vinay)
 
 ### Non-negotiable architectural constraints
 - Records never deleted — void with reason only
@@ -311,58 +400,66 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 
 ---
 
-## 16. Integration Points
+## 20. Integration Points
 
 | System | Direction | What | Status |
 |---|---|---|---|
 | Unicommerce | Out | RTD handoff, channel routing | Manual currently |
 | Biometric | In | Headcount / shift data | On-site, not connected |
 | External UPC printer | Both | Batch gen → A3 print → receive | ✅ Live |
-| Thermal label printer | Out | Batch label at PKG station | Pending printer purchase |
+| TSC TE244 thermal printer | Out | Batch label at PKG station (50×25mm) | Code built, pending hardware setup |
 | Supabase | Core | All data | ✅ Live |
 | Cloudflare Workers | API | Auth, logic, mutations | ✅ Live |
+| Store system | Both | Returns handoff, loss notes | ✅ Live |
 
 ---
 
-## 17. Build Status
+## 21. Build Status
 
-### Live ✅
+### Live & Confirmed Working ✅
 - Supabase DB — all tables, schema confirmed
 - Product master — 86 SKUs with product codes
 - Defect master — 35 codes, component filtering configured
 - Scanner PWA (`scanner.legendoftoys.com`) — all scan flows working
-- Worker v4 (`lotopsproxy.afshaan.workers.dev`) — all endpoints live
-- Dashboard (`dashboard.legendoftoys.com`) — all 7 tabs live
-- UPC batch generation + A3 print workflow
-- QC views — FPY, defect heatmap, repeat failures
-- Scan correction — Tier 2 void + Tier 3 amend
-
-### Confirmed Working in Testing ✅
-- INW scan — car and remote
-- QC_PASS two-scan pairing flow
-- QC_FAIL defect modal with component filtering
-- Duplicate scan rejection
-- Scan void (Tier 2) from dashboard
-- Executive, Lines, QC, Scans, Corrections dashboard tabs
+- Worker (`lotopsproxy.afshaan.workers.dev`) — all endpoints live
+- Dashboard (`dashboard.legendoftoys.com`) — 10 tabs live
+- INW scan — car and remote (confirmed on floor)
+- QC_PASS two-scan pairing flow (confirmed on floor)
+- QC_FAIL defect modal with component filtering (confirmed on floor)
+- WKS system-inferred flow — WKS_IN (defect display) + WKS_OUT (REPAIRED/SCRAP) (confirmed on floor)
+- Repair loop — QC_FAIL → WKS → repaired → QC_PASS (confirmed on floor)
+- Scan violation logging + Alerts tab
+- Station status controls (INW, QC_PASS, QC_FAIL, WKS, PKG validation)
+- Void rollback — unit status rolled back on scan void
+- Return system — store UI (shipments, inspection, loss notes, channels) + production Returns Queue tab
+- Return auto-linking — WKS_IN, WKS_OUT, RTO_IN close return_production_links automatically
+- Scan summary cards via `get_scan_summary` RPC (accurate, no row limit issue)
+- Executive tab — hourly bar chart with count labels, runs split Active Today / Upcoming
+- Lines tab — locked to today, first scan time per line, dispatch-based completion %
+- QC tab — QC cycle time cards (avg, pass, fail, fastest, slowest)
+- Reporting tab — scaffold with summary cards, daily output, line breakdown
 
 ### Pending Testing 🔶
-- PKG pair verification + batch label flow (needs thermal printer)
+- PKG pair verification + batch label print (thermal printer not yet physically connected)
 - PKG_OUT dispatch scan
-- WKS_IN / WKS_OUT
 
 ### Pending Build 🔲
-- Station status controls — each scan point validates previous unit status
+- **PKG cycle time** — RPC `get_pkg_cycle_time` (QC_PASS → PKG) + dashboard display
+- **RTD cycle time** — RPC `get_rtd_cycle_time` (PKG → RTE/RTR) + dashboard display
+- **Full Reporting tab** — product breakdown, QC summary, cycle time summary, defect trend
 - Operator QR card print flow — dashboard page to print physical ID cards
 - Operator onboarding + station assignment flow
-- Thermal printer + Node.js print server
-- RTO_IN two-path flow (intact vs damaged)
-- Return system design + build
-- Reconciliation module
-- Audit module (Mahesh view)
-- Assembly stations module
+- Thermal printer physical setup (driver install, USB connection, print server running)
+- RTO_IN two-path flow — scanner side (intact UDR with batch label → RTD direct)
+- Reconciliation module — Phase 4
+- Audit module — Mahesh's dedicated view — Phase 5
+- Assembly stations module — Phase 6
 - Biometric integration
 - Unicommerce reconciliation
-- Dashboard tab access control (role-gating)
+- Dashboard tab access control (role-gating — deferred)
+- UPC generator fix — variant showing in remote entries
+- Print sheet size fix + missing variant on print
+- Beep fix on scanner
 
 ---
 
