@@ -646,6 +646,14 @@
       </label>
     </div>
 
+    <div class="sec-div">Print Server</div>
+    <div class="field">
+      <div class="field-label">Print Server URL</div>
+      <input class="field-input" id="s_printServer" placeholder="http://192.168.1.X:3000"
+        style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none">
+      <div class="field-sub">IP of the laptop running the print server. Leave blank to use localhost.</div>
+    </div>
+
     <div class="sec-div">Audio</div>
     <div class="field">
       <div class="field-label">Beep Volume</div>
@@ -799,6 +807,7 @@
 const WORKER_URL = 'https://lotopsproxy.afshaan.workers.dev';
 const DEFAULT_SUPABASE_URL = 'https://jkxcnjabmrkteanzoofj.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'sb_publishable_1Dd-r3h9Mou2Wqgn6t24Dw_lmWdBtLh';
+const DEFAULT_PRINT_SERVER = 'http://localhost:3000';
 
 // ══════════════════════════════════════════════════════
 // STATE
@@ -1107,6 +1116,9 @@ function goToSetup() {
   });
   document.getElementById('s_torch').checked = cfg.torchEnabled || false;
 
+  const printServerEl = document.getElementById('s_printServer');
+  if (printServerEl) printServerEl.value = cfg.printServer || '';
+
   const vol = parseFloat(localStorage.getItem('lot_volume') || '0.6');
   document.getElementById('s_volume').value = vol;
   document.getElementById('s_volumeLabel').textContent = `Volume: ${Math.round(vol * 100)}%`;
@@ -1189,6 +1201,7 @@ async function saveSetup() {
       camFacing:    camEl ? camEl.dataset.val : 'environment',
       torchEnabled: document.getElementById('s_torch').checked,
       pkgChannel:   pkgChannel,
+      printServer:  (document.getElementById('s_printServer')?.value || '').trim() || DEFAULT_PRINT_SERVER,
     };
 
     localStorage.setItem('lot_cfg', JSON.stringify(cfg));
@@ -1699,6 +1712,36 @@ function showPkgResult(data) {
     [data.product, data.model, data.color].filter(Boolean).join(' · ');
   pkgResultShowing = true;
   document.getElementById('pkgResult').classList.add('show');
+
+  // Fire label print — non-blocking, failure shows toast only
+  firePrint(data);
+}
+
+async function firePrint(data) {
+  const printServer = cfg.printServer || DEFAULT_PRINT_SERVER;
+  try {
+    const res = await fetch(`${printServer}/print`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        batch_label: data.batch_label,
+        product:     data.product   || null,
+        model:       data.model     || null,
+        color:       data.color     || null,
+        channel:     data.channel   || null,
+        packed_at:   new Date().toISOString(),
+      }),
+    });
+    const result = await res.json();
+    if (!result.ok) {
+      showToast('⚠ Print failed: ' + (result.error || 'Unknown error'), 'warn');
+    } else {
+      showToast('🖨 Label sent to printer', 'ok');
+    }
+  } catch(e) {
+    // Print server unreachable — don't block the operator
+    showToast('⚠ Printer offline — label not printed', 'warn');
+  }
 }
 
 function clearPkgResult() {
