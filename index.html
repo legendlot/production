@@ -459,30 +459,61 @@
     }
     .defect-submit:disabled{background:var(--surface3);color:var(--muted);cursor:not-allowed}
 
-    /* WKS modal */
-    .wks-modal{
+    /* WKS overlay */
+    .wks-overlay{
       display:none;position:fixed;inset:0;z-index:100;
-      background:rgba(0,0,0,0.85);align-items:center;justify-content:center;
+      background:rgba(8,8,8,0.97);
+      flex-direction:column;align-items:stretch;justify-content:flex-start;
+      padding:24px 20px;gap:0;overflow-y:auto;
     }
-    .wks-modal.show{display:flex}
-    .wks-card{
-      width:calc(100% - 40px);background:var(--surface);
-      border-radius:16px;padding:24px;border:1px solid var(--border2);
+    .wks-overlay.show{display:flex}
+    .wks-overlay-header{
+      display:flex;align-items:center;gap:10px;
+      margin-bottom:20px;padding-bottom:16px;
+      border-bottom:1px solid var(--border);
     }
-    .wks-title{font-size:13px;font-weight:700;letter-spacing:0.06em;margin-bottom:16px;text-align:center}
-    .wks-options{display:flex;flex-direction:column;gap:10px;margin-bottom:16px}
-    .wks-opt{
-      padding:16px;border-radius:10px;font-size:12px;
-      font-weight:700;letter-spacing:0.06em;cursor:pointer;text-align:center;
+    .wks-overlay-icon{font-size:28px;line-height:1}
+    .wks-overlay-titles{flex:1}
+    .wks-overlay-mode{
+      font-size:9px;font-weight:700;letter-spacing:0.18em;
+      text-transform:uppercase;margin-bottom:2px;
     }
-    .wks-opt.in{background:var(--orange);color:#000}
-    .wks-opt.out{background:var(--green);color:#000}
-    .wks-cancel{
-      width:100%;padding:12px;background:var(--surface2);
-      border:1px solid var(--border2);border-radius:8px;
-      font-size:11px;letter-spacing:0.08em;cursor:pointer;
-      color:var(--text2);font-family:'JetBrains Mono',monospace;
+    .wks-overlay-mode.in{color:var(--orange)}
+    .wks-overlay-mode.out{color:var(--green)}
+    .wks-overlay-product{font-size:15px;font-weight:700;letter-spacing:0.02em}
+    .wks-overlay-meta{font-size:10px;color:var(--text2);margin-top:3px;letter-spacing:0.04em}
+    .wks-defect-section{margin-bottom:20px}
+    .wks-defect-label{
+      font-size:9px;color:var(--muted);letter-spacing:0.15em;
+      text-transform:uppercase;margin-bottom:10px;
     }
+    .wks-defect-row{
+      display:flex;align-items:center;gap:10px;
+      padding:10px 12px;background:var(--surface);
+      border:1px solid var(--border);border-radius:8px;
+      margin-bottom:6px;
+    }
+    .wks-defect-dot{
+      width:8px;height:8px;border-radius:50%;flex-shrink:0;
+    }
+    .wks-defect-dot.Critical{background:var(--red)}
+    .wks-defect-dot.Major{background:var(--orange)}
+    .wks-defect-dot.Minor{background:var(--muted)}
+    .wks-defect-dot.Cosmetic{background:var(--muted)}
+    .wks-defect-info{flex:1;min-width:0}
+    .wks-defect-code{font-size:10px;color:var(--muted);letter-spacing:0.06em}
+    .wks-defect-name{font-size:12px;font-weight:600;margin-top:1px}
+    .wks-defect-sev{font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:0.06em;flex-shrink:0}
+    .wks-actions{display:flex;flex-direction:column;gap:10px;margin-top:auto;padding-top:12px}
+    .wks-btn{
+      width:100%;padding:18px;border:none;border-radius:12px;
+      font-weight:900;font-size:13px;letter-spacing:0.1em;
+      cursor:pointer;font-family:'JetBrains Mono',monospace;
+      text-transform:uppercase;
+    }
+    .wks-btn.confirm{background:var(--orange);color:#000}
+    .wks-btn.repaired{background:var(--green);color:#000}
+    .wks-btn.scrap{background:var(--surface2);color:var(--red);border:2px solid var(--red)}
 
     /* flash / reject / toast */
     .flash{
@@ -738,16 +769,18 @@
   </div>
 </div>
 
-<!-- WKS sub-activity modal -->
-<div class="wks-modal" id="wksModal">
-  <div class="wks-card">
-    <div class="wks-title">Workshop — Select Action</div>
-    <div class="wks-options">
-      <div class="wks-opt in" onclick="selectWks('WKS_IN')">WKS IN — Unit Entering Repair</div>
-      <div class="wks-opt out" onclick="selectWks('WKS_OUT')">WKS OUT — Unit Leaving Repair</div>
+<!-- WKS overlay — system-inferred IN / OUT -->
+<div class="wks-overlay" id="wksOverlay">
+  <div class="wks-overlay-header">
+    <div class="wks-overlay-icon" id="wksOverlayIcon">🔧</div>
+    <div class="wks-overlay-titles">
+      <div class="wks-overlay-mode" id="wksOverlayMode">WORKSHOP IN</div>
+      <div class="wks-overlay-product" id="wksOverlayProduct">—</div>
+      <div class="wks-overlay-meta" id="wksOverlayMeta">—</div>
     </div>
-    <button class="wks-cancel" onclick="cancelWks()">Cancel</button>
   </div>
+  <div class="wks-defect-section" id="wksDefectSection"></div>
+  <div class="wks-actions" id="wksActions"></div>
 </div>
 
 <div class="flash" id="flash"></div>
@@ -800,6 +833,7 @@ let pkgResultShowing  = false;
 let pendingDefectUpc       = null;
 let pendingDefectComponent = null;
 let pendingWksScan         = null;
+let pendingWksOutUpc       = null;
 
 let currentCamTrack = null;
 let scanLoopActive  = false;
@@ -1376,10 +1410,9 @@ function onScan(raw) {
   const barcode = raw.replace(/\s+/g, '').trim();
   const act     = cfg.activity || 'INW';
 
-  // WKS — show sub-activity modal
+  // WKS — system-inferred, no manual modal
   if (act === 'WKS') {
-    pendingWksScan = barcode;
-    document.getElementById('wksModal').classList.add('show');
+    doWksScan(barcode);
     return;
   }
 
@@ -1722,18 +1755,184 @@ function cancelPkgFlow() {
 }
 
 // ══════════════════════════════════════════════════════
-// WKS MODAL
+// WKS FLOW — SYSTEM INFERRED
 // ══════════════════════════════════════════════════════
-function selectWks(act) {
-  document.getElementById('wksModal').classList.remove('show');
-  if (pendingWksScan) {
-    processBarcode(pendingWksScan, act);
-    pendingWksScan = null;
+async function doWksScan(upc) {
+  if (!isOnline) {
+    showReject('OFFLINE', 'Workshop scan requires connection');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  showToast('Checking unit...', 'ok');
+
+  const result = await workerPost('postScan', {
+    upc,
+    device_code: cfg.deviceCode,
+    operator_id: operatorUUID || currentOperator?.id,
+    activity:    'WKS',
+    line:        cfg.line,
+  });
+
+  if (!result.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('WKS SCAN FAILED', result.error || 'Unknown error');
+    addLog({ barcode: upc, status:'err', tag:'wks', label:'WKS ERR' });
+    return;
+  }
+
+  const d = result.data;
+
+  if (d.mode === 'WKS_IN') {
+    flash('ok'); vibrate([50]); playSuccessBeep();
+    addLog({ barcode: upc, status:'ok', tag:'wks', label:'WKS IN' });
+    showWksInCard(upc, d);
+    return;
+  }
+
+  if (d.mode === 'WKS_OUT_PENDING') {
+    flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+    addLog({ barcode: upc, status:'pending', tag:'wks', label:'WKS OUT?' });
+    showWksOutCard(upc, d);
+    return;
+  }
+
+  // Fallback
+  showToast('WKS: ' + JSON.stringify(d), 'warn');
+}
+
+function showWksInCard(upc, d) {
+  document.getElementById('wksOverlayMode').textContent    = 'WORKSHOP IN';
+  document.getElementById('wksOverlayMode').className      = 'wks-overlay-mode in';
+  document.getElementById('wksOverlayIcon').textContent    = '🔧';
+  document.getElementById('wksOverlayProduct').textContent = d.product || upc;
+  document.getElementById('wksOverlayMeta').textContent    =
+    `Loop #${d.loop_count || 1}${d.line ? ' · Line ' + d.line : ''}`;
+
+  const section = document.getElementById('wksDefectSection');
+  section.innerHTML = '';
+
+  if (d.defects && d.defects.length) {
+    const lbl = document.createElement('div');
+    lbl.className   = 'wks-defect-label';
+    lbl.textContent = `Defects logged at QC (${d.defects.length})`;
+    section.appendChild(lbl);
+
+    d.defects.forEach(def => {
+      const row = document.createElement('div');
+      row.className = 'wks-defect-row';
+      const sev = def.severity || 'Minor';
+      row.innerHTML = `
+        <div class="wks-defect-dot ${sev}"></div>
+        <div class="wks-defect-info">
+          <div class="wks-defect-code">${def.code}</div>
+          <div class="wks-defect-name">${def.issue || def.code}</div>
+        </div>
+        <span class="wks-defect-sev sev-${sev.toLowerCase()}">${sev}</span>
+      `;
+      section.appendChild(row);
+    });
+  } else {
+    section.innerHTML = '<div style="font-size:11px;color:var(--muted);letter-spacing:0.06em">No defects on record</div>';
+  }
+
+  const actions = document.getElementById('wksActions');
+  actions.innerHTML = '';
+  const btn = document.createElement('button');
+  btn.className   = 'wks-btn confirm';
+  btn.textContent = '✓ UNIT RECEIVED — SCAN NEXT';
+  btn.onclick     = dismissWksOverlay;
+  actions.appendChild(btn);
+
+  document.getElementById('wksOverlay').classList.add('show');
+}
+
+function showWksOutCard(upc, d) {
+  pendingWksOutUpc = upc;
+
+  document.getElementById('wksOverlayMode').textContent    = 'WORKSHOP OUT';
+  document.getElementById('wksOverlayMode').className      = 'wks-overlay-mode out';
+  document.getElementById('wksOverlayIcon').textContent    = '✅';
+  document.getElementById('wksOverlayProduct').textContent = d.product || upc;
+  document.getElementById('wksOverlayMeta').textContent    =
+    `Loop #${d.loop_count || 1}${d.line ? ' · Line ' + d.line : ''} · What is the outcome?`;
+
+  const section = document.getElementById('wksDefectSection');
+  section.innerHTML = '';
+
+  if (d.defects && d.defects.length) {
+    const lbl = document.createElement('div');
+    lbl.className   = 'wks-defect-label';
+    lbl.textContent = `Defects that were repaired (${d.defects.length})`;
+    section.appendChild(lbl);
+
+    d.defects.forEach(def => {
+      const row = document.createElement('div');
+      row.className = 'wks-defect-row';
+      const sev = def.severity || 'Minor';
+      row.innerHTML = `
+        <div class="wks-defect-dot ${sev}"></div>
+        <div class="wks-defect-info">
+          <div class="wks-defect-code">${def.code}</div>
+          <div class="wks-defect-name">${def.issue || def.code}</div>
+        </div>
+        <span class="wks-defect-sev sev-${sev.toLowerCase()}">${sev}</span>
+      `;
+      section.appendChild(row);
+    });
+  }
+
+  const actions = document.getElementById('wksActions');
+  actions.innerHTML = '';
+
+  const repairedBtn = document.createElement('button');
+  repairedBtn.className   = 'wks-btn repaired';
+  repairedBtn.textContent = '✓ REPAIRED — SEND TO QC';
+  repairedBtn.onclick     = () => submitWksOut('repaired');
+  actions.appendChild(repairedBtn);
+
+  const scrapBtn = document.createElement('button');
+  scrapBtn.className   = 'wks-btn scrap';
+  scrapBtn.textContent = '✗ CANNOT FIX — SCRAP';
+  scrapBtn.onclick     = () => submitWksOut('scrapped');
+  actions.appendChild(scrapBtn);
+
+  document.getElementById('wksOverlay').classList.add('show');
+}
+
+async function submitWksOut(outcome) {
+  const upc = pendingWksOutUpc;
+  if (!upc) return;
+  dismissWksOverlay();
+
+  const result = await workerPost('postWksOut', {
+    upc,
+    device_code: cfg.deviceCode,
+    operator_id: operatorUUID || currentOperator?.id,
+    outcome,
+  });
+
+  if (!result.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('WKS OUT FAILED', result.error || 'Unknown error');
+    addLog({ barcode: upc, status:'err', tag:'wks', label:'WKS OUT ERR' });
+    return;
+  }
+
+  if (outcome === 'repaired') {
+    flash('ok'); vibrate([50]); playSuccessBeep();
+    addLog({ barcode: upc, status:'ok', tag:'wks', label:'WKS OUT — REPAIRED' });
+    showToast('✓ Repaired — unit back to QC', 'ok');
+  } else {
+    flash('err'); vibrate([80,40,80]); playErrBeep();
+    addLog({ barcode: upc, status:'err', tag:'wks', label:'WKS OUT — SCRAPPED' });
+    showToast('Unit scrapped', 'err');
   }
 }
-function cancelWks() {
-  document.getElementById('wksModal').classList.remove('show');
-  pendingWksScan = null;
+
+function dismissWksOverlay() {
+  document.getElementById('wksOverlay').classList.remove('show');
+  pendingWksOutUpc = null;
 }
 
 // ══════════════════════════════════════════════════════
