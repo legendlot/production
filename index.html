@@ -1292,12 +1292,13 @@ function actBg(act) {
   const m = {
     INW:'#213CE2', QC_PASS:'#22c55e', QC_FAIL:'#DE2A2A',
     WKS_IN:'#f59e0b', WKS_OUT:'#f59e0b', RTO_IN:'#14b8a6',
-    PKG:'#8b5cf6', PKG_OUT:'#8b5cf6', RTE:'#0ea5e9', RTR:'#F2CD1A'
+    PKG:'#8b5cf6', PKG_OUT:'#8b5cf6', RTE:'#0ea5e9', RTR:'#F2CD1A',
+    RTD_RETURN:'#14b8a6'
   };
   return m[act] || '#333';
 }
 function actFg(act) {
-  return ['QC_PASS','WKS_IN','WKS_OUT','RTO_IN','RTE','RTR'].includes(act) ? '#000' : '#fff';
+  return ['QC_PASS','WKS_IN','WKS_OUT','RTO_IN','RTE','RTR','RTD_RETURN'].includes(act) ? '#000' : '#fff';
 }
 
 function updateScanHint() {
