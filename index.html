@@ -1684,6 +1684,16 @@ async function doPkgOut(batchLabel) {
     return;
   }
 
+  // Return RTD path — unit is a handed-over UDR return going back to stock
+  if (result.data.is_return) {
+    flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+    addLog({ barcode: batchLabel, status:'ok', tag:'RTD', label:'RETURN RTD ✓' });
+    showToast('✓ RETURN RTD — ' + (result.data.product || batchLabel), 'ok');
+    // Returns don't count in the regular RTE/RTR dispatch tally
+    return;
+  }
+
+  // Regular fresh-production dispatch path
   const channelCode = result.data.activity === 'RTE' ? 'E' : 'R';
   const tagLabel    = channelCode === 'E' ? 'RTE ✓' : 'RTR ✓';
   const tagType     = channelCode === 'E' ? 'RTE' : 'RTR';
