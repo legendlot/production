@@ -2289,37 +2289,53 @@ function getVolume() {
 }
 
 function playSuccessBeep() {
+  // Industrial Triple: di-di-DI — square wave, cuts through factory noise
+  // Two short chirps at 2200 Hz, one longer punch at 2600 Hz
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.resume();
     const vol = getVolume();
-    [0, 0.12].forEach(offset => {
+    [
+      { t: 0,    freq: 2200, dur: 0.07 },
+      { t: 0.11, freq: 2200, dur: 0.07 },
+      { t: 0.22, freq: 2600, dur: 0.15 },
+    ].forEach(({ t, freq, dur }) => {
       const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
-      osc.type = 'sine'; osc.frequency.value = 1800;
-      gain.gain.setValueAtTime(0, ctx.currentTime + offset);
-      gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + offset + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.09);
-      osc.start(ctx.currentTime + offset);
-      osc.stop(ctx.currentTime + offset + 0.09);
+      osc.type = 'square'; osc.frequency.value = freq;
+      const at = ctx.currentTime + t;
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(vol, at + 0.005);
+      gain.gain.setValueAtTime(vol, at + dur - 0.008);
+      gain.gain.linearRampToValueAtTime(0, at + dur);
+      osc.start(at); osc.stop(at + dur);
     });
   } catch(e) {}
 }
 
 function playErrBeep() {
+  // Descending Buzz: three falling tones — unmistakably "wrong"
+  // 800 → 500 → 300 Hz, square wave — operators know to look at screen
   try {
     const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    ctx.resume();
     const vol = getVolume();
-    [0, 0.18].forEach(offset => {
+    [
+      { t: 0,    freq: 800, dur: 0.12 },
+      { t: 0.17, freq: 500, dur: 0.12 },
+      { t: 0.34, freq: 300, dur: 0.15 },
+    ].forEach(({ t, freq, dur }) => {
       const osc  = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain); gain.connect(ctx.destination);
-      osc.type = 'sawtooth'; osc.frequency.value = 160;
-      gain.gain.setValueAtTime(0, ctx.currentTime + offset);
-      gain.gain.linearRampToValueAtTime(vol, ctx.currentTime + offset + 0.01);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + offset + 0.15);
-      osc.start(ctx.currentTime + offset);
-      osc.stop(ctx.currentTime + offset + 0.15);
+      osc.type = 'square'; osc.frequency.value = freq;
+      const at = ctx.currentTime + t;
+      gain.gain.setValueAtTime(0, at);
+      gain.gain.linearRampToValueAtTime(vol, at + 0.005);
+      gain.gain.setValueAtTime(vol, at + dur - 0.008);
+      gain.gain.linearRampToValueAtTime(0, at + dur);
+      osc.start(at); osc.stop(at + dur);
     });
   } catch(e) {}
 }
