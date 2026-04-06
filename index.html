@@ -744,7 +744,8 @@
       <div class="pkg-result-label" id="pkgResultLabel">—</div>
       <div class="pkg-result-channel" id="pkgResultChannel">ECOM</div>
       <div class="pkg-result-product" id="pkgResultProduct">—</div>
-      <div class="pkg-result-sub">Label sent to printer · Apply to box before sealing</div>
+      <div class="pkg-result-sub" id="pkgPrintStatus">🖨 Sending to printer...</div>
+      <button id="pkgReprintBtn" onclick="retryPrint()" style="display:none;width:100%;padding:13px;background:var(--orange);color:#000;font-weight:900;font-size:12px;letter-spacing:0.1em;border:none;border-radius:10px;cursor:pointer;font-family:'JetBrains Mono',monospace">🖨 REPRINT LABEL</button>
       <button class="pkg-result-done" onclick="clearPkgResult()">NEXT UNIT →</button>
     </div>
   </div>
@@ -837,6 +838,7 @@ let pendingQcPassProduct = null;
 let pendingPkgCar     = null;
 let pkgChannel        = 'ecom';
 let pkgResultShowing  = false;
+let lastPkgData       = null;
 
 // WKS / Defect state
 let pendingDefectUpc       = null;
@@ -1721,15 +1723,26 @@ function showPkgResult(data) {
   chEl.className   = `pkg-result-channel ${chCls}`;
   document.getElementById('pkgResultProduct').textContent =
     [data.product, data.model, data.color].filter(Boolean).join(' · ');
+
+  // Store data for reprint, reset print status UI
+  lastPkgData = data;
+  const ps = document.getElementById('pkgPrintStatus');
+  const rb = document.getElementById('pkgReprintBtn');
+  ps.textContent = '🖨 Sending to printer...';
+  ps.style.color = '';
+  rb.style.display = 'none';
+
   pkgResultShowing = true;
   document.getElementById('pkgResult').classList.add('show');
 
-  // Fire label print — non-blocking, failure shows toast only
+  // Fire label print — non-blocking
   firePrint(data);
 }
 
 async function firePrint(data) {
   const printServer = cfg.printServer || DEFAULT_PRINT_SERVER;
+  const ps = document.getElementById('pkgPrintStatus');
+  const rb = document.getElementById('pkgReprintBtn');
   try {
     const res = await fetch(`${printServer}/print`, {
       method:  'POST',
@@ -1745,14 +1758,29 @@ async function firePrint(data) {
     });
     const result = await res.json();
     if (!result.ok) {
-      showToast('⚠ Print failed: ' + (result.error || 'Unknown error'), 'warn');
+      if (ps) { ps.textContent = '⚠ Print failed — tap REPRINT before sealing box'; ps.style.color = 'var(--orange)'; }
+      if (rb) rb.style.display = 'block';
+      showToast('⚠ Print failed — use REPRINT button', 'warn');
     } else {
+      if (ps) { ps.textContent = '✓ Label printed — apply to box before sealing'; ps.style.color = 'var(--green)'; }
+      if (rb) rb.style.display = 'none';
       showToast('🖨 Label sent to printer', 'ok');
     }
   } catch(e) {
-    // Print server unreachable — don't block the operator
-    showToast('⚠ Printer offline — label not printed', 'warn');
+    // Print server unreachable
+    if (ps) { ps.textContent = '⚠ Printer offline — tap REPRINT before sealing box'; ps.style.color = 'var(--orange)'; }
+    if (rb) rb.style.display = 'block';
+    showToast('⚠ Printer offline — use REPRINT button', 'warn');
   }
+}
+
+async function retryPrint() {
+  if (!lastPkgData) return;
+  const ps = document.getElementById('pkgPrintStatus');
+  const rb = document.getElementById('pkgReprintBtn');
+  if (ps) { ps.textContent = '🖨 Retrying...'; ps.style.color = ''; }
+  if (rb) rb.style.display = 'none';
+  await firePrint(lastPkgData);
 }
 
 function clearPkgResult() {
