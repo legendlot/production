@@ -1812,11 +1812,10 @@ async function doWksScan(upc) {
 
   showToast('Checking unit...', 'ok');
 
-  const result = await workerPost('postScan', {
+  const result = await workerPost('postWksScan', {
     upc,
     device_code: cfg.deviceCode,
     operator_id: operatorUUID || currentOperator?.id,
-    activity:    'WKS',
     line:        cfg.line,
   });
 
