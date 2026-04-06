@@ -646,13 +646,6 @@
       </label>
     </div>
 
-    <div class="sec-div">Print Server</div>
-    <div class="field">
-      <div class="field-label">Print Server URL</div>
-      <input class="field-input" id="s_printServer" placeholder="http://192.168.1.X:3000"
-        style="width:100%;background:var(--surface2);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:12px;outline:none">
-      <div class="field-sub">IP of the laptop running the print server. Leave blank to use localhost.</div>
-    </div>
 
     <div class="sec-div">Audio</div>
     <div class="field">
@@ -745,7 +738,7 @@
       <div class="pkg-result-channel" id="pkgResultChannel">ECOM</div>
       <div class="pkg-result-product" id="pkgResultProduct">—</div>
       <div class="pkg-result-sub" id="pkgPrintStatus">🖨 Sending to printer...</div>
-      <button id="pkgReprintBtn" onclick="retryPrint()" style="display:none;width:100%;padding:13px;background:var(--orange);color:#000;font-weight:900;font-size:12px;letter-spacing:0.1em;border:none;border-radius:10px;cursor:pointer;font-family:'JetBrains Mono',monospace">🖨 REPRINT LABEL</button>
+      <button id="pkgReprintBtn" onclick="retryPrint()" style="width:100%;padding:13px;background:var(--surface2);color:var(--text2);font-weight:700;font-size:12px;letter-spacing:0.1em;border:1px solid var(--border2);border-radius:10px;cursor:pointer;font-family:'JetBrains Mono',monospace">🖨 REPRINT LABEL</button>
       <button class="pkg-result-done" onclick="clearPkgResult()">NEXT UNIT →</button>
     </div>
   </div>
@@ -808,7 +801,7 @@
 const WORKER_URL = 'https://lotopsproxy.afshaan.workers.dev';
 const DEFAULT_SUPABASE_URL = 'https://jkxcnjabmrkteanzoofj.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'sb_publishable_1Dd-r3h9Mou2Wqgn6t24Dw_lmWdBtLh';
-const DEFAULT_PRINT_SERVER = 'https://localhost:3000';
+
 
 // ══════════════════════════════════════════════════════
 // STATE
@@ -1203,7 +1196,6 @@ async function saveSetup() {
       camFacing:    camEl ? camEl.dataset.val : 'environment',
       torchEnabled: document.getElementById('s_torch').checked,
       pkgChannel:   pkgChannel,
-      printServer:  (document.getElementById('s_printServer')?.value || '').trim() || DEFAULT_PRINT_SERVER,
     };
 
     localStorage.setItem('lot_cfg', JSON.stringify(cfg));
@@ -1724,63 +1716,35 @@ function showPkgResult(data) {
   document.getElementById('pkgResultProduct').textContent =
     [data.product, data.model, data.color].filter(Boolean).join(' · ');
 
-  // Store data for reprint, reset print status UI
   lastPkgData = data;
   const ps = document.getElementById('pkgPrintStatus');
-  const rb = document.getElementById('pkgReprintBtn');
-  ps.textContent = '🖨 Sending to printer...';
-  ps.style.color = '';
-  rb.style.display = 'none';
+  ps.textContent = '🖨 Print job queued — label printing shortly';
+  ps.style.color = 'var(--green)';
 
   pkgResultShowing = true;
   document.getElementById('pkgResult').classList.add('show');
-
-  // Fire label print — non-blocking
-  firePrint(data);
-}
-
-async function firePrint(data) {
-  const printServer = cfg.printServer || DEFAULT_PRINT_SERVER;
-  const ps = document.getElementById('pkgPrintStatus');
-  const rb = document.getElementById('pkgReprintBtn');
-  try {
-    const res = await fetch(`${printServer}/print`, {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({
-        batch_label: data.batch_label,
-        product:     data.product   || null,
-        model:       data.model     || null,
-        color:       data.color     || null,
-        channel:     data.channel   || null,
-        packed_at:   new Date().toISOString(),
-      }),
-    });
-    const result = await res.json();
-    if (!result.ok) {
-      if (ps) { ps.textContent = '⚠ Print failed — tap REPRINT before sealing box'; ps.style.color = 'var(--orange)'; }
-      if (rb) rb.style.display = 'block';
-      showToast('⚠ Print failed — use REPRINT button', 'warn');
-    } else {
-      if (ps) { ps.textContent = '✓ Label printed — apply to box before sealing'; ps.style.color = 'var(--green)'; }
-      if (rb) rb.style.display = 'none';
-      showToast('🖨 Label sent to printer', 'ok');
-    }
-  } catch(e) {
-    // Print server unreachable
-    if (ps) { ps.textContent = '⚠ Printer offline — tap REPRINT before sealing box'; ps.style.color = 'var(--orange)'; }
-    if (rb) rb.style.display = 'block';
-    showToast('⚠ Printer offline — use REPRINT button', 'warn');
-  }
 }
 
 async function retryPrint() {
   if (!lastPkgData) return;
   const ps = document.getElementById('pkgPrintStatus');
-  const rb = document.getElementById('pkgReprintBtn');
-  if (ps) { ps.textContent = '🖨 Retrying...'; ps.style.color = ''; }
-  if (rb) rb.style.display = 'none';
-  await firePrint(lastPkgData);
+  if (ps) { ps.textContent = '🖨 Queuing reprint...'; ps.style.color = ''; }
+
+  const result = await workerPost('postReprintJob', {
+    batch_label: lastPkgData.batch_label,
+    product:     lastPkgData.product  || null,
+    model:       lastPkgData.model    || null,
+    color:       lastPkgData.color    || null,
+    channel:     lastPkgData.channel  || null,
+  });
+
+  if (result.ok) {
+    if (ps) { ps.textContent = '✓ Reprint queued — printing shortly'; ps.style.color = 'var(--green)'; }
+    showToast('✓ Reprint queued', 'ok');
+  } else {
+    if (ps) { ps.textContent = '⚠ Reprint failed — try again'; ps.style.color = 'var(--orange)'; }
+    showToast('⚠ Reprint failed', 'warn');
+  }
 }
 
 function clearPkgResult() {
