@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 1.7 | **Last Updated:** April 2026
+**Version:** 1.8 | **Last Updated:** April 2026
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -12,7 +12,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing. PKG thermal label printing live via polling architecture.
+**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing. PKG thermal label printing live via polling architecture. Per-line PKG printers deployed April 2026.
 
 ---
 
@@ -103,7 +103,7 @@ Parts (Store) → Assembly (car + remote on same line) → QC → Packaging → 
 | QC_PASS | End of QC | 3 (one per line) | Two-scan flow if has_remote = true; pairing created here |
 | QC_FAIL | End of QC | 3 (one per line) | Single scan — whichever component failed |
 | WKS | Workshop | 1 shared | System-inferred: qc_fail→WKS_IN, in_repair→WKS_OUT |
-| PKG | Packaging station | 1 shared | Two-scan (car + remote), channel toggle (E/R), prints batch label via Supabase polling |
+| PKG | Packaging station | 3 (one per line) | Two-scan (car + remote), channel toggle (E/R), prints batch label via Supabase polling |
 | PKG_OUT | Dispatch Out | 1 shared | Scans batch label — auto-routes RTE/RTR (fresh) or RTD_RETURN (return) |
 | RTO_IN | Returns | 1 shared | Two paths: intact → direct RTD, damaged → full production flow |
 
@@ -127,7 +127,7 @@ Car assembled, UPC sticker applied. Remote assembled (last station same line), U
 - Operator sets channel (ECOM / RETAIL) on device.
 - Scans car UPC (must be qc_pass) → scans remote UPC → system verifies confirmed pair.
 - System generates batch label: `LOT-XXXXXXXX-E` or `LOT-XXXXXXXX-R`.
-- Print job inserted into `print_jobs` table → print server polls and prints on TSC TE244.
+- Print job inserted into `print_jobs` table (with `line` field) → line-specific print server polls and prints on that line's TSC TE244.
 - Unit status → `pending_rtd`.
 
 **Stage 5: Dispatch Out (PKG_OUT)**
@@ -147,21 +147,23 @@ Visual print on label: Barcode · Batch label · Product name · Channel · Date
 
 ## 6. Devices & Station Mapping ✅ LOCKED
 
-Each device is permanently associated with one station and one activity.
+Each device is permanently associated with one station and one line.
 
-| Device Code | Station | Activity | Line |
-|---|---|---|---|
-| INW-L1/L2/L3 | INW | INW | L1/L2/L3 |
-| QCP-L1/L2/L3 | QC_PASS | QC_PASS | L1/L2/L3 |
-| QCF-L1/L2/L3 | QC_FAIL | QC_FAIL | L1/L2/L3 |
-| WKS | WKS | WKS (system-inferred IN/OUT) | SHARED |
-| PKG | PKG | PKG (pair verify + print) | SHARED |
-| PKG-OUT | PKG_OUT | RTE or RTR or RTD_RETURN (auto-detected) | SHARED |
-| RTO | RTO_IN | RTO_IN | SHARED |
+| Device Code | Station | Line |
+|---|---|---|
+| INW-L1/L2/L3 | INW | L1/L2/L3 |
+| QCP-L1/L2/L3 | QC_PASS | L1/L2/L3 |
+| QCF-L1/L2/L3 | QC_FAIL | L1/L2/L3 |
+| WKS | WKS | SHARED |
+| PKG-L1/L2/L3 | PKG | L1/L2/L3 |
+| PKG-OUT | PKG_OUT | SHARED |
+| RTO | RTO_IN | SHARED |
 
-Total: 14 devices. Scanner setup screen: operator selects Station + Line (2 taps). Device code auto-resolved from DB.
+Total: 16 devices. Scanner setup screen: operator selects Station + Line (2 taps). Device code auto-resolved from DB.
 
-**Print Server URL** no longer configured per device — print goes via Supabase polling, not direct connection.
+**Devices table columns:** id, device_code, label, line, station, is_active, created_at, last_seen, notes. No `activity` column.
+
+**Print routing:** Each PKG device (PKG-L1/L2/L3) writes its line into `print_jobs.line`. Each line's print server polls only for its own line's jobs — no cross-line print collisions.
 
 ---
 
@@ -285,23 +287,26 @@ Damaged return units go through a repair run — batch-based, plannable. Design 
 
 ---
 
-## 14. PKG Label Print System ✅ BUILT — v2.0 Polling (April 2026)
+## 14. PKG Label Print System ✅ BUILT — v2.1 Per-Line (April 2026)
 
 ### Architecture
-Print server on PKG station laptop polls Supabase `print_jobs` table every 2 seconds. No HTTP server on the laptop. No direct phone→laptop connection required.
+One print server per line, running on that line's dedicated Windows laptop at the PKG station. Each server polls Supabase `print_jobs` table every 2 seconds, filtered to its own line only. No HTTP server. No direct phone→laptop connection.
 
 ### Flow
-1. PKG scan succeeds → Worker inserts `print_jobs` row (`status = pending`)
+1. PKG scan succeeds → Worker inserts `print_jobs` row with `status = pending` and `line = deviceLine`
 2. Scanner overlay shows batch label + REPRINT button
-3. Print server detects pending row → marks `printing` → builds TSPL → fires to TSC TE244 → marks `done` or `failed`
+3. Line-specific print server detects its pending row → marks `printing` → builds TSPL → fires to that line's TSC TE244 → marks `done` or `failed`
 4. REPRINT button → `postReprintJob` action → new pending row
 
 ### Why not direct push
-Chrome Android blocks `fetch()` from HTTPS PWA (`scanner.legendoftoys.com`) to local HTTP/HTTPS print server. This is a browser-level restriction (mixed content policy) that cannot be bypassed by cert acceptance in a separate tab. iPhone/Safari works but Android Chrome does not. APK (TWA) also blocked. Polling via Supabase permanently solves this for all 15 devices.
+Chrome Android blocks `fetch()` from HTTPS PWA (`scanner.legendoftoys.com`) to local HTTP/HTTPS print server. This is a browser-level restriction (mixed content policy) that cannot be bypassed by cert acceptance in a separate tab. iPhone/Safari works but Android Chrome does not. APK (TWA) also blocked. Polling via Supabase permanently solves this for all devices.
+
+### Why factory WiFi doesn't matter
+Print server only calls outbound to Supabase. It does not talk to scanner devices. Different WiFi network, different physical location — makes no difference as long as the laptop has internet.
 
 ### Scanner devices
 - **15 Redmi A5** — factory floor scanners, Chrome Android, browser PWA
-- **PKG station Redmi A5** — APK installed (com.legendoftoys.scanner) via Bubblewrap TWA. With polling print, APK vs browser doesn't affect printing — both work.
+- **PKG station Redmi A5 (per line)** — APK installed (com.legendoftoys.scanner) via Bubblewrap TWA. With polling print, APK vs browser doesn't affect printing — both work.
 
 ---
 
@@ -309,9 +314,10 @@ Chrome Android blocks `fetch()` from HTTPS PWA (`scanner.legendoftoys.com`) to l
 
 - **Model:** TSC TE244 (confirmed, on-site)
 - **Label size:** 50mm × 25mm
-- **Connection:** USB to Windows laptop at PKG station
-- **Print server:** Node.js (`printserver.js` v2.0) — polling Supabase, no HTTP server
-- **Auto-start:** Windows Startup shortcut
+- **Connection:** USB to Windows laptop at each line's PKG station
+- **Print server:** Node.js (`printserver.js` v2.1) — polling Supabase, filtered by line, no HTTP server
+- **Config:** `config.json` — only `"line"` value differs between laptops (L1/L2/L3); all other config identical
+- **Auto-start:** Windows Startup shortcut on each laptop
 - **Label X position:** 24 dots (April 2026, shifted from 8). May need further tuning.
 
 ---
@@ -375,7 +381,7 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 | Unicommerce | Out | RTD handoff, channel routing | Manual currently |
 | Biometric | In | Headcount / shift data | On-site, not connected |
 | External UPC printer | Both | Batch gen → A3 print → receive | ✅ Live |
-| TSC TE244 thermal printer | Out | Batch label at PKG station (50×25mm) | ✅ Live — polling v2.0 |
+| TSC TE244 thermal printer | Out | Batch label at each line's PKG station (50×25mm) | ✅ Live — polling v2.1 per-line |
 | Supabase | Core | All data | ✅ Live |
 | Cloudflare Workers | API | Auth, logic, mutations | ✅ Live |
 | Store system | Both | Returns handoff, loss notes, handover to production | ✅ Live |
@@ -395,7 +401,7 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 - QC_FAIL defect modal with component filtering (confirmed on floor)
 - WKS flow — `postWksScan` + `postWksOut` (confirmed working April 2026)
 - Repair loop — QC_FAIL → WKS → repaired → QC_PASS (confirmed on floor)
-- PKG scan — pair verify, status → `pending_rtd`, print job inserted
+- PKG scan — pair verify, status → `pending_rtd`, print job inserted with line
 - PKG label printing — TSC TE244 via Supabase polling (confirmed April 2026)
 - PKG_OUT — RTE/RTR dispatch + RTD_RETURN path
 - Scan violation logging + Alerts tab
@@ -412,13 +418,13 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 - Reporting tab — all 3 cycle time segments, QC summary, product breakdown, daily output, line breakdown
 - UPC generator — searchable dropdown, remote variant suppressed
 - Print sheet — 21×29 grid, 609 stickers/A3
+- Production run LINE column — store issue queue + production runs table (April 2026)
+- Per-line PKG devices — PKG-L1/L2/L3, `print_jobs.line` routing, printserver v2.1 (April 2026)
 
 ### Open Issues 🔶
-- WKS_IN line shows SHARED (fix deployed April 2026, not confirmed)
-- WKS defects "No defects on record" (fix deployed April 2026, not confirmed)
-- PKG scan line shows SHARED (fix not yet done)
-- Production run line info missing in store/dashboard views (not started)
-- Label X position final tuning (shifted to 24 dots, not confirmed on floor)
+- WKS_IN line shows SHARED (fix deployed April 2026, **not confirmed on floor**)
+- WKS defects "No defects on record" (fix deployed April 2026, **not confirmed on floor**)
+- Label X position final tuning (shifted to 24 dots, **not confirmed on floor**)
 
 ### Pending Build 🔲
 - Operator QR card print flow

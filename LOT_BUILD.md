@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 1.7 | **Last Updated:** April 2026
+**Version:** 1.8 | **Last Updated:** April 2026
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -15,7 +15,7 @@
 | Dashboard | Vanilla JS | `dashboard.legendoftoys.com` — GitHub Pages, repo `legendlot/dashboard` |
 | Store system | Vanilla JS | Separate app — store schema |
 | Camera/scanning | Native `getUserMedia` + ZXing | Replaced html5-qrcode (MIUI incompatibility) |
-| Print server | Node.js v2.0 | `printserver.js` on PKG station laptop — polls Supabase. No HTTP server, no firewall rules needed. |
+| Print server | Node.js v2.1 | `printserver.js` on each line's PKG station laptop — polls Supabase filtered by line. No HTTP server, no firewall rules needed. |
 | Thermal printer | TSC TE244 | TSPL, USB, 50×25mm labels, `@thiagoelg/node-printer` |
 | Fonts | Tomorrow + JetBrains Mono | Google Fonts |
 | QR generation (dashboard) | QRCode.js from cdnjs | Used in UPC Generator print flow |
@@ -208,7 +208,7 @@ original_value  JSONB
 new_value       JSONB
 ```
 
-#### `print_jobs` — PKG label print queue ← new April 2026
+#### `print_jobs` — PKG label print queue ← updated April 2026
 ```
 id           UUID PRIMARY KEY DEFAULT gen_random_uuid()
 batch_label  TEXT NOT NULL
@@ -218,16 +218,48 @@ color        TEXT
 channel      TEXT
 packed_at    TIMESTAMPTZ
 status       TEXT NOT NULL DEFAULT 'pending'   -- pending | printing | done | failed
+line         TEXT                               -- L1 | L2 | L3 ← added April 2026 for per-line routing
 created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 printed_at   TIMESTAMPTZ
 error        TEXT
 ```
 Index: `CREATE INDEX print_jobs_status_idx ON public.print_jobs (status, created_at);`
 
+#### `devices` — confirmed columns (April 2026)
+```
+id           UUID PRIMARY KEY
+device_code  TEXT                -- e.g. INW-L1, PKG-L2, WKS
+label        TEXT
+line         TEXT                -- L1 | L2 | L3 | SHARED
+station      TEXT
+is_active    BOOLEAN
+created_at   TIMESTAMPTZ
+last_seen    TIMESTAMPTZ
+notes        TEXT
+```
+**Note:** No `activity` column exists. Activity is inferred from station/device_code in worker logic.
+
 #### `return_shipments` (store schema) — updated April 2026
 ```
 -- Status enum: open | partially_processed | fully_processed | handed_over | closed
 handed_over_at  TIMESTAMPTZ
+```
+
+#### `store.production_runs` — confirmed columns (April 2026)
+```
+id           UUID PRIMARY KEY
+run_no       TEXT
+run_date     DATE
+product      TEXT
+line_no      TEXT                -- line the run is assigned to
+shift        TEXT
+status       TEXT
+created_by   TEXT
+released_at  TIMESTAMPTZ
+completed_at TIMESTAMPTZ
+notes        TEXT
+created_at   TIMESTAMPTZ
+updated_at   TIMESTAMPTZ
 ```
 
 ---
@@ -288,6 +320,7 @@ Note: `RTD_RETURN` not yet in RPC output.
 | `postWksScan` | WKS scan — infers WKS_IN or WKS_OUT_PENDING. Fetches defects. Returns effective line from INW scan. ← new April 2026 |
 | `postWksOut` | WKS outcome — REPAIRED or SCRAPPED. Auto-creates scrap loss note. ← new April 2026 |
 | `postReprintJob` | Inserts new pending print_job row for reprint ← new April 2026 |
+| `postPkg` | PKG scan — pair verify, insert pkg_scans, insert print_jobs with `line: deviceLine` ← line field added April 2026 |
 
 ### SCANNER_ACTIONS (bypass JWT, use device auth)
 ```
@@ -317,28 +350,27 @@ Scanner calls `postWksScan` (NOT `postScan` with activity WKS — that caused en
 4. Operator taps REPAIRED → calls `postWksOut(outcome='repaired')` → unit → `repaired`
 5. Operator taps CANNOT FIX → calls `postWksOut(outcome='scrapped')` → unit → `scrapped`, scrap loss note created
 
-**Known issue:** WKS_IN sometimes shows line SHARED and "No defects on record". Fixes deployed April 2026, not yet confirmed working.
+**Known issue:** WKS_IN sometimes shows line SHARED and "No defects on record". Fixes deployed April 2026, not yet confirmed working on floor.
 
 ### PKG ← updated April 2026
 Two-scan flow (car + remote):
 1. Car scan → remote scan → pair verified
 2. `pkg_scans` inserted
 3. Car and remote `units.current_status` → `pending_rtd`
-4. `print_jobs` row inserted (`status = 'pending'`)
+4. `print_jobs` row inserted with `status = 'pending'` and `line = deviceLine` (device is now PKG-L1/L2/L3)
 5. Scanner overlay shows batch label + REPRINT button (always visible)
-
-**Known issue:** PKG scan records show line SHARED. Fix pending.
 
 ### PKG_OUT
 Two paths auto-detected:
 - **Fresh** (`pending_rtd`): `-E` → RTE, `-R` → RTR. Both units → `rtd`.
 - **Return RTD** (`rtd` + `rtd_direct` in `handed_over` shipment): `RTD_RETURN` scan. Does NOT count in tally.
 
-### Print Flow — v2.0 Polling ← new April 2026
-1. PKG scan → Worker inserts `print_jobs` row (`status = pending`)
-2. Print server polls every 2 seconds → picks up pending row → prints → marks done/failed
-3. REPRINT button → `postReprintJob` → new pending row inserted
-4. No phone→laptop connection. Works on any device, any network.
+### Print Flow — v2.1 Per-Line ← updated April 2026
+1. PKG scan → Worker inserts `print_jobs` row with `status = pending`, `line = deviceLine`
+2. Line-specific print server polls `WHERE status = 'pending' AND line = '$LINE'` every 2 seconds
+3. Picks up its own line's job → prints → marks done/failed
+4. REPRINT button → `postReprintJob` → new pending row inserted
+5. No phone→laptop connection. Works on any network. No cross-line print collisions.
 
 ### Void + Status Rollback
 Voiding any scan rolls back `units.current_status` to previous non-voided scan's activity. If no previous scan → `inwarded`.
@@ -365,15 +397,15 @@ Voiding any scan rolls back `units.current_status` to previous non-voided scan's
 
 ---
 
-## 7. Print Server — v2.0
+## 7. Print Server — v2.1
 
-**Location:** Windows laptop at PKG station
+**Location:** Windows laptop at each line's PKG station (one per line)
 **Files:** `printserver.js`, `config.json`
 
-### config.json
+### config.json — per-line (only `line` differs between laptops)
 ```json
 {
-  "port": 3000,
+  "line": "L1",
   "printer_name": "TSC TE244",
   "label_width_mm": 50,
   "label_height_mm": 25,
@@ -385,6 +417,13 @@ Voiding any scan rolls back `units.current_status` to previous non-voided scan's
   "supabase_key": "sb_publishable_1Dd-r3h9Mou2Wqgn6t24Dw_lmWdBtLh"
 }
 ```
+Set `"line"` to `"L1"`, `"L2"`, or `"L3"` depending on which laptop. Everything else identical.
+
+### Poll query (v2.1)
+```
+status=eq.pending&line=eq.${LINE}&order=created_at.asc&limit=5
+```
+Each server only picks up jobs tagged for its own line. No race conditions between servers.
 
 ### Label layout (TSPL, 50×25mm @ 203 DPI) — updated April 2026
 ```
@@ -421,6 +460,9 @@ X position = 24 dots (shifted from 8 in April 2026). May need further tuning on 
 | upc_batches remote model/color | Worker nulls model/color for 5-char product_code batches | Remotes are product-level not variant-level |
 | `pending_rtd` unit_status enum | `ALTER TYPE unit_status ADD VALUE IF NOT EXISTS 'pending_rtd'` | Worker used pending_rtd but enum only had `packed` — silent update failures on all PKG scans. Fixed April 2026. |
 | print_jobs table | Created in public schema with status index | Print polling architecture April 2026 |
+| print_jobs.line column | `ALTER TABLE public.print_jobs ADD COLUMN IF NOT EXISTS line TEXT` | Per-line print routing April 2026 |
+| PKG device per-line | `UPDATE public.devices SET device_code='PKG-L1', line='L1', label='PKG Line 1' WHERE device_code='PKG'` | PKG was SHARED — now per-line |
+| PKG-L2/L3 devices | `INSERT INTO public.devices (device_code, station, line, label, is_active) VALUES ('PKG-L2','PKG','L2','PKG Line 2',true),('PKG-L3','PKG','L3','PKG Line 3',true)` | New per-line PKG devices |
 
 ---
 
@@ -429,7 +471,7 @@ X position = 24 dots (shifted from 8 in April 2026). May need further tuning on 
 | Phase | Module | Status |
 |---|---|---|
 | 1 | DB + Scanner App | ✅ Complete |
-| 1b | PKG Print System | ✅ Complete — polling v2.0 (April 2026) |
+| 1b | PKG Print System | ✅ Complete — polling v2.1 per-line (April 2026) |
 | 2 | Reporting Dashboard | ✅ Live (10 tabs, full Reporting tab) |
 | 3 | Repair Module | ✅ Complete |
 | 3b | Return System | ✅ Complete (incl. handover + RTD_RETURN path) |
@@ -442,31 +484,28 @@ X position = 24 dots (shifted from 8 in April 2026). May need further tuning on 
 
 ### Open Issues — fix before building new features
 
-1. **WKS_IN line shows SHARED** — Should show original INW line. `postWksScan` fix deployed April 2026 (pulls from INW scan). Not confirmed working.
-2. **WKS defects "No defects on record"** — `fetchDefects` fixed April 2026 (individual queries per defect code, correct queryPublic return shape). Not confirmed working.
-3. **PKG scan line shows SHARED** — `postPkg` handler needs effectiveLine from INW scan, same fix as WKS_IN. Not yet done.
-4. **Production run line info missing** — Runs don't show line in store view or production run view. Store index file needed. Not started.
-5. **Label X position** — Shifted to 24 dots (was 8). Printing but final centering not confirmed on floor.
+1. **WKS_IN line shows SHARED** — Should show original INW line. `postWksScan` fix deployed April 2026. **Not confirmed working on floor.**
+2. **WKS defects "No defects on record"** — `fetchDefects` fix deployed April 2026. **Not confirmed working on floor.**
+3. **Label X position** — Shifted to 24 dots (was 8). **Not confirmed on floor.** Testing tomorrow with L1/L2 printer setup.
 
 ### Pending Build Items (prioritised)
 
-**Next session (after open issues resolved):**
+**Next session:**
 1. **Operator QR card print flow** — dashboard page to generate + print physical ID cards
 2. **Operator onboarding + station assignment** — enter name, assign station, print card
-3. **Production run line info** — store + dashboard fix (issue #4 above)
 
 **Backlog:**
-4. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
-5. **Repair run** — new production run type for damaged returns. Pending design session.
-6. **Legacy UPC manual entry** — for pre-system units returning. Build when triggered.
-7. **Daily / weekly / monthly reporting views**
-8. **Reconciliation module** — Phase 4
-9. **Audit module** — Phase 5
-10. **Assembly stations module** — Phase 6
-11. **Dashboard tab RBAC** — deferred until feature set stable
-12. **Biometric integration**
-13. **Unicommerce reconciliation**
-14. **APK rollout to all 15 devices** — currently only PKG station. With polling print, all devices can stay on browser PWA. Decision deferred.
+3. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
+4. **Repair run** — new production run type for damaged returns. Pending design session.
+5. **Legacy UPC manual entry** — for pre-system units returning. Build when triggered.
+6. **Daily / weekly / monthly reporting views**
+7. **Reconciliation module** — Phase 4
+8. **Audit module** — Phase 5
+9. **Assembly stations module** — Phase 6
+10. **Dashboard tab RBAC** — deferred until feature set stable
+11. **Biometric integration**
+12. **Unicommerce reconciliation**
+13. **APK rollout to all 15 devices** — currently only PKG station. With polling print, all devices can stay on browser PWA. Decision deferred.
 
 ---
 
@@ -508,6 +547,8 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | WKS line tracking | Pulled from original INW scan | WKS device is SHARED with no line assignment |
 | Print approach | Polling Supabase print_jobs table | Chrome Android blocks local network fetch from HTTPS PWA. Polling is network-agnostic, works on all devices without any per-device config. |
 | PKG label print | Non-blocking via print_jobs | Scan not blocked if printer offline. REPRINT button always available. |
+| PKG per-line devices | PKG-L1/L2/L3 instead of shared PKG | Multiple printers on multiple lines need routing. print_jobs.line field + per-line poll query prevents cross-line print collisions. |
+| Factory WiFi | No special config needed | Print server calls outbound to Supabase only, not to scanner devices. Any network with internet works. |
 | Scan summary | get_scan_summary RPC not row query | Bypasses Supabase row limits — always accurate |
 | Scan summary fallback | Dashes not row-count | allScans capped at 500 display rows — counting from it gives wrong numbers |
 | Return categories | UDR / CXR / BRV | Clear, unambiguous, future-proof |
@@ -515,6 +556,7 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | Loss note auto-create | WKS_OUT scrapped triggers scrap note | Every financial loss has a formal document |
 | Scanner APK | Bubblewrap TWA | PWA Builder was unresponsive. Bubblewrap CLI builds directly from manifest. Package: com.legendoftoys.scanner |
 | `packed` vs `pending_rtd` | Both in enum, `pending_rtd` is active | `packed` is legacy unused. `pending_rtd` added April 2026 — required for PKG→PKG_OUT status validation. |
+| Operator cards deferred | Build later, not blocking | System functions without per-operator tracking. Cards are additive and can be retrofitted. Priority is floor stability first. |
 
 ---
 
