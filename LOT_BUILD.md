@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 1.5 | **Last Updated:** April 2026
+**Version:** 1.6 | **Last Updated:** April 2026
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -62,7 +62,7 @@ id              UUID PRIMARY KEY
 timestamp       TIMESTAMPTZ
 upc             TEXT
 ean             TEXT
-activity        TEXT    -- INW | QC_PASS | QC_FAIL | WKS_IN | WKS_OUT | PKG | RTE | RTR | RTO_IN
+activity        TEXT    -- INW | QC_PASS | QC_FAIL | WKS_IN | WKS_OUT | PKG | RTE | RTR | RTO_IN | RTD_RETURN
 line            TEXT
 station         TEXT
 device_id       UUID
@@ -79,6 +79,8 @@ voided_at       TIMESTAMPTZ
 void_reason     TEXT
 superseded_by   UUID REFERENCES scans(id)
 ```
+
+**Note:** `RTD_RETURN` added to activity enum April 2026 — used when a UDR return is scanned at PKG_OUT after handover from store.
 
 #### `scan_violations` — Wrong-sequence scan log
 ```
@@ -107,7 +109,7 @@ applied_to      TEXT
 created_at      TIMESTAMPTZ
 updated_at      TIMESTAMPTZ
 product_code    TEXT                -- 4-char e.g. 'KNAK', or 5-char remote e.g. 'KNAKR'
-product_seq     INT                 -- per-product sequential number
+product_seq     INT                 -- per-product sequential number (legacy — display code now uses LOT seq)
 ```
 
 #### `upc_batches` — Print batch records
@@ -116,8 +118,8 @@ batch_id        TEXT PRIMARY KEY    -- 'B-001'
 product         TEXT
 product_code    TEXT
 ean             TEXT
-model           TEXT
-color           TEXT
+model           TEXT                -- NULL for remote batches (5-char product_code)
+color           TEXT                -- NULL for remote batches (5-char product_code)
 quantity        INT
 upc_from        TEXT
 upc_to          TEXT
@@ -202,6 +204,13 @@ original_value  JSONB
 new_value       JSONB
 ```
 
+#### `return_shipments` (store schema) — updated April 2026
+```
+-- Status enum now includes: open | partially_processed | fully_processed | handed_over | closed
+-- New column added:
+handed_over_at  TIMESTAMPTZ         -- set when store confirms handover to production
+```
+
 ---
 
 ## 3. RPCs (public schema)
@@ -216,19 +225,21 @@ new_value       JSONB
 | `v_repeat_defects` | Units with multiple failures (view) | — |
 | `get_plan_vs_actual` | Run targets vs actuals | `p_date_from`, `p_date_to`, `p_line` |
 | `get_scan_summary` | Accurate scan counts bypassing row limits | `date` |
-| `get_qc_cycle_time` | Avg time INW → QC_PASS/QC_FAIL | `p_date_from`, `p_date_to`, `p_line` |
+| `get_qc_cycle_time` | Avg time INW → QC_PASS/QC_FAIL with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
+| `get_pkg_cycle_time` | Avg time QC_PASS → PKG with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
+| `get_rtd_cycle_time` | Avg time PKG → RTE/RTR with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
 | `next_seq` | Auto-increment named sequences | `seq_name` |
+
+### Cycle Time RPCs — shared design (all three)
+- IQR fence: `GREATEST(Q3 + 2×IQR, Q3 + 10)` with min IQR floor of 5 min
+- Exclude gaps > 480 minutes (one shift) to prevent overnight distortion
+- Returns: `avg_mins_all`, split averages, `median_mins`, `units_measured`, `fastest_mins`, `slowest_normal_mins`, `outlier_count`, `outlier_max_mins`, `outlier_threshold_mins`
 
 ### `get_line_view` — notes
 - Returns one row per line (fixed April 2026 — was returning one row per line×run)
 - Groups scan counts by line only, joins most recent run for metadata
 - Includes `first_scan_at` (timestamptz, UTC) — earliest scan on that line for the date
 - Completion % based on `total_dispatched / target_qty`
-
-### `get_qc_cycle_time` — notes
-- Measures elapsed time from INW scan → first QC_PASS or QC_FAIL scan per unit
-- Excludes units where gap > 480 minutes (prevents overnight distortion)
-- Returns: `avg_mins_all`, `avg_mins_pass`, `avg_mins_fail`, `units_measured`, `fastest_mins`, `slowest_mins`
 
 ---
 
@@ -239,6 +250,7 @@ new_value       JSONB
 | `getProductionDashboard` | Executive tab — summary + open runs + hourly chart |
 | `getLineView` | Lines tab — per-line cards + operator table |
 | `getQCView` | QC tab — FPY + defects + repeat failures + cycle time |
+| `getCycleTimeSummary` | Reporting tab — all three cycle times in one call |
 | `getPlanVsActual` | Runs tab + Reporting tab |
 | `getProductCodes` | UPC Generator — product dropdown |
 | `getUpcBatches` | UPC Generator — batch history |
@@ -248,6 +260,14 @@ new_value       JSONB
 | `getViolations` | Alerts tab |
 | `getViolationSummary` | Alerts tab summary cards |
 | `getReturnQueue` | Returns tab |
+
+## 4b. Worker Endpoints (POST actions — relevant)
+
+| Action | Description |
+|---|---|
+| `postReturnHandover` | Store system — marks shipment as `handed_over`, validates fully_processed first |
+| `postPkgOut` | PKG_OUT scan — detects return RTD path via unit status + return_units lookup, returns `is_return: true` for RTD_RETURN path |
+| `generateUpcBatch` | Nulls model/color for remote batches (5-char product_code) |
 
 ---
 
@@ -272,6 +292,11 @@ System-inferred direction:
 4. Operator taps REPAIRED or CANNOT FIX — calls `postWksOut` with outcome
 5. REPAIRED → unit `repaired`, eligible for QC; SCRAPPED → unit `scrapped`, scrap loss note auto-created
 
+### PKG_OUT — updated April 2026
+Two paths, auto-detected by worker:
+- **Fresh production** (`pending_rtd`): Routes to RTE or RTR via batch label suffix. Increments RTE/RTR tally on scanner.
+- **Return RTD** (`rtd` + active `rtd_direct` return in `handed_over` shipment): Creates `RTD_RETURN` scan records. Returns `is_return: true`. Scanner shows "RETURN RTD ✓", does NOT increment dispatch tally.
+
 ### PKG Print Flow
 1. Successful PKG scan → `showPkgResult(data)` called
 2. `firePrint(data)` fires async to `${cfg.printServer}/print`
@@ -286,6 +311,12 @@ When any scan is voided (Tier 1 or Tier 2), the worker:
 3. Updates `units.current_status` to match previous scan's activity
 4. If no previous scan exists → rolls back to `inwarded`
 
+### Scanner Beep — updated April 2026
+- **Success:** Industrial Triple — two short chirps (2200 Hz) + one longer rising tone (2600 Hz), square wave, ~370ms total
+- **Error:** Descending Buzz — three falling tones (800→500→300 Hz), square wave, ~490ms total
+- Both use `ctx.resume()` to handle Chrome AudioContext suspension
+- Volume controlled via slider in device setup screen (`lot_volume` in localStorage)
+
 ---
 
 ## 6. Dashboard
@@ -298,19 +329,36 @@ When any scan is voided (Tier 1 or Tier 2), the worker:
 |---|---|
 | Executive | KPI cards, hourly bar chart (with count labels), production runs split Active/Upcoming |
 | Lines | Per-line cards (locked to today), first scan time, operator output table |
-| QC | QC cycle time cards, FPY by line, top defects grid, repeat failures table |
+| QC | Cycle time cards (IQR outlier-aware: avg, median, pass/fail split, fastest, slowest-normal, outlier strip), FPY by line, top defects grid, repeat failures table |
 | Runs | Plan vs actual table with completion % |
-| UPC Generator | Product select, car/remote toggle, batch history, print |
-| Scans | Real-time feed, activity filter, UPC search, voided toggle. Summary cards via getScanSummary RPC. |
-| Corrections | Tier 2 void + Tier 3 amend with modals |
+| UPC Generator | Searchable dropdown (filters by product code + name + model + color), car/remote toggle, batch history (remote variant suppressed), print |
+| Scans | Real-time feed, activity filter (incl. RTD_RETURN in teal), UPC search, voided toggle. Summary cards via getScanSummary RPC. |
+| Corrections | Tier 2 void + Tier 3 amend with modals. RTD_RETURN filter added. |
 | Alerts | Scan violations feed, acknowledge flow, summary cards, badge count on tab |
 | Returns | Returns queue from store, ACTION button per unit, summary cards |
-| Reporting | Date-range reporting — summary cards, daily output table, line breakdown table |
+| Reporting | Date-range: cycle time summary (all 3 panels), QC summary (FPY + top 6 defects), product breakdown, daily output table, line breakdown table |
 
 ### Tab behaviour
-- **Date bar hidden on:** UPC Generator, Scans, Corrections, Returns, Lines, Reporting
+- **Date bar hidden on:** UPC Generator, Scans, Corrections, Returns, Lines
 - **Lines tab** always loads today — locked, no date range
-- **Reporting tab** uses date range from date bar
+- **Reporting tab** shows date bar, loads `getCycleTimeSummary` + `getQCView` + `getPlanVsActual` in parallel
+
+### UPC Generator — updated April 2026
+- Product field replaced with searchable text input (custom dropdown, not native `<select>`)
+- Searches across: product_code, product name, model, color simultaneously
+- Dropdown shows: `[KNAK]  Knox · Adventure · Black  + remote`
+- Remote batches suppress variant in batch history table and print sheet header
+- `selectedProductCode` state variable replaces old `sel.value`
+
+### UPC Print Sheet — updated April 2026
+- **Grid:** 21 columns × 29 rows = **609 stickers per A3 sheet**
+- **Cell size:** 13mm × 13mm, gap 0.3mm
+- **Margins:** 5mm (down from 10mm)
+- **Borders:** None (was .3mm solid #ddd)
+- **QR size:** 9mm × 9mm (was 10mm)
+- **Display code below QR:** `SHTKR00001201` — product_code + raw LOT sequence, no hyphens. Globally unique.
+- **Header:** `LOT — Batch B-XXX | Product · Model · Color · N stickers | Date`. Remote batches show product name only.
+- **Sheets count** updated to `Math.ceil(qty / 609)` (was 368)
 
 ### Scroll Fix
 All tab content panes have `#tab-X .table-wrap { flex:1; min-height:0; overflow-y:auto }` override. `setContentHeight()` called on tab switch and login.
@@ -330,7 +378,9 @@ All confirmed created:
 - `v_repair_queue` view
 - `v_daily_production` view
 - `get_scan_summary` RPC
-- `get_qc_cycle_time` RPC ← new April 2026
+- `get_qc_cycle_time` RPC ← updated April 2026 (IQR outlier detection, new return fields)
+- `get_pkg_cycle_time` RPC ← new April 2026
+- `get_rtd_cycle_time` RPC ← new April 2026
 
 ---
 
@@ -387,7 +437,13 @@ TEXT 8,96,"1",0,1,1,"ECOM  04-Apr-2026"
 | Return sequences | `INSERT INTO store.sequences VALUES ('rs',0),('ru',0),('ln',0)` | Return system IDs |
 | get_scan_summary RPC | Created in public schema | Accurate scan counts bypassing row limits |
 | get_line_view fix | DROP + recreate with line-level grouping + first_scan_at | Was returning two rows per line when run existed |
-| get_qc_cycle_time RPC | Created in public schema | QC cycle time measurement INW → QC outcome |
+| get_qc_cycle_time RPC | Dropped + recreated with IQR outlier detection, new return fields | April 2026 |
+| get_pkg_cycle_time RPC | Created in public schema | PKG cycle time measurement |
+| get_rtd_cycle_time RPC | Created in public schema | RTD cycle time measurement |
+| RTD_RETURN activity enum | `ALTER TYPE public.activity_type ADD VALUE IF NOT EXISTS 'RTD_RETURN'` | Return RTD distinct from RTE/RTR |
+| return_shipments.handed_over_at | `ALTER TABLE store.return_shipments ADD COLUMN IF NOT EXISTS handed_over_at TIMESTAMPTZ` | Handover timestamp |
+| return_shipments status enum | Added `handed_over` value | Store handover flow |
+| upc_batches remote model/color | Worker nulls model/color for 5-char product_code batches | Remotes are product-level not variant-level |
 
 ---
 
@@ -396,12 +452,12 @@ TEXT 8,96,"1",0,1,1,"ECOM  04-Apr-2026"
 | Phase | Module | Status |
 |---|---|---|
 | 1 | DB + Scanner App | ✅ Complete (PKG pending printer physical setup) |
-| 2 | Reporting Dashboard | ✅ Live (10 tabs) |
+| 2 | Reporting Dashboard | ✅ Live (10 tabs, full Reporting tab) |
 | 3 | Repair Module | ✅ Complete |
-| 3b | Return System | ✅ Complete |
+| 3b | Return System | ✅ Complete (incl. handover + RTD_RETURN path) |
 | 3c | Station Status Controls + Alerts | ✅ Complete |
-| 3d | Cycle Time Analytics | 🔶 QC done — PKG + RTD pending |
-| 3e | Reporting Tab | 🔶 Scaffold built — full build pending |
+| 3d | Cycle Time Analytics | ✅ Complete (all 3 RPCs with IQR outlier detection) |
+| 3e | Reporting Tab | ✅ Complete (cycle time, QC summary, product breakdown, daily, line) |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
@@ -409,45 +465,38 @@ TEXT 8,96,"1",0,1,1,"ECOM  04-Apr-2026"
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **PKG cycle time RPC + dashboard** — measure QC_PASS → PKG per unit. New RPC `get_pkg_cycle_time`, wire into QC tab or new Reporting section.
-2. **RTD cycle time RPC + dashboard** — measure PKG → RTE/RTR per unit. New RPC `get_rtd_cycle_time`, same pattern.
-3. **Full Reporting tab** — replace scaffold with proper views:
-   - Summary cards (period totals)
-   - Daily output table (already built)
-   - Line breakdown table (already built)
-   - Product breakdown — units by product/SKU for period
-   - QC summary — FPY + top defects for period
-   - Cycle time summary — all three cycle times side by side
-   - Defect trend — defect counts by day
+1. **Legacy UPC discussion** — continue design conversation, decide build trigger criteria
+2. **Operator QR card print flow** — dashboard page to generate + print physical ID cards
+3. **Operator onboarding + station assignment** — enter name, assign station, print card
 
 **Backlog:**
-4. **Operator QR card print flow** — dashboard page to print physical ID cards
-5. **Operator onboarding + station assignment** — enter name, assign station, print card
-6. **Thermal printer physical setup** — install driver, connect USB, run print server
-7. **RTO_IN two-path scanner flow** — intact UDR (scan batch label → RTD) vs damaged (→ WKS)
-8. **UPC generator fix** — variant showing in remote entries
-9. **Print sheet size + missing variant** — fix print layout
-10. **Beep fix** — scanner audio not triggering consistently
-11. **Reconciliation module** — Phase 4
-12. **Audit module** — Mahesh's view — Phase 5
+4. **Thermal printer physical setup** — install driver, connect USB, run print server on PKG laptop *(hardware, not code)*
+5. **Repair run** — new production run type for damaged returns. Pending design session. Key points: batch-based not unit-by-unit, production QCs first (no pre-existing disposition), then repairs, then regular QC_FAIL loop. Plannable alongside regular runs.
+6. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined count per product per day for dispatch team
+7. **Legacy UPC manual entry** — lightweight path for pre-system units returning without pkg_scans record. Build when volume triggers it. Design agreed: manual form on lookup failure, product/variant/qty/condition/disposition at shipment level.
+8. **Daily / weekly / monthly reporting views** — scheduled/date-range reporting beyond current Reporting tab
+9. **Reconciliation module** — Phase 4
+10. **Audit module** — Mahesh's view — Phase 5
+11. **Assembly stations module** — Phase 6
+12. **Dashboard tab RBAC** — role-gating (deliberately deferred until feature set stable)
+13. **Biometric integration**
+14. **Unicommerce reconciliation**
 
 ---
 
 ## 10. Cycle Time Design
 
-Three cycle times tracked in the system:
+Three cycle times tracked in the system, all built with IQR outlier detection:
 
 | Segment | From | To | RPC | Status |
 |---|---|---|---|---|
 | QC Cycle Time | INW scan | QC_PASS or QC_FAIL scan | `get_qc_cycle_time` | ✅ Built |
-| PKG Cycle Time | QC_PASS scan | PKG scan | `get_pkg_cycle_time` | 🔲 Pending |
-| RTD Cycle Time | PKG scan | RTE or RTR scan | `get_rtd_cycle_time` | 🔲 Pending |
+| PKG Cycle Time | QC_PASS scan | PKG scan | `get_pkg_cycle_time` | ✅ Built |
+| RTD Cycle Time | PKG scan | RTE or RTR scan | `get_rtd_cycle_time` | ✅ Built |
 
-**Pattern for all cycle time RPCs:**
-- Join scans on UPC, pair earlier scan with later scan
-- Exclude gaps > 480 minutes (one shift) to avoid overnight distortion
-- Return: `avg_mins_all`, `avg_mins_pass` (or relevant split), `units_measured`, `fastest_mins`, `slowest_mins`
-- Display in dashboard: "14.2 min" for < 60 min, "1h 23m" for ≥ 60 min
+**IQR outlier fence formula:** `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes.
+**Overnight cap:** 480 minutes — gaps larger than this are excluded from all calculations.
+**Dashboard:** QC tab shows QC cycle time cards + outlier strip. Reporting tab shows all three side by side in `ct-panel` components.
 
 ---
 
@@ -464,10 +513,11 @@ Three cycle times tracked in the system:
 | RTD definition | RTE + RTR (via PKG_OUT) | Not a physical scan point |
 | Operator login | QR card scan only | Operators can't type reliably |
 | UPC format | LOT-XXXXXXXX (8 digit, global sequential) | Simple, no collision risk, scalable |
-| Display code | KNAK-7 (product_code + per-product seq) | Human readable, operator can match sticker to error |
+| Display code | KNAK00000007 (product_code + raw LOT seq, no hyphens) | Globally unique, human-readable, product-identifiable. Replaced KNAK-7 (per-product seq) which repeated across batches. |
 | QR encodes | LOT- number (not display code) | Permanent anchor; display code is derived |
 | Remote UPC | Independent from car, same pool | Remote travels separately, needs own scan history |
 | Remote pairing | Created at QC_PASS only | No tentative pair state — cleaner model |
+| Remote batches | model/color stored as NULL in upc_batches | Remotes are product-level not variant-level |
 | QC_FAIL storage | Parent + child rows | Enables defect-level and unit-level queries |
 | Defect filtering | By component type at scan time | Shorter list, no wrong-component codes |
 | Scan correction | Tier 1/2/3 model | Prevent first, correct second; Mahesh read-only always |
@@ -480,10 +530,17 @@ Three cycle times tracked in the system:
 | Scan summary | get_scan_summary RPC not row query | Bypasses Supabase row limits — always accurate |
 | Return categories | UDR / CXR / BRV | Clear, unambiguous, future-proof vs RTO/RTV |
 | Return processing | Unit-by-unit within shipments | Matches physical workflow |
+| Return handover | Button on store system after fully_processed | Formal store→production handoff, shipment → handed_over |
+| RTD_RETURN activity | Distinct from RTE/RTR | Return RTD must not inflate dispatch counts |
+| RTD_RETURN detection | Unit status = rtd + active rtd_direct return in handed_over shipment | Automatic, no operator toggle needed |
 | Loss note auto-create | WKS_OUT scrapped triggers scrap note | Every financial loss has a formal document |
 | Station status controls | logViolation on every rejection | Permanent audit trail + real-time alerts |
 | Lines tab date lock | Always today, no range | Line cards are operational live view — historical data belongs in Reporting tab |
 | Cycle time cap | 480 minutes per segment | Prevents overnight gaps distorting averages |
+| Cycle time outliers | IQR fence not hard cap | Self-adjusting to data distribution, works at any volume |
+| UPC generator dropdown | Custom searchable input not native select | 86 SKUs — native select is too slow to navigate |
+| Print sheet density | 21 cols × 13mm, 609/A3 | Matches reference format, ~66% more stickers per sheet |
+| Scanner beep | Square wave, distinct patterns | Sine wave too soft for factory noise; pattern > volume |
 
 ---
 
@@ -495,6 +552,10 @@ Three cycle times tracked in the system:
 4. **Dashboard tab access control:** Deferred — role-gate when feature set is stable.
 5. **Defect master ownership:** Who can add/modify defect codes after initial seeding?
 6. **Channel barcode scanning:** Future — scan platform return labels to auto-fill channel/return ID.
+7. **Legacy UPC gap:** Design agreed, build deferred. Trigger = first time volume makes manual handling unworkable.
+8. **Consolidated dispatch view:** Fresh RTD + RTD_RETURN combined — not yet built.
+9. **Repair run schema:** New production run type for damaged returns. Pending design session.
+10. **Daily/weekly/monthly reporting:** Agreed as needed, not yet designed or built.
 
 ---
 

@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 1.5 | **Last Updated:** April 2026
+**Version:** 1.6 | **Last Updated:** April 2026
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -60,17 +60,20 @@ A ~1.5cm × 1.5cm QR code sticker (metallic/shiny finish). Sent for external pri
 ### Format — LOCKED
 **`LOT-00000001`** — 8 digits, zero-padded, globally sequential. One counter for all products. QR encodes this string. Never reassigned, never reused, never deleted.
 
-### Display Code — LOCKED
-Human-readable code printed below the QR: **`KNAK-7`** (product_code + per-product sequence number).
+### Display Code — LOCKED (updated April 2026)
+Human-readable code printed below the QR: **`KNAK00000007`** (product_code + raw 8-digit LOT sequence number, no hyphens).
 
-- Product code: 4-char for cars (KNAK), 5-char for remotes (KNAKR = car code + R)
-- Per-product sequence: independent counter per product_code — KNAK-1, KNAK-2... completely separate from FLBG-1, FLBG-2...
-- Sticker shows only the display code — no LOT- number printed. QR still encodes LOT-XXXXXXXX.
+- Globally unique — never repeats across batches
+- Product identity readable at a glance (KNAK = Knox Adventure Black)
+- QR still encodes `LOT-XXXXXXXX` — scanner behaviour unchanged
+- Remote display codes use 5-char product code: e.g. `KNAKR00000042`
 
 ```
 [QR CODE]
-KNAK-7
+KNAK00000007
 ```
+
+**Previous format `KNAK-7` (per-product seq) is deprecated** — was not globally unique across batches.
 
 ### Product Code System ✅ LOCKED
 **Formula:** PP+M+C (2-char product + 1-char model + 1-char color)
@@ -82,12 +85,16 @@ KNAK-7
 All 86 SKUs have unique 4-char codes seeded in `product_master.product_code`.
 
 ### Print Batch Workflow
-1. Admin generates batch in dashboard — picks product + component (car/remote) + quantity
+1. Admin generates batch in dashboard — searchable dropdown (type product name or variant to filter), picks component (car/remote) + quantity
 2. System assigns LOT- numbers + display codes, creates batch record
-3. Print file sent to external printer (A3, 16×23 grid = 368 stickers/sheet)
+3. Print file sent to external printer (A3, **21×29 grid = 609 stickers/sheet**, no borders, 13mm cells)
 4. Stickers received → admin clicks Received → all UPCs flip from `generated` → `available`
 5. Stickers applied on floor → each UPC marked `applied` when scanned at INW
 6. Damaged/unused stickers individually voided — never deleted, never reassigned
+
+**Print sheet header:** `LOT — Batch B-XXX | Product · Model · Color · N stickers | Date`
+Remote batches show product name only (no variant — remotes are product-level, not variant-level).
+Worker `generateUpcBatch` nulls `model` and `color` for remote batches (5-char product code).
 
 **Status lifecycle:** `generated` → `available` → `applied` | `damaged` | `unused`
 
@@ -108,7 +115,7 @@ Parts (Store) → Assembly (car + remote on same line) → QC → Packaging → 
 | QC_FAIL | End of QC | 3 (one per line) | Single scan — whichever component failed |
 | WKS | Workshop | 1 shared | System-inferred: qc_fail→WKS_IN, in_repair→WKS_OUT |
 | PKG | Packaging station | 1 shared | Two-scan (car + remote), channel toggle (E/R), prints batch label |
-| PKG_OUT | Dispatch Out | 1 shared | Scans batch label — auto-routes RTE or RTR from label suffix |
+| PKG_OUT | Dispatch Out | 1 shared | Scans batch label — auto-routes RTE/RTR (fresh) or RTD_RETURN (return) |
 | RTO_IN | Returns | 1 shared | Two paths: intact → direct RTD, damaged → full production flow |
 
 ### Detailed Unit Journey
@@ -138,9 +145,8 @@ Parts (Store) → Assembly (car + remote on same line) → QC → Packaging → 
 
 **Stage 5: Dispatch Out (PKG_OUT)**
 - Operator scans batch label.
-- System auto-routes: `-E` suffix → RTE (ecom), `-R` suffix → RTR (retail).
-- Cross-channel protection: `-E` label at RTR station → hard reject and vice versa.
-- Both car and remote status → `rtd`.
+- **Fresh production:** System auto-routes: `-E` suffix → RTE (ecom), `-R` suffix → RTR (retail). Both car and remote status → `rtd`.
+- **Return RTD path:** If unit status is already `rtd` and a valid `rtd_direct` return exists in a `handed_over` shipment → creates `RTD_RETURN` scan records. Does NOT increment RTE/RTR tally.
 
 **Stage 6: Returns (RTO_IN)**
 - Full return system built. See Section 11.
@@ -163,7 +169,7 @@ Each device is permanently associated with one station and one activity. The sta
 | QCF-L1/L2/L3 | QC_FAIL | QC_FAIL | L1/L2/L3 |
 | WKS | WKS | WKS (system-inferred IN/OUT) | SHARED |
 | PKG | PKG | PKG (pair verify + print) | SHARED |
-| PKG-OUT | PKG_OUT | RTE or RTR (auto from label) | SHARED |
+| PKG-OUT | PKG_OUT | RTE or RTR or RTD_RETURN (auto-detected) | SHARED |
 | RTO | RTO_IN | RTO_IN | SHARED |
 
 Total: 14 devices. Scanner setup screen: operator selects Station + Line (2 taps). Device code auto-resolved from DB.
@@ -181,14 +187,14 @@ Total: 14 devices. Scanner setup screen: operator selects Station + Line (2 taps
 |---|---|---|---|
 | Executive | Afshaan, Vinay, Varun | Today KPIs, hourly output (with counts), runs split Active/Upcoming | ✅ Live |
 | Lines | Siddhant, Kishan | Per-line cards (today only), first scan time, operator stats | ✅ Live |
-| QC | Karthik, Mahesh | QC cycle time cards, FPY by line, defect heatmap, repeat failures | ✅ Live |
+| QC | Karthik, Mahesh | QC cycle time (IQR outlier-aware), median, FPY by line, defect heatmap, repeat failures | ✅ Live |
 | Runs | All production_view | Plan vs actual | ✅ Live |
-| UPC Generator | Afshaan, Varun | Generate batches, print stickers, receive | ✅ Live |
-| Scans | All | Real-time scan feed, activity filter, UPC search | ✅ Live |
+| UPC Generator | Afshaan, Varun | Generate batches (searchable dropdown), print stickers, receive | ✅ Live |
+| Scans | All | Real-time scan feed, activity filter (incl. RTD_RETURN), UPC search | ✅ Live |
 | Corrections | Siddhant upwards | Tier 2 void + Tier 3 amend | ✅ Live |
 | Alerts | All (Kishan upwards to acknowledge) | Scan violations, badge count, acknowledge | ✅ Live |
 | Returns | Production team | Returns queue handed off from store | ✅ Live |
-| Reporting | Afshaan, Vinay, Varun | Date-range reporting — daily output, line breakdown | 🔶 Scaffold only |
+| Reporting | Afshaan, Vinay, Varun | Date-range: cycle time summary, QC summary, product breakdown, daily output, line breakdown | ✅ Live |
 
 **Lines tab is locked to today** — no date range. Historical line data lives in the Reporting tab.
 
@@ -267,12 +273,21 @@ Every scan point validates the unit's previous status before accepting. Wrong-se
 1. **Store — Intake:** Receive shipment, log each unit (RS-XXXX → RU-XXXX)
 2. **Store — Inspection:** Open return, record box condition, product condition, UPC if readable, disposition
 3. **Disposition options:**
-   - `rtd_direct` — UDR intact → production scans at RTO_IN → RTD
+   - `rtd_direct` — UDR intact → goes to production → scanned at PKG_OUT → `RTD_RETURN` activity
    - `wks_repair` → production sends to WKS → repairs → QC → PKG → RTD
    - `loss_damage` → damage note created (LN-XXXX), Siddhant+ approval required
    - `loss_rejection` → rejection note created, Siddhant+ approval required
-4. **Production — Returns Queue tab:** Shows all units handed off from store. ACTION button marks unit as actioned.
-5. **Auto-linking:** When production scans a return unit at RTO_IN or WKS, `return_production_links` record closes automatically.
+4. **Store — Handover:** When shipment is `fully_processed`, "HAND OVER TO PRODUCTION" button appears. Shows grouped summary by product/variant. Confirms → shipment status → `handed_over`. ✅ Built.
+5. **Production — UDR path:** Operator scans batch label at PKG_OUT device. System detects unit is `rtd` with active `rtd_direct` return in a `handed_over` shipment → creates `RTD_RETURN` scan records, returns to stock. Does NOT count in RTE/RTR tally. ✅ Built.
+6. **Production — Damaged path:** Units from `wks_repair` disposition → repair run (see Section 13). 🔲 Pending.
+7. **Auto-linking:** When production scans a return unit at RTO_IN or WKS, `return_production_links` record closes automatically.
+
+### RTD_RETURN Scan Activity
+- Distinct activity type `RTD_RETURN` (added to enum in Supabase)
+- Used when a UDR return is scanned at PKG_OUT station after handover from store
+- Separate from `RTE`/`RTR` — does not inflate dispatch counts
+- Visible in dashboard Scans tab and Corrections tab with teal colour
+- `is_return: true` flag returned to scanner — displays "RETURN RTD ✓" on device
 
 ### Loss Notes
 Three types: `damage`, `rejection`, `scrap`. All require Siddhant / Varun / Afshaan / Vinay approval (`loss_note_approve` permission). Scrap notes auto-created when WKS_OUT → scrapped. Permanent log, never deleted.
@@ -280,23 +295,26 @@ Three types: `damage`, `rejection`, `scrap`. All require Siddhant / Varun / Afsh
 ### Channel Master (`store.channels`)
 Dynamic table of sales channels with platform, fulfilment model, return behaviour (segregated/unsegregated). Managed by Varun/Vinay/Afshaan (`channel_manage` permission).
 
+### Legacy UPC Gap (open design question)
+Units dispatched before the system went live have no `pkg_scans` record. When they come back as returns, the batch label lookup in `postPkgOut` will fail. Current decision: process outside the system until volume justifies building a lightweight manual entry path. Design is understood — build when triggered. See Section 14.
+
 ---
 
-## 12. Cycle Time Analytics 🔶 PARTIAL
+## 12. Cycle Time Analytics ✅ BUILT
 
-Three cycle time segments tracked across the production flow:
+Three cycle time segments tracked across the production flow, all with IQR-based outlier detection:
 
 | Segment | Measures | From → To | RPC | Status |
 |---|---|---|---|---|
 | QC Cycle Time | Time in assembly + QC queue | INW → QC_PASS or QC_FAIL | `get_qc_cycle_time` | ✅ Built |
-| PKG Cycle Time | Time from QC pass to packaging | QC_PASS → PKG | `get_pkg_cycle_time` | 🔲 Pending |
-| RTD Cycle Time | Time from packaging to dispatch | PKG → RTE or RTR | `get_rtd_cycle_time` | 🔲 Pending |
+| PKG Cycle Time | Time from QC pass to packaging | QC_PASS → PKG | `get_pkg_cycle_time` | ✅ Built |
+| RTD Cycle Time | Time from packaging to dispatch | PKG → RTE or RTR | `get_rtd_cycle_time` | ✅ Built |
 
-**Design principles:**
-- All cycle time RPCs exclude gaps > 480 minutes to avoid overnight distortion
-- Display format: "14.2 min" for < 60 min, "1h 23m" for ≥ 60 min
-- Each RPC returns: `avg_mins_all`, split averages by outcome, `units_measured`, `fastest_mins`, `slowest_mins`
-- QC cycle time displayed on QC tab. PKG and RTD cycle times will be added to Reporting tab when built.
+**Outlier detection:** IQR fence = Q3 + 2×IQR (min IQR floor 5 min, hard floor Q3 + 10 min). Units above fence excluded from averages and shown separately — "3 outlier units excluded — longest was 4h 22m · fence 1h 12m".
+
+**Each RPC returns:** `avg_mins_all`, split averages by outcome, `median_mins`, `units_measured`, `fastest_mins`, `slowest_normal_mins`, `outlier_count`, `outlier_max_mins`, `outlier_threshold_mins`
+
+**Display:** "14.2 min" for < 60 min, "1h 23m" for ≥ 60 min. QC tab shows full card set + outlier strip. Reporting tab shows all three panels side by side.
 
 ---
 
@@ -318,6 +336,14 @@ Standard QC_FAIL → WKS (system-inferred WKS_IN) → WKS (REPAIRED or SCRAPPED)
 ### Scenario D: Packaging Rework
 Original RTE/RTR voided via Tier 2/3; new scan created and linked.
 
+### Scenario E: Repair Run (damaged returns) 🔲 PENDING DESIGN
+Damaged return units (CXR/BRV with `wks_repair` disposition) go through a **repair run** — a new type of production run distinct from regular assembly runs. Key differences from regular WKS flow:
+- No pre-existing defect disposition from store — production team QCs first
+- Batch-based (e.g. "Knox repair run — Sunday") not unit-by-unit
+- Plannable by production team alongside regular runs
+- After repair, follows regular QC_FAIL loop
+- Design and build deferred — pending next session.
+
 ---
 
 ## 14. Open Design Questions
@@ -328,9 +354,12 @@ Original RTE/RTR voided via Tier 2/3; new scan created and linked.
 4. **Unicommerce integration:** Formal API or reconciliation-based handoff?
 5. **Biometric integration:** Headcount only or individual operator clock-in/out?
 6. **Defect master ownership:** Who can add/modify defect codes post-seeding?
-7. **RTO_IN two-path:** Intact UDR with batch label → RTD direct path not yet wired in scanner.
-8. **QC_PASS timeout:** Should second scan time out after N seconds? Recommend yes.
-9. **Channel barcode scanning:** Currently manual entry. Future: scan platform return labels directly.
+7. **QC_PASS timeout:** Should second scan time out after N seconds? Recommend yes.
+8. **Channel barcode scanning:** Currently manual entry. Future: scan platform return labels directly.
+9. **Legacy UPC gap:** Units dispatched pre-system have no `pkg_scans` record — returns for these units can't be processed through the batch label path. Current decision: handle outside system until volume justifies a lightweight manual override path. Design agreed: manual entry form triggered by lookup failure, captures product/variant/quantity/condition/disposition at shipment level. Build when triggered.
+10. **Consolidated dispatch view:** Fresh production RTD + return RTD (RTD_RETURN) need to be combined for dispatch team to see total available units per product per day. Not yet built.
+11. **Repair run schema:** New production run type for damaged returns. Pending design session.
+12. **Daily/weekly/monthly reporting:** Scheduled reporting views not yet built.
 
 ---
 
@@ -410,7 +439,7 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 | TSC TE244 thermal printer | Out | Batch label at PKG station (50×25mm) | Code built, pending hardware setup |
 | Supabase | Core | All data | ✅ Live |
 | Cloudflare Workers | API | Auth, logic, mutations | ✅ Live |
-| Store system | Both | Returns handoff, loss notes | ✅ Live |
+| Store system | Both | Returns handoff, loss notes, handover to production | ✅ Live |
 
 ---
 
@@ -432,34 +461,38 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 - Station status controls (INW, QC_PASS, QC_FAIL, WKS, PKG validation)
 - Void rollback — unit status rolled back on scan void
 - Return system — store UI (shipments, inspection, loss notes, channels) + production Returns Queue tab
+- Return handover — "HAND OVER TO PRODUCTION" button on store system, grouped by product/variant, shipment → `handed_over`
+- RTD_RETURN scan path — PKG_OUT detects return units, creates distinct `RTD_RETURN` activity, separate from RTE/RTR tally
 - Return auto-linking — WKS_IN, WKS_OUT, RTO_IN close return_production_links automatically
 - Scan summary cards via `get_scan_summary` RPC (accurate, no row limit issue)
 - Executive tab — hourly bar chart with count labels, runs split Active Today / Upcoming
 - Lines tab — locked to today, first scan time per line, dispatch-based completion %
-- QC tab — QC cycle time cards (avg, pass, fail, fastest, slowest)
-- Reporting tab — scaffold with summary cards, daily output, line breakdown
+- QC tab — cycle time cards with IQR outlier detection (avg, median, pass/fail split, fastest, slowest-normal, outlier strip)
+- Reporting tab — cycle time summary (all 3 segments), QC summary (FPY + top defects), product breakdown, daily output, line breakdown
+- UPC generator — searchable dropdown, remote variant suppressed, display code = product_code + LOT seq (e.g. SHTKR00001201)
+- Print sheet — 21×29 grid, 609 stickers/A3, 13mm cells, no borders, variant in header, globally unique human label
+- Scanner beep — Industrial Triple (success) + Descending Buzz (fail), square wave, factory-grade
+- Worker: `generateUpcBatch` nulls model/color for remote batches
+- `RTD_RETURN` activity enum added to Supabase, colour-coded in dashboard + scanner
 
 ### Pending Testing 🔶
 - PKG pair verification + batch label print (thermal printer not yet physically connected)
-- PKG_OUT dispatch scan
+- PKG_OUT fresh production dispatch scan
 
 ### Pending Build 🔲
-- **PKG cycle time** — RPC `get_pkg_cycle_time` (QC_PASS → PKG) + dashboard display
-- **RTD cycle time** — RPC `get_rtd_cycle_time` (PKG → RTE/RTR) + dashboard display
-- **Full Reporting tab** — product breakdown, QC summary, cycle time summary, defect trend
 - Operator QR card print flow — dashboard page to print physical ID cards
 - Operator onboarding + station assignment flow
 - Thermal printer physical setup (driver install, USB connection, print server running)
-- RTO_IN two-path flow — scanner side (intact UDR with batch label → RTD direct)
+- Repair run — new production run type for damaged returns (design pending)
+- Consolidated dispatch view — fresh RTD + RTD_RETURN combined for dispatch team
+- Legacy UPC manual entry path — for pre-system units returning (build when triggered)
+- Daily / weekly / monthly reporting views
 - Reconciliation module — Phase 4
 - Audit module — Mahesh's dedicated view — Phase 5
 - Assembly stations module — Phase 6
 - Biometric integration
 - Unicommerce reconciliation
 - Dashboard tab access control (role-gating — deferred)
-- UPC generator fix — variant showing in remote entries
-- Print sheet size fix + missing variant on print
-- Beep fix on scanner
 
 ---
 
