@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 1.9 | **Last Updated:** April 2026
+**Version:** 2.1 | **Last Updated:** April 2026
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -215,7 +215,7 @@ Total: 19 devices (increased from 16 with per-line WKS). Scanner setup screen: o
 | Karthik | QC — defect heatmap, training flags |
 | Mahesh | Read-only audit — enforced at worker level |
 
-**Dashboard tabs (April 2026):** Executive, Lines, QC, Runs, UPC Generator, Scans, Corrections, Alerts, Returns, Reporting, Operators, Print
+**Dashboard tabs (April 2026):** Dashboard (formerly Executive), Lines, QC, UPC Generator, Scans, Corrections, Alerts, Returns, Reporting, Operators, Print. Runs tab removed — Plan vs Actual now on Dashboard tab.
 
 ---
 
@@ -239,7 +239,7 @@ Total: 19 devices (increased from 16 with per-line WKS). Scanner setup screen: o
 4. Production — UDR: Scan batch label at PKG_OUT → `RTD_RETURN`. Does not count in RTE/RTR tally.
 5. Production — Damaged: `wks_repair` → repair run (pending design)
 
-**RTO_IN intact path:** Not yet built on scanner side. Damaged path wired. Intact path: scan batch label → RTD direct (scanner side only — next priority).
+**RTO_IN intact path:** ✅ Built April 2026. Scan batch label at PKG_OUT → worker detects rto_in status → RTD_RETURN scan written → units set to rtd. Counted separately from fresh RTE/RTR in tally.
 
 ---
 
@@ -276,7 +276,10 @@ Dashboard Print tab allows management to reprint any label:
 - Operator-facing error messages should be specific and descriptive, not generic
 - `product_master` lookup must use `product_code`, not product name — name with LIMIT 1 returns first alphabetical match
 - `production_runs.id` in store schema is an integer, NOT a UUID — do not write to `scans.plan_id` without UUID guard
-- `setContentHeight` must zero hidden tabs, not just size the visible one — otherwise later tabs render below viewport
+- All RPCs and views that count QC_PASS/INW must JOIN units and filter component_type='car' — otherwise car+remote scans are both counted, doubling unit counts
+- get_plan_vs_actual actuals CTE must join via units.upc not product_master.ean — ean is often NULL on scans
+- v_operator_output grouping by shift caused duplicate rows per operator — shift removed from GROUP BY
+- Upcoming runs filter must include 'Issued' status, not just 'Submitted' — runs get issued before their run date
 - Print server race condition: two servers polling simultaneously can both see the same pending job in the 2-second window — use conditional PATCH to atomically claim
 
 ---
@@ -392,8 +395,18 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 - Scan violation logging + Alerts tab
 - Station status controls
 - Void rollback
-- Return system — store UI + production Returns Queue tab
-- Return handover + RTD_RETURN scan path
+- **Return system** — store UI + production Returns Queue tab + RTD_RETURN dispatch path ← intact path completed April 2026
+- **Store return endpoints** — postReturnShipment, postReturnUnit, postReturnInspection, postReturnHandover, getReturnShipments, getReturnShipment ← built April 2026
+- **Dashboard overhaul** ← April 2026:
+  - Executive renamed to Dashboard; Runs tab removed; Plan vs Actual as cards on Dashboard
+  - Date bar only on Dashboard tab; all other tabs default to today; Reporting has own internal date controls
+  - Car/remote split throughout — Dashboard cards, Lines cards, Operator table, Scans summary cards
+  - All RPCs fixed to use car-only unit counts (was double-counting car+remote)
+  - Hourly chart shows grouped per-line bars (L1/L2/L3)
+  - UPC search in Scans tab is all-time (no date restriction)
+  - Per-tab date state independence
+  - get_plan_vs_actual fixed (was joining on EAN, now joins on UPC via units)
+  - Upcoming runs shows Issued future runs, not just Submitted
 - Scan summary cards via `get_scan_summary` RPC
 - Executive tab
 - Lines tab
@@ -410,14 +423,11 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 - **Operator sessions** — created on QR login, closed on next login same device ← new April 2026
 
 ### Open Issues 🔶
-- WKS defects "No defects on record" — fix deployed April 2026, **not confirmed on floor**
-- Label X position final tuning — shifted to 24 dots, **not confirmed on floor**
-- Print server v2.2 — deployed to L1, **needs deployment to L2 and L3**
-- WKS per-line fix — deployed April 2026, **not confirmed on floor**
+
+None currently open.
 
 ### Pending Build 🔲
-- RTO_IN intact path — scanner side only (next priority)
-- Repair run design session (before any build)
+- Repair run design session (before any build) — next priority
 - Operator performance view — per-operator daily output + trend
 - Consolidated dispatch view — fresh RTD + RTD_RETURN combined
 - Legacy UPC manual entry path (build when triggered)

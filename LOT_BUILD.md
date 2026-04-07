@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 1.9 | **Last Updated:** April 2026
+**Version:** 2.1 | **Last Updated:** April 2026
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -314,10 +314,10 @@ updated_at   TIMESTAMPTZ
 | `get_pkg_cycle_time` | Avg time QC_PASS → PKG with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
 | `get_rtd_cycle_time` | Avg time PKG → RTE/RTR with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
 | `next_seq` | Auto-increment named sequences | `seq_name` |
+| `get_line_car_remote_split` | Per-line car/remote counts for INW and QC_PASS | `p_date` |
 
 ### `get_scan_summary` — returns single row
-Fields: `total, voided, INW, QC_PASS, QC_FAIL, WKS_IN, WKS_OUT, PKG, RTO_IN`
-Note: `RTD_RETURN` not yet in RPC output.
+Fields: `total, voided, INW, QC_PASS, QC_FAIL, WKS_IN, WKS_OUT, PKG, RTO_IN, RTD_RETURN`
 
 ### Cycle Time RPCs — shared design
 - IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap: 480 minutes.
@@ -359,6 +359,12 @@ Note: `RTD_RETURN` not yet in RPC output.
 | `postWksOut` | WKS outcome — REPAIRED or SCRAPPED. Uses device.line directly. Auto-associates active production run. Auto-creates scrap loss note. ← updated April 2026 |
 | `postReprintJob` | Inserts new pending print_job row with line field for correct printer routing ← updated April 2026 |
 | `postPkg` | PKG scan — pair verify, insert pkg_scans, insert print_jobs with `line: deviceLine` |
+| `postReturnShipment` | Store — creates return shipment record (RS-NNN) |
+| `postReturnUnit` | Store — logs return unit, resolves car_upc from batch_label for UDR |
+| `postReturnInspection` | Store — records inspection + disposition (rtd_direct/wks_repair/loss_damage/loss_rejection). Auto-sets shipment to fully_processed when all units inspected |
+| `postReturnHandover` | Store — marks shipment handed_over, sets public.units → rto_in for all eligible units (car + remote) |
+| `getReturnShipments` | Store — list return shipments with optional date filter |
+| `getReturnShipment` | Store — single shipment + all return units |
 
 ### SCANNER_ACTIONS (bypass JWT, use device auth)
 ```
@@ -519,7 +525,8 @@ X position = 24 dots. Not yet confirmed on floor.
 | super_admin permissions | Added `scan_void_supervisor`, `scan_amend_manager`, `loss_note_approve`, `channel_manage` | Various features |
 | Supabase max rows | Settings → API → Data API → Max Rows → 5000 | Default 1000 was capping scan display |
 | Return sequences | `INSERT INTO store.sequences VALUES ('rs',0),('ru',0),('ln',0)` | Return system IDs |
-| get_scan_summary RPC | Created in public schema | Accurate scan counts bypassing row limits |
+| `get_scan_summary` RPC | Created in public schema | Accurate scan counts bypassing row limits |
+| `get_scan_summary` RPC updated | DROP + recreate with RTD_RETURN field added — April 2026 | RTD_RETURN not in original output |
 | get_line_view fix | DROP + recreate with line-level grouping + first_scan_at | Was returning two rows per line when run existed |
 | get_qc_cycle_time RPC | Dropped + recreated with IQR outlier detection, new return fields | April 2026 |
 | get_pkg_cycle_time RPC | Created in public schema | PKG cycle time measurement |
@@ -539,6 +546,15 @@ X position = 24 dots. Not yet confirmed on floor.
 | B-014 product seeding bug | Worker used `product` name for `product_master` lookup — `LIMIT 1` returned first alphabetical match (Asphalt Black). Fixed to use `product_code`. | All Shadow Tarmac Black units in B-014 range seeded as Asphalt Black |
 | B-014 units data fix | `UPDATE public.units SET sku='shadow-tarmac-black', model='Tarmac', ean='5949998500299' WHERE upc BETWEEN 'LOT-00002615' AND 'LOT-00003214' AND sku='shadow-asphalt-black'` | Run twice — initial + gap period |
 | 18 B-014 batch labels reprinted | INSERT into print_jobs for all B-014 pkg_scans | Labels had wrong EAN from seeding bug |
+| store.return_shipments table | Created April 2026 — shipment_id, channel, received_date, status, handed_over_at | Store return system |
+| store.return_units table | Created April 2026 — return_unit_id, shipment_id, return_category, batch_label, car_upc, disposition, status | Store return system |
+| store.sequences rs/ru | `INSERT INTO store.sequences (name, current_val) VALUES ('rs',0),('ru',0) ON CONFLICT DO NOTHING` | Return shipment + unit ID sequences |
+| get_executive_dashboard RPC | DROP + recreate — car-only counts for QC_PASS/INW/WTD/MTD/dispatch_stock/repair_queue via LEFT JOIN units | Was double-counting car+remote scans |
+| get_plan_vs_actual RPC | DROP + recreate — actuals CTE now joins via units.upc not product_master.ean | EAN join was returning 0 actuals |
+| get_scan_summary RPC | DROP + recreate — added INW_car/INW_remote/QC_PASS_car/QC_PASS_remote fields | Car/remote split for Scans tab |
+| get_line_view RPC | DROP + recreate — car-only INW/QC_PASS/QC_FAIL/PKG counts, added inw_remote_count | Was double-counting remotes |
+| get_line_car_remote_split RPC | Created — per-line car/remote split for INW and QC_PASS | Feeds Lines tab card sub-labels |
+| v_operator_output view | DROP + recreate — car/remote split columns, product join via units.upc, shift removed from GROUP BY | Was duplicating rows per shift |
 
 ---
 
@@ -556,34 +572,32 @@ X position = 24 dots. Not yet confirmed on floor.
 | 3e | Reporting Tab | ✅ Complete |
 | 3f | Operator Management | ✅ Complete — Operators tab + sessions (April 2026) |
 | 3g | Print Tab | ✅ Complete — self-service reprint (April 2026) |
+| 3h | RTO_IN Intact Path + Store Return Endpoints | ✅ Complete — RTD_RETURN dispatch + store return system (April 2026) |
+| 3i | Dashboard Overhaul | ✅ Complete — car/remote split, tab independence, grouped bars, PVA cards, RPC fixes (April 2026) |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
 
 ### Open Issues — fix before building new features
 
-1. **WKS defects "No defects on record"** — fix deployed April 2026. **Not confirmed working on floor.**
-2. **Label X position** — shifted to 24 dots. **Not confirmed on floor.**
-3. **Print server v2.2** — deployed to L1. **Needs deployment to L2 and L3 laptops.**
-4. **WKS line fix** — WKS per-line devices deployed April 2026. **Not yet confirmed on floor.**
+None currently open.
 
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **RTO_IN intact path** — scanner side only (scan batch label → RTD direct; damaged path already wired)
-2. **Repair run design session** — full design before any build
+1. **Repair run design session** — full design before any build
 
 **Backlog:**
-3. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
-4. **Legacy UPC manual entry** — for pre-system units returning. Build when triggered.
-5. **Daily / weekly / monthly reporting views**
-6. **Reconciliation module** — Phase 4
-7. **Audit module** — Phase 5
-8. **Assembly stations module** — Phase 6
-9. **Dashboard tab RBAC** — deferred until feature set stable
-10. **Biometric integration**
-11. **Unicommerce reconciliation**
-12. **APK rollout to all 15 devices** — decision deferred
+2. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
+3. **Legacy UPC manual entry** — for pre-system units returning. Build when triggered.
+4. **Daily / weekly / monthly reporting views**
+5. **Reconciliation module** — Phase 4
+6. **Audit module** — Phase 5
+7. **Assembly stations module** — Phase 6
+8. **Dashboard tab RBAC** — deferred until feature set stable
+9. **Biometric integration**
+10. **Unicommerce reconciliation**
+11. **APK rollout to all 15 devices** — decision deferred
 
 ---
 
@@ -634,7 +648,7 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | Operator allocation | Scanner QR login IS the station allocation | No separate allocation UI for now; non-scanning operators deferred to Phase 6 |
 | Repair run | Design session required before build | Touches production runs, store issuance, unit assignment, aging — too many unknowns |
 | `packed` vs `pending_rtd` | Both in enum, `pending_rtd` is active | `packed` is legacy unused. `pending_rtd` added April 2026 |
-| getReturnQueue | Queries units with current_status=rto_in | Temporary — proper return_category + action routing pending RTO_IN intact path build |
+| `getReturnQueue` | Queries units with current_status=rto_in, joins store.return_units for real disposition + category | Updated April 2026 — was hardcoding wks_repair |
 
 ---
 
