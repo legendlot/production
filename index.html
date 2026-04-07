@@ -1684,7 +1684,9 @@ async function doPkgOut(batchLabel) {
     flash('ok'); vibrate([50,30,50]); playSuccessBeep();
     addLog({ barcode: batchLabel, status:'ok', tag:'RTD', label:'RETURN RTD ✓' });
     showToast('✓ RETURN RTD — ' + (result.data.product || batchLabel), 'ok');
-    // Returns don't count in the regular RTE/RTR dispatch tally
+    // Returns counted separately from fresh production
+    rtdTally['returns'] = (rtdTally['returns'] || 0) + 1;
+    updateTally();
     return;
   }
 
@@ -1777,7 +1779,7 @@ function showChannelBadge(channelCode) {
 function updateTally() {
   const grid = document.getElementById('tallyGrid');
   grid.innerHTML = '';
-  const labels = { ecom: '📦 Ecom', retail: '🏪 Retail' };
+  const labels = { ecom: '📦 Ecom', retail: '🏪 Retail', returns: '↩ Returns' };
   Object.entries(rtdTally).forEach(([k, v]) => {
     const item = document.createElement('div');
     item.className = 'tally-item';
