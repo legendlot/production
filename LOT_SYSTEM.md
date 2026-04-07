@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 1.8 | **Last Updated:** April 2026
+**Version:** 1.9 | **Last Updated:** April 2026
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -12,7 +12,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing. PKG thermal label printing live via polling architecture. Per-line PKG printers deployed April 2026.
+**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing. PKG thermal label printing live via polling architecture v2.2. Per-line PKG and WKS devices deployed April 2026. Operator session tracking live April 2026.
 
 ---
 
@@ -87,6 +87,8 @@ All 86 SKUs have unique 4-char codes seeded in `product_master.product_code`.
 5. Stickers applied on floor → each UPC marked `applied` when scanned at INW
 6. Damaged/unused stickers individually voided — never deleted, never reassigned
 
+**Critical:** When a batch is generated with product_code `SHTK`, the worker must look up `product_master` using `product_code=eq.SHTK`, NOT by product name. Using product name with `LIMIT 1` returns the first alphabetical variant (e.g. Asphalt Black instead of Tarmac Black). Fixed April 2026 after B-014 incident.
+
 ---
 
 ## 5. Physical Production Flow
@@ -102,7 +104,7 @@ Parts (Store) → Assembly (car + remote on same line) → QC → Packaging → 
 | INW | End of Assembly | 3 (one per line) | Single scan — car or remote independently |
 | QC_PASS | End of QC | 3 (one per line) | Two-scan flow if has_remote = true; pairing created here |
 | QC_FAIL | End of QC | 3 (one per line) | Single scan — whichever component failed |
-| WKS | Workshop | 1 shared | System-inferred: qc_fail→WKS_IN, in_repair→WKS_OUT |
+| WKS | Workshop | 3 (one per line: WKS-L1/L2/L3) | System-inferred: qc_fail→WKS_IN, in_repair→WKS_OUT. Per-line April 2026. |
 | PKG | Packaging station | 3 (one per line) | Two-scan (car + remote), channel toggle (E/R), prints batch label via Supabase polling |
 | PKG_OUT | Dispatch Out | 1 shared | Scans batch label — auto-routes RTE/RTR (fresh) or RTD_RETURN (return) |
 | RTO_IN | Returns | 1 shared | Two paths: intact → direct RTD, damaged → full production flow |
@@ -119,9 +121,15 @@ Car assembled, UPC sticker applied. Remote assembled (last station same line), U
 **Stage 3: Workshop (if QC_FAIL)**
 - Operator scans UPC at WKS device → scanner calls `postWksScan`
 - `qc_fail` → WKS_IN recorded, unit → `in_repair`, defects shown, loop_count+1
+- Line taken from device.line directly (WKS-L1/L2/L3)
+- Active production run auto-associated as plan_id
 - `in_repair` → WKS_OUT_PENDING — operator taps REPAIRED or CANNOT FIX
 - REPAIRED → unit → `repaired`, eligible for QC again
 - SCRAPPED → unit → `scrapped`, scrap loss note auto-created
+
+**Two repair contexts (design confirmed, repair run not yet built):**
+- **Inline repair:** Same day, same production run. Unit fails QC on L1, workshop on L1 fixes it. WKS-L1 device.
+- **Repair run:** Spillover units that couldn't be fixed inline. Flushed to store at EOD. Issued to L3 (auxiliary line) on a later day for a dedicated repair run. Needs formal production run type — design session pending.
 
 **Stage 4: Packaging (PKG)**
 - Operator sets channel (ECOM / RETAIL) on device.
@@ -154,92 +162,64 @@ Each device is permanently associated with one station and one line.
 | INW-L1/L2/L3 | INW | L1/L2/L3 |
 | QCP-L1/L2/L3 | QC_PASS | L1/L2/L3 |
 | QCF-L1/L2/L3 | QC_FAIL | L1/L2/L3 |
-| WKS | WKS | SHARED |
+| WKS-L1/L2/L3 | WKS | L1/L2/L3 ← per-line April 2026 |
 | PKG-L1/L2/L3 | PKG | L1/L2/L3 |
 | PKG-OUT | PKG_OUT | SHARED |
 | RTO | RTO_IN | SHARED |
 
-Total: 16 devices. Scanner setup screen: operator selects Station + Line (2 taps). Device code auto-resolved from DB.
+Total: 19 devices (increased from 16 with per-line WKS). Scanner setup screen: operator selects Station + Line (2 taps). Device code auto-resolved from DB.
 
 **Devices table columns:** id, device_code, label, line, station, is_active, created_at, last_seen, notes. No `activity` column.
 
-**Print routing:** Each PKG device (PKG-L1/L2/L3) writes its line into `print_jobs.line`. Each line's print server polls only for its own line's jobs — no cross-line print collisions.
+---
+
+## 7. Operators & Sessions ← new April 2026
+
+### Operator Master (`operators` table)
+- Name, role (enum), default line, QR code, active status
+- Managed via dashboard Operators tab (Varun/Siddhant)
+- QR code format: `LOT-OP-XXXXXXXX` (auto-generated on creation)
+- Physical QR ID cards printed from dashboard → used for scanner login
+
+### Operator Roles (enum)
+`assembly | qc_inline | qc_audit | repair | packing | rtd | store | supervisor | line_manager | production_manager | admin`
+
+### Session Tracking (`operator_sessions` table)
+- Created automatically on every QR card scan login
+- Closed when next operator scans on same device
+- No explicit logout — shift attribution via timestamps
+- Fields: operator_id, device_id, station, line, production_run_id, shift, login_at, logout_at
+
+### Shift Time Boundaries (IST)
+- **Regular:** 9:00 AM – 6:00 PM (Assembly/QC), 9:00 AM – 7:00 PM (Packing)
+- **OT:** 6:00 PM – 9:00 PM
+- **Double OT:** After 9:00 PM
+- One-hour overlap (6–7pm) is intentional — PKG runs later than Assembly/QC for load balancing
+
+### Station Allocation Philosophy
+- QR card login = station allocation record. No separate allocation UI.
+- Non-scanning operators (20+ assemblers without scanner access) are NOT tracked yet — deferred to Phase 6 when all stations get scanners.
+- Manual select login on scanner does NOT create a session record.
 
 ---
 
-## 7. Reporting & Dashboard ✅ LIVE
+## 8. Dashboard Access
 
-**URL:** `dashboard.legendoftoys.com`
+| Role | Access |
+|---|---|
+| Afshaan | Full access including Operators add/edit |
+| Vinay | Executive + financial views |
+| Varun | Executive + full production |
+| Siddhant | Production manager — hourly live |
+| Kishan | Line manager |
+| Karthik | QC — defect heatmap, training flags |
+| Mahesh | Read-only audit — enforced at worker level |
 
-### Dashboard Tabs
-| Tab | Users | Content | Status |
-|---|---|---|---|
-| Executive | Afshaan, Vinay, Varun | Today KPIs, hourly output (with counts), runs split Active/Upcoming | ✅ Live |
-| Lines | Siddhant, Kishan | Per-line cards (today only), first scan time, operator stats | ✅ Live |
-| QC | Karthik, Mahesh | QC cycle time (IQR outlier-aware), median, FPY by line, defect heatmap, repeat failures | ✅ Live |
-| Runs | All production_view | Plan vs actual | ✅ Live |
-| UPC Generator | Afshaan, Varun | Generate batches (searchable dropdown), print stickers, receive | ✅ Live |
-| Scans | All | Real-time scan feed, activity filter, UPC search. Summary cards: TOTAL/INW/QC PASS/QC FAIL/WKS IN/WKS OUT/PKG/RTO IN/VOIDED via RPC. | ✅ Live |
-| Corrections | Siddhant upwards | Tier 2 void + Tier 3 amend | ✅ Live |
-| Alerts | All (Kishan upwards to acknowledge) | Scan violations, badge count, acknowledge | ✅ Live |
-| Returns | Production team | Returns queue handed off from store | ✅ Live |
-| Reporting | Afshaan, Vinay, Varun | Date-range: cycle time summary, QC summary, product breakdown, daily output, line breakdown | ✅ Live |
-
-Auto-refresh: 30 seconds. Scans tab summary uses `get_scan_summary` RPC — accurate regardless of row limits.
+**Dashboard tabs (April 2026):** Executive, Lines, QC, Runs, UPC Generator, Scans, Corrections, Alerts, Returns, Reporting, Operators, Print
 
 ---
 
-## 8. Scan Correction — Three Tiers ✅ BUILT
-
-**Tier 1 — Operator (self-serve, no approval)**
-- Available until unit receives its next scan in the flow
-- `voided = true` on scan row, unit status rolled back automatically
-
-**Tier 2 — Supervisor within shift (Kishan / Karthik)**
-- Can void any scan from the current shift
-- Mandatory reason required, unit status rolled back automatically
-- Permission: `scan_void_supervisor`
-
-**Tier 3 — Post-shift amendment (Siddhant / Varun / Afshaan)**
-- Can amend line, operator_id, or notes on any scan after shift close
-- Mandatory reason, immutable audit trail in `scan_amendments`
-- Permission: `scan_amend_manager`
-
-**Mahesh:** Read-only. No amendment access at any tier, ever.
-
----
-
-## 9. Defect Master ✅ CONFIGURED
-
-35 active defect codes across 5 categories:
-- **Car-Functional** (CF-01 to CF-09) — component = `car`
-- **Car-Visual** (CV-01 to CV-08) — component = `car`
-- **Remote-Functional** (RF-01 to RF-08) — component = `remote`
-- **Remote-Visual** (RV-01 to RV-04) — component = `remote`
-- **Packaging** (PK-01 to PK-05) — component = `both`, currently inactive
-
-Scanner filters defect list by `component_type` of unit being scanned.
-
----
-
-## 10. Station Status Controls & Violations ✅ BUILT
-
-Every scan point validates the unit's previous status before accepting. Wrong-sequence scans are:
-1. Hard-rejected on the scanner with a specific, descriptive error message
-2. Logged to `scan_violations` table with full context
-3. Visible immediately on the Alerts tab
-
-**Validation rules:**
-- INW — rejects if UPC has been scanned before
-- QC_PASS — rejects unless status is `inwarded` or `repaired`
-- QC_FAIL — rejects unless status is `inwarded` or `repaired`
-- WKS — rejects unless status is `qc_fail` or `in_repair`
-- PKG — rejects unless status is `qc_pass`
-- PKG_OUT — rejects unless status is `pending_rtd` (or `rtd` for return RTD path)
-
----
-
-## 11. Return System ✅ BUILT
+## 9. Returns System
 
 ### Return Categories
 | Code | Name | Definition |
@@ -248,89 +228,94 @@ Every scan point validates the unit's previous status before accepting. Wrong-se
 | CXR | Customer Return | Customer opened, returned for any reason. |
 | BRV | Bulk Return — Vendor | Platform or trade partner returning unsold/excess stock in bulk. |
 
+### Return Actions
+- `rtd_direct` — UDR intact → PKG_OUT → `RTD_RETURN`
+- `wks_repair` → WKS → repair → QC → PKG → RTD
+
 ### Return Flow
-1. **Store — Intake:** Receive shipment, log each unit (RS-XXXX → RU-XXXX)
-2. **Store — Inspection:** Record condition, UPC if readable, disposition
-3. **Disposition options:**
-   - `rtd_direct` — UDR intact → PKG_OUT → `RTD_RETURN`
-   - `wks_repair` → WKS → repair → QC → PKG → RTD
-   - `loss_damage` → damage note (LN-XXXX)
-   - `loss_rejection` → rejection note
-4. **Handover:** "HAND OVER TO PRODUCTION" button → shipment → `handed_over`
-5. **Production — UDR:** Scan batch label at PKG_OUT → `RTD_RETURN`. Does not count in RTE/RTR tally.
-6. **Production — Damaged:** `wks_repair` → repair run (pending design)
+1. Store receives return shipment
+2. Store does intake → inspection → disposition (3-stage UI)
+3. Store hands over to production
+4. Production — UDR: Scan batch label at PKG_OUT → `RTD_RETURN`. Does not count in RTE/RTR tally.
+5. Production — Damaged: `wks_repair` → repair run (pending design)
 
-### Loss Notes
-Three types: `damage`, `rejection`, `scrap`. Scrap notes auto-created on WKS_OUT scrapped. Require Siddhant/Varun/Afshaan/Vinay approval.
+**RTO_IN intact path:** Not yet built on scanner side. Damaged path wired. Intact path: scan batch label → RTD direct (scanner side only — next priority).
 
 ---
 
-## 12. Cycle Time Analytics ✅ BUILT
-
-| Segment | Measures | From → To | RPC | Status |
-|---|---|---|---|---|
-| QC Cycle Time | Assembly + QC queue time | INW → QC_PASS or QC_FAIL | `get_qc_cycle_time` | ✅ Built |
-| PKG Cycle Time | QC pass to packaging | QC_PASS → PKG | `get_pkg_cycle_time` | ✅ Built |
-| RTD Cycle Time | Packaging to dispatch | PKG → RTE or RTR | `get_rtd_cycle_time` | ✅ Built |
-
-IQR fence = Q3 + 2×IQR (min IQR floor 5 min, hard floor Q3 + 10 min). Overnight cap: 480 minutes.
-
----
-
-## 13. Rework & Reverse Flow Scenarios
-
-### Scenario C: Workshop Repair ✅ IMPLEMENTED
-QC_FAIL → WKS_IN (system-inferred) → WKS_OUT (REPAIRED or SCRAPPED) → re-QC or end. Loop count tracks cycles. Scanner calls `postWksScan` and `postWksOut` (not `postScan`).
-
-### Scenario E: Repair Run (damaged returns) 🔲 PENDING DESIGN
-Damaged return units go through a repair run — batch-based, plannable. Design and build deferred.
-
----
-
-## 14. PKG Label Print System ✅ BUILT — v2.1 Per-Line (April 2026)
+## 10. Print System
 
 ### Architecture
-One print server per line, running on that line's dedicated Windows laptop at the PKG station. Each server polls Supabase `print_jobs` table every 2 seconds, filtered to its own line only. No HTTP server. No direct phone→laptop connection.
+- `print_jobs` table in public schema
+- Print server (Node.js v2.2) on each line's PKG laptop
+- Each server filters by its own line — no cross-line contamination
+- **Atomic claiming (v2.2):** PATCH with `WHERE status=eq.pending` — if another server already claimed, returns empty array → skip. Prevents duplicate prints on simultaneous polls.
 
-### Flow
-1. PKG scan succeeds → Worker inserts `print_jobs` row with `status = pending` and `line = deviceLine`
-2. Scanner overlay shows batch label + REPRINT button
-3. Line-specific print server detects its pending row → marks `printing` → builds TSPL → fires to that line's TSC TE244 → marks `done` or `failed`
-4. REPRINT button → `postReprintJob` action → new pending row
+### Self-Service Reprints (April 2026)
+Dashboard Print tab allows management to reprint any label:
+- Single: enter batch label or car UPC (auto-prefixes LOT-)
+- Bulk: paste multiple values
+- Routes to correct line printer automatically via `print_jobs.line`
 
-### Why not direct push
-Chrome Android blocks `fetch()` from HTTPS PWA (`scanner.legendoftoys.com`) to local HTTP/HTTPS print server. This is a browser-level restriction (mixed content policy) that cannot be bypassed by cert acceptance in a separate tab. iPhone/Safari works but Android Chrome does not. APK (TWA) also blocked. Polling via Supabase permanently solves this for all devices.
-
-### Why factory WiFi doesn't matter
-Print server only calls outbound to Supabase. It does not talk to scanner devices. Different WiFi network, different physical location — makes no difference as long as the laptop has internet.
-
-### Scanner devices
-- **15 Redmi A5** — factory floor scanners, Chrome Android, browser PWA
-- **PKG station Redmi A5 (per line)** — APK installed (com.legendoftoys.scanner) via Bubblewrap TWA. With polling print, APK vs browser doesn't affect printing — both work.
+### When to use
+- Label torn or lost
+- Printer was offline during PKG scan
+- Wrong label printed (product data corrected in DB after scan)
 
 ---
 
-## 15. Thermal Printer Setup
+## 11. Key Technical Learnings (don't repeat these mistakes)
+
+- The `unit_status` enum uses lowercase values (`rtd`, `in_repair`, `qc_pass`, etc.); the `activity_type` enum uses uppercase (`INW`, `QC_PASS`, `RTR`, etc.) — mixing these caused live bugs
+- Supabase's default row limit (1000) silently caps query results; use Postgres RPCs to bypass for accurate counts
+- WKS direction (IN/OUT) must be system-inferred from unit status, not operator-selected
+- Worker endpoints must be in the `SCANNER_ACTIONS` array or auth will fail
+- Void rollback is essential: voiding a scan must restore the unit's prior status
+- PKG_OUT auto-routing from batch label suffix eliminates mode selection and prevents cross-channel errors
+- Mahesh Reddy's read-only access must be enforced at the worker level, not just the UI
+- Operator-facing error messages should be specific and descriptive, not generic
+- `product_master` lookup must use `product_code`, not product name — name with LIMIT 1 returns first alphabetical match
+- `production_runs.id` in store schema is an integer, NOT a UUID — do not write to `scans.plan_id` without UUID guard
+- `setContentHeight` must zero hidden tabs, not just size the visible one — otherwise later tabs render below viewport
+- Print server race condition: two servers polling simultaneously can both see the same pending job in the 2-second window — use conditional PATCH to atomically claim
+
+---
+
+## 12. Print Server Setup
+
+**On each line's PKG laptop:**
+1. `config.json` — set `"line"` to `"L1"`, `"L2"`, or `"L3"`
+2. `printserver.js` — identical file on all laptops (v2.2)
+3. `npm install` (first time only)
+4. Windows Startup shortcut to auto-start
+
+**v2.2 deployed to:** L1 ✅ | L2 ⏳ needs deployment | L3 ⏳ needs deployment
+
+---
+
+## 13. Thermal Printer Setup
 
 - **Model:** TSC TE244 (confirmed, on-site)
 - **Label size:** 50mm × 25mm
 - **Connection:** USB to Windows laptop at each line's PKG station
-- **Print server:** Node.js (`printserver.js` v2.1) — polling Supabase, filtered by line, no HTTP server
+- **Print server:** Node.js (`printserver.js` v2.2) — polling Supabase, filtered by line, atomic claim
 - **Config:** `config.json` — only `"line"` value differs between laptops (L1/L2/L3); all other config identical
 - **Auto-start:** Windows Startup shortcut on each laptop
-- **Label X position:** 24 dots (April 2026, shifted from 8). May need further tuning.
+- **Label X position:** 24 dots (April 2026, shifted from 8). Not yet confirmed on floor.
 
 ---
 
-## 16. Shift & Time
+## 14. Shift & Time
 
-- One shift: 9:00 AM – 6:00 PM. OT possible.
-- Biometric attendance exists on-site, not connected.
+- **Regular shift:** 9:00 AM – 6:00 PM (Assembly/QC), 9:00 AM – 7:00 PM (Packing)
+- **OT:** 6:00 PM – 9:00 PM
+- **Double OT:** After 9:00 PM
+- Biometric attendance exists on-site, not connected to system.
 - Downtime tracking needed, not yet implemented.
 
 ---
 
-## 17. Lines & Factory
+## 15. Lines & Factory
 
 - 3 lines: L1, L2, L3. Each runs one product at a time.
 - Line switches happen mid-day when parts run out (parts availability = primary daily bottleneck).
@@ -338,7 +323,7 @@ Print server only calls outbound to Supabase. It does not talk to scanner device
 
 ---
 
-## 18. Scale
+## 16. Scale
 
 | Month | Units/Month | Scan Events/Month | upc_pool rows (cumulative) |
 |---|---|---|---|
@@ -348,11 +333,11 @@ Print server only calls outbound to Supabase. It does not talk to scanner device
 | +18 | 308,000 | ~1,540,000 | ~3M |
 | +24 | 763,000 | ~3,800,000 | ~10M |
 
-Scan events is the largest table. Partition by month at ~500K events/month (~month 10). Dashboard summary cards use `get_scan_summary` RPC — never queries raw scan table. Supabase max rows set to 5000. getAllScans display limit 2000.
+Scan events is the largest table. Partition by month at ~500K events/month (~month 10). Dashboard summary cards use `get_scan_summary` RPC — never queries raw scan table. Supabase max rows set to 5000.
 
 ---
 
-## 19. Compliance Readiness
+## 17. Compliance Readiness
 
 ### ISO
 - Full unit traceability (raw material → finished product)
@@ -374,21 +359,21 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 
 ---
 
-## 20. Integration Points
+## 18. Integration Points
 
 | System | Direction | What | Status |
 |---|---|---|---|
 | Unicommerce | Out | RTD handoff, channel routing | Manual currently |
 | Biometric | In | Headcount / shift data | On-site, not connected |
 | External UPC printer | Both | Batch gen → A3 print → receive | ✅ Live |
-| TSC TE244 thermal printer | Out | Batch label at each line's PKG station (50×25mm) | ✅ Live — polling v2.1 per-line |
+| TSC TE244 thermal printer | Out | Batch label at each line's PKG station (50×25mm) | ✅ Live — polling v2.2 per-line atomic |
 | Supabase | Core | All data | ✅ Live |
 | Cloudflare Workers | API | Auth, logic, mutations | ✅ Live |
 | Store system | Both | Returns handoff, loss notes, handover to production | ✅ Live |
 
 ---
 
-## 21. Build Status
+## 19. Build Status
 
 ### Live & Confirmed Working ✅
 - Supabase DB — all tables, schema confirmed
@@ -396,45 +381,49 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 - Defect master — 35 codes, component filtering configured
 - Scanner PWA (`scanner.legendoftoys.com`) — all scan flows working
 - Worker (`lotopsproxy.afshaan.workers.dev`) — all endpoints live
-- INW scan — car and remote (confirmed on floor)
-- QC_PASS two-scan pairing flow (confirmed on floor)
-- QC_FAIL defect modal with component filtering (confirmed on floor)
-- WKS flow — `postWksScan` + `postWksOut` (confirmed working April 2026)
-- Repair loop — QC_FAIL → WKS → repaired → QC_PASS (confirmed on floor)
+- INW scan — car and remote, product_code-based lookup (confirmed April 2026)
+- QC_PASS two-scan pairing flow
+- QC_FAIL defect modal with component filtering
+- WKS flow — per-line devices, device.line used directly, plan_id auto-association
+- Repair loop — QC_FAIL → WKS → repaired → QC_PASS
 - PKG scan — pair verify, status → `pending_rtd`, print job inserted with line
-- PKG label printing — TSC TE244 via Supabase polling (confirmed April 2026)
+- PKG label printing — TSC TE244 via Supabase polling v2.2 (atomic claiming)
 - PKG_OUT — RTE/RTR dispatch + RTD_RETURN path
 - Scan violation logging + Alerts tab
 - Station status controls
-- Void rollback — unit status rolled back on scan void
+- Void rollback
 - Return system — store UI + production Returns Queue tab
-- Return handover — HAND OVER TO PRODUCTION button
-- RTD_RETURN scan path
-- Return auto-linking
-- Scan summary cards via `get_scan_summary` RPC (accurate, worker handler added April 2026)
-- Executive tab — hourly bar chart with count labels, runs split Active Today / Upcoming
-- Lines tab — locked to today, first scan time per line, dispatch-based completion %
-- QC tab — cycle time cards with IQR outlier detection
-- Reporting tab — all 3 cycle time segments, QC summary, product breakdown, daily output, line breakdown
-- UPC generator — searchable dropdown, remote variant suppressed
-- Print sheet — 21×29 grid, 609 stickers/A3
-- Production run LINE column — store issue queue + production runs table (April 2026)
-- Per-line PKG devices — PKG-L1/L2/L3, `print_jobs.line` routing, printserver v2.1 (April 2026)
+- Return handover + RTD_RETURN scan path
+- Scan summary cards via `get_scan_summary` RPC
+- Executive tab
+- Lines tab
+- QC tab — cycle time cards with IQR outlier detection restored April 2026
+- Runs tab
+- Reporting tab — all 3 cycle time segments, QC summary, product breakdown, daily, line
+- UPC Generator
+- Scans tab
+- Corrections tab
+- Alerts tab — getViolations + getViolationSummary restored April 2026
+- Returns tab — getReturnQueue restored April 2026
+- **Operators tab** — CRUD, sessions today, QR card print ← new April 2026
+- **Print tab** — single + bulk reprint, auto-routing to correct line printer ← new April 2026
+- **Operator sessions** — created on QR login, closed on next login same device ← new April 2026
 
 ### Open Issues 🔶
-- WKS_IN line shows SHARED (fix deployed April 2026, **not confirmed on floor**)
-- WKS defects "No defects on record" (fix deployed April 2026, **not confirmed on floor**)
-- Label X position final tuning (shifted to 24 dots, **not confirmed on floor**)
+- WKS defects "No defects on record" — fix deployed April 2026, **not confirmed on floor**
+- Label X position final tuning — shifted to 24 dots, **not confirmed on floor**
+- Print server v2.2 — deployed to L1, **needs deployment to L2 and L3**
+- WKS per-line fix — deployed April 2026, **not confirmed on floor**
 
 ### Pending Build 🔲
-- Operator QR card print flow
-- Operator onboarding + station assignment flow
+- RTO_IN intact path — scanner side only (next priority)
+- Repair run design session (before any build)
+- Operator performance view — per-operator daily output + trend
 - Consolidated dispatch view — fresh RTD + RTD_RETURN combined
-- Repair run — new production run type for damaged returns (design pending)
 - Legacy UPC manual entry path (build when triggered)
 - Daily / weekly / monthly reporting views
 - Reconciliation module — Phase 4
-- Audit module — Mahesh's dedicated view — Phase 5
+- Audit module — Phase 5
 - Assembly stations module — Phase 6
 - Biometric integration
 - Unicommerce reconciliation
@@ -442,7 +431,7 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 
 ---
 
-## 22. Open Design Questions
+## 20. Open Design Questions
 
 1. **Variant rework UPC:** Keep original UPC (preferred) or new UPC?
 2. **Rework approval:** Who triggers and approves recall/rework orders?
@@ -454,11 +443,23 @@ Scan events is the largest table. Partition by month at ~500K events/month (~mon
 8. **Channel barcode scanning:** Currently manual. Future: scan platform return labels directly.
 9. **Legacy UPC gap:** Units dispatched pre-system have no `pkg_scans` record. Design agreed — build when triggered.
 10. **Consolidated dispatch view:** Fresh RTD + RTD_RETURN combined per product per day. Not yet built.
-11. **Repair run schema:** New production run type for damaged returns. Pending design session.
+11. **Repair run schema:** Two contexts confirmed — inline (same-day, line-specific) vs repair run (L3 auxiliary, cross-line, formal run). Pending full design session.
 12. **Daily/weekly/monthly reporting:** Not yet built.
 13. **`packed` vs `pending_rtd`:** Both in enum. When is it safe to remove `packed`?
-14. **print_jobs retention:** Cleanup policy for old done/failed rows.
+14. **print_jobs retention:** Cleanup policy for old done/failed rows (suggest 30 days).
 15. **All 15 devices APK vs PWA:** With polling print solved, staying on browser PWA is viable for all. Decision deferred.
+16. **Operator performance view:** Per-operator daily scan count, trend over time — data exists, view not built.
+17. **Non-scanning operator allocation:** 20+ assemblers without scanners — deferred to Phase 6.
+
+---
+
+## 21. Session Start Protocol
+
+When starting a new build session:
+1. Ask Afshaan to share `LOT_BUILD.md`, `LOT_SYSTEM.md`, and any relevant HTML/worker files
+2. Read all files before writing any code
+3. Check Open Issues first — confirm floor status before building new features
+4. Design before build — discuss architecture conversationally before writing instructions
 
 ---
 
