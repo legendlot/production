@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 2.1 | **Last Updated:** April 2026
+**Version:** 2.2 | **Last Updated:** April 2026
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -85,6 +85,7 @@ superseded_by   UUID REFERENCES scans(id)
 ```
 
 **Note:** `RTD_RETURN` added to activity enum April 2026.
+**Note on RTE/RTR line field:** PKG_OUT device is SHARED, so `scans.line` for RTE/RTR is unreliable. Always join via `pkg_scans.car_upc` to get the correct originating line.
 
 #### `scan_violations` — Wrong-sequence scan log
 ```
@@ -115,6 +116,8 @@ updated_at      TIMESTAMPTZ
 product_code    TEXT                -- 4-char e.g. 'KNAK', or 5-char remote e.g. 'KNAKR'
 product_seq     INT                 -- per-product sequential number (legacy)
 ```
+
+**INW status check:** `status` must be `available`. `applied` means already used on a prior unit — sticker was duplicated/reused on the floor. Fix: apply a fresh available sticker from the same batch.
 
 #### `upc_batches` — Print batch records
 ```
@@ -191,7 +194,7 @@ batch_label     TEXT NOT NULL UNIQUE    -- e.g. LOT-00000042-E
 channel         TEXT                    -- 'ecom' | 'retail'
 operator_id     UUID
 device_id       UUID
-line            TEXT
+line            TEXT                    -- source of truth for which line dispatched a unit
 packed_at       TIMESTAMPTZ DEFAULT NOW()
 rte_rtr_scan_id UUID
 print_sent      BOOLEAN DEFAULT FALSE
@@ -208,7 +211,7 @@ original_value  JSONB
 new_value       JSONB
 ```
 
-#### `print_jobs` — PKG label print queue ← updated April 2026
+#### `print_jobs` — PKG label print queue
 ```
 id           UUID PRIMARY KEY DEFAULT gen_random_uuid()
 batch_label  TEXT NOT NULL
@@ -218,14 +221,14 @@ color        TEXT
 channel      TEXT
 packed_at    TIMESTAMPTZ
 status       TEXT NOT NULL DEFAULT 'pending'   -- pending | printing | done | failed
-line         TEXT                               -- L1 | L2 | L3 ← added April 2026 for per-line routing
+line         TEXT                               -- L1 | L2 | L3
 created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 printed_at   TIMESTAMPTZ
 error        TEXT
 ```
 Index: `CREATE INDEX print_jobs_status_idx ON public.print_jobs (status, created_at);`
 
-#### `devices` — confirmed columns (April 2026)
+#### `devices` — confirmed columns
 ```
 id           UUID PRIMARY KEY
 device_code  TEXT                -- e.g. INW-L1, PKG-L2, WKS-L1
@@ -239,7 +242,7 @@ notes        TEXT
 ```
 **Note:** No `activity` column exists. Activity is inferred from station/device_code in worker logic.
 
-#### `operators` — confirmed columns (April 2026)
+#### `operators` — confirmed columns
 ```
 id              UUID PRIMARY KEY
 name            TEXT
@@ -253,7 +256,7 @@ line            TEXT          -- default line (not fixed assignment)
 qr_generated_at TIMESTAMPTZ
 ```
 
-#### `operator_sessions` — Scanner login sessions ← new April 2026
+#### `operator_sessions` — Scanner login sessions
 ```
 id                UUID PRIMARY KEY DEFAULT gen_random_uuid()
 operator_id       UUID NOT NULL REFERENCES public.operators(id)
@@ -267,23 +270,17 @@ logout_at         TIMESTAMPTZ   -- null until next operator logs in on same devi
 created_at        TIMESTAMPTZ DEFAULT now()
 ```
 
-**Session lifecycle:** Opens on QR card scan → Closes when next operator scans on same device (previous session gets logout_at set). No explicit logout. Shift attribution via timestamps (Regular: before 18:00, OT: 18:00-21:00, Double OT: after 21:00 IST).
+**Session lifecycle:** Opens on QR card scan → Closes when next operator scans on same device. No explicit logout. Shift attribution via timestamps (Regular: before 18:00, OT: 18:00-21:00, Double OT: after 21:00 IST).
 
 Indexes: `operator_id`, `device_id`, `(device_id, login_at DESC)`
 
-#### `return_shipments` (store schema) — updated April 2026
-```
--- Status enum: open | partially_processed | fully_processed | handed_over | closed
-handed_over_at  TIMESTAMPTZ
-```
-
-#### `store.production_runs` — confirmed columns (April 2026)
+#### `store.production_runs` — confirmed columns
 ```
 id           UUID PRIMARY KEY
 run_no       TEXT
 run_date     DATE
 product      TEXT
-line_no      TEXT                -- line the run is assigned to
+line_no      TEXT
 shift        TEXT
 status       TEXT
 created_by   TEXT
@@ -294,7 +291,23 @@ created_at   TIMESTAMPTZ
 updated_at   TIMESTAMPTZ
 ```
 
-**Note:** `production_runs.id` is an integer in the store schema, NOT a UUID. Do not write it to `scans.plan_id` (which is UUID). Guard: `wksInPlanId = (typeof runId === 'string' && runId.includes('-')) ? runId : null`
+**Note:** `production_runs.id` is an integer in the store schema, NOT a UUID. Guard: `wksInPlanId = (typeof runId === 'string' && runId.includes('-')) ? runId : null`
+
+#### `store.po_lines` — key columns
+```
+po_number       TEXT
+line_no         INT
+product         TEXT
+variant         TEXT        -- model-level variant
+color           TEXT        -- color sub-variant ← added April 2026 for BY UNITS mode, nullable
+item_type       TEXT
+description     TEXT
+part_code       TEXT
+qty_ordered     NUMERIC
+qty_received    NUMERIC
+unit            TEXT
+unit_price      NUMERIC
+```
 
 ---
 
@@ -315,6 +328,8 @@ updated_at   TIMESTAMPTZ
 | `get_rtd_cycle_time` | Avg time PKG → RTE/RTR with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
 | `next_seq` | Auto-increment named sequences | `seq_name` |
 | `get_line_car_remote_split` | Per-line car/remote counts for INW and QC_PASS | `p_date` |
+| `get_dispatch_by_pkg_line` | RTE/RTR counts attributed via pkg_scans.line | `p_date` ← new April 2026 |
+| `get_hourly_dispatch_by_line` | Dispatched units per hour per line via pkg_scans join | `p_date` ← new April 2026 |
 
 ### `get_scan_summary` — returns single row
 Fields: `total, voided, INW, QC_PASS, QC_FAIL, WKS_IN, WKS_OUT, PKG, RTO_IN, RTD_RETURN`
@@ -323,48 +338,56 @@ Fields: `total, voided, INW, QC_PASS, QC_FAIL, WKS_IN, WKS_OUT, PKG, RTO_IN, RTD
 - IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap: 480 minutes.
 - Returns: `avg_mins_all`, split averages, `median_mins`, `units_measured`, `fastest_mins`, `slowest_normal_mins`, `outlier_count`, `outlier_max_mins`, `outlier_threshold_mins`
 
+### `get_dispatch_by_pkg_line` — design note
+Joins `scans` → `pkg_scans` on `car_upc` + filters `component_type = 'car'` to attribute RTE/RTR to the line where the unit was **packaged**. This is the canonical way to get per-line dispatch counts. Used by `getLineView` and `getPlanVsActual` worker endpoints to override the broken `scans.line` SHARED attribution.
+
+### `get_hourly_dispatch_by_line` — design note
+Same join as above, grouped by `EXTRACT(HOUR FROM s.timestamp AT TIME ZONE 'Asia/Kolkata')` and `ps.line`. Powers the hourly battery-cell chart on the Dashboard tab.
+
 ---
 
 ## 4. Worker Endpoints (GET actions)
 
 | Action | Description |
 |---|---|
-| `getProductionDashboard` | Executive tab |
-| `getLineView` | Lines tab |
-| `getQCView` | QC tab — heatmap + FPY + repeat defects + cycle time ← cycle_time re-added April 2026 |
-| `getCycleTimeSummary` | Reporting tab ← restored April 2026 |
-| `getPlanVsActual` | Runs + Reporting tab |
+| `getProductionDashboard` | Executive tab — includes `hourly_dispatch` from `get_hourly_dispatch_by_line` ← updated April 2026 |
+| `getLineView` | Lines tab — merges corrected dispatch via `get_dispatch_by_pkg_line`, filters SHARED ← updated April 2026 |
+| `getQCView` | QC tab — heatmap + FPY + repeat defects + cycle time |
+| `getCycleTimeSummary` | Reporting tab |
+| `getPlanVsActual` | Runs + Reporting — merges corrected dispatch for single-day calls ← updated April 2026 |
 | `getProductCodes` | UPC Generator |
 | `getUpcBatches` | UPC Generator batch history |
 | `getUpcBatch` | UPC Generator single batch |
 | `getAllScans` | Scans + Corrections tabs |
 | `getScanSummary` | Scans tab summary cards via RPC |
-| `getViolations` | Alerts tab ← restored April 2026 |
-| `getViolationSummary` | Alerts tab summary cards ← restored April 2026 |
-| `getReturnQueue` | Returns tab — queries units with current_status=rto_in ← restored April 2026 |
-| `getOperators` | Operators tab — all operators |
-| `getOperatorSessions` | Operators tab — sessions by date/operator/line ← new April 2026 |
-| `saveOperator` | Operators tab — create or update operator ← new April 2026 |
+| `getScansByUpc` | Scans tab UPC search — auto-pads digits to LOT-XXXXXXXX ← updated April 2026 |
+| `getViolations` | Alerts tab |
+| `getViolationSummary` | Alerts tab summary cards |
+| `getReturnQueue` | Returns tab |
+| `getOperators` | Operators tab |
+| `getOperatorSessions` | Operators tab — sessions by date/operator/line |
+| `saveOperator` | Operators tab — create or update operator |
 | `getPkgScans` | Scans tab — pkg_scans by date range |
-| `getPkgScanLookup` | Print tab — pkg_scans by batch_label or car_upc with units join ← new April 2026 |
+| `getPkgScanLookup` | Print tab — pkg_scans by batch_label or car_upc with units join |
 
 ## 4b. Worker Endpoints (POST actions)
 
 | Action | Description |
 |---|---|
-| `postReturnHandover` | Store — marks shipment `handed_over` |
-| `postPkgOut` | PKG_OUT scan — auto-routes RTE/RTR or RTD_RETURN. Inserts print_job row. |
+| `postPkgOut` | PKG_OUT scan — uses `pkgScan.line` as effectiveLine ← updated April 2026 |
 | `generateUpcBatch` | Nulls model/color for remote batches |
-| `postWksScan` | WKS scan — infers WKS_IN or WKS_OUT_PENDING. Uses device.line directly (per-line devices). Auto-associates active production run as plan_id. ← updated April 2026 |
-| `postWksOut` | WKS outcome — REPAIRED or SCRAPPED. Uses device.line directly. Auto-associates active production run. Auto-creates scrap loss note. ← updated April 2026 |
-| `postReprintJob` | Inserts new pending print_job row with line field for correct printer routing ← updated April 2026 |
-| `postPkg` | PKG scan — pair verify, insert pkg_scans, insert print_jobs with `line: deviceLine` |
-| `postReturnShipment` | Store — creates return shipment record (RS-NNN) |
-| `postReturnUnit` | Store — logs return unit, resolves car_upc from batch_label for UDR |
-| `postReturnInspection` | Store — records inspection + disposition (rtd_direct/wks_repair/loss_damage/loss_rejection). Auto-sets shipment to fully_processed when all units inspected |
-| `postReturnHandover` | Store — marks shipment handed_over, sets public.units → rto_in for all eligible units (car + remote) |
-| `getReturnShipments` | Store — list return shipments with optional date filter |
+| `postWksScan` | WKS scan — infers WKS_IN or WKS_OUT_PENDING |
+| `postWksOut` | WKS outcome — REPAIRED or SCRAPPED |
+| `postReprintJob` | Inserts new pending print_job row |
+| `postPkg` | PKG scan — pair verify, insert pkg_scans, insert print_jobs |
+| `postReturnShipment` | Store — creates return shipment record |
+| `postReturnUnit` | Store — logs return unit |
+| `postReturnInspection` | Store — records inspection + disposition |
+| `postReturnHandover` | Store — marks shipment handed_over, sets units → rto_in |
+| `getReturnShipments` | Store — list return shipments |
 | `getReturnShipment` | Store — single shipment + all return units |
+| `createUser` | Store admin — uses `SUPABASE_SERVICE_KEY` for apikey header ← fixed April 2026 |
+| `resetPassword` | Store admin — same fix ← fixed April 2026 |
 
 ### SCANNER_ACTIONS (bypass JWT, use device auth)
 ```
@@ -376,8 +399,9 @@ scannerLogin, postScan, postWksScan, postWksOut, postQcPass, postQcFail, voidSca
 ## 5. Scanner Flows
 
 ### INW
-Single scan. System identifies car vs remote from `upc_pool.product_code`. Unit created in `units` table.
-**Critical:** Worker uses `product_code` (not `product` name) to look up `product_master`. Using `product` name with `LIMIT 1` returns first alphabetical match — caused B-014 Shadow Tarmac Black to be seeded as Asphalt Black. Fixed April 2026.
+Single scan. System identifies car vs remote from `upc_pool.product_code`. Unit created in `units` table. Worker uses `product_code` (not `product` name) to look up `product_master`.
+
+**UPC must be `available`.** Status `applied` = sticker already used on a prior unit (duplicate/reused on floor). Fix: apply a fresh available sticker from the same batch.
 
 ### QC_PASS
 - `has_remote = true`: Two-scan sequence — car then remote. Pairing created in `unit_pairs`.
@@ -387,49 +411,25 @@ Single scan. System identifies car vs remote from `upc_pool.product_code`. Unit 
 ### QC_FAIL
 Single scan. Defect selection modal shown, filtered by component type. Parent + child rows in `qc_fail_events` + `qc_fail_defects`.
 
-### WKS (Workshop) ← updated April 2026
-Scanner calls `postWksScan` (NOT `postScan` with activity WKS — that caused enum violation).
-1. Operator scans UPC → `postWksScan` called
-2. If unit is `qc_fail` → WKS_IN recorded, unit → `in_repair`, loop_count+1, defects fetched
-3. Line taken from `device.line` directly (WKS devices are now per-line: WKS-L1/L2/L3)
-4. Active production run looked up by line+date and written to `plan_id` (UUID guard applied)
-5. Scan same UPC again → WKS_OUT_PENDING returned
-6. Operator taps REPAIRED → calls `postWksOut(outcome='repaired')` → unit → `repaired`
-7. Operator taps CANNOT FIX → calls `postWksOut(outcome='scrapped')` → unit → `scrapped`, scrap loss note created
+### WKS (Workshop)
+Scanner calls `postWksScan`. Direction (IN/OUT) inferred from unit status. Line from `device.line` directly (WKS-L1/L2/L3). UUID guard on plan_id.
 
-**Known issue:** WKS defects "No defects on record" — fix deployed April 2026, not yet confirmed on floor.
+### PKG
+Two-scan flow (car + remote). Status → `pending_rtd`. `print_jobs` row inserted with line.
 
-### PKG ← updated April 2026
-Two-scan flow (car + remote):
-1. Car scan → remote scan → pair verified
-2. `pkg_scans` inserted
-3. Car and remote `units.current_status` → `pending_rtd`
-4. `print_jobs` row inserted with `status = 'pending'` and `line = deviceLine` (device is now PKG-L1/L2/L3)
-5. Scanner overlay shows batch label + REPRINT button (always visible)
-
-### PKG_OUT
-Two paths auto-detected:
+### PKG_OUT ← updated April 2026
 - **Fresh** (`pending_rtd`): `-E` → RTE, `-R` → RTR. Both units → `rtd`.
-- **Return RTD** (`rtd` + `rtd_direct` in `handed_over` shipment): `RTD_RETURN` scan. Does NOT count in tally.
+- **Return RTD**: `RTD_RETURN` scan.
+- **Line attribution:** `effectiveLine = pkgScan.line || d.line || device.line` — uses PKG scan's line (L1/L2/L3), not PKG_OUT device line (SHARED).
 
-### Print Flow — v2.2 Per-Line ← updated April 2026
-1. PKG scan → Worker inserts `print_jobs` row with `status = pending`, `line = deviceLine`
-2. Line-specific print server polls `WHERE status = 'pending' AND line = '$LINE'` every 2 seconds
-3. **Atomic claim:** PATCH with `WHERE status = 'pending'` filter — if another server already claimed, Supabase returns empty array → server skips job silently. Prevents cross-line duplicate prints.
-4. Prints → marks done/failed
-5. REPRINT button → `postReprintJob` → new pending row inserted
-6. Dashboard Print tab → `getPkgScanLookup` → `postReprintJob` → queued to correct line printer
+### Print Flow — v2.2 Per-Line
+Poll → atomic claim → print → done/failed. REPRINT via print_jobs. v2.2 on L1; **L2/L3 still need deployment.**
 
-### Operator Sessions ← new April 2026
-Every QR card login via `scannerLogin`:
-1. Closes any open session on that device (sets `logout_at`)
-2. Looks up active production run for device's line
-3. Derives shift from IST time (Regular <18:00, OT 18:00-21:00, Double OT >21:00)
-4. Inserts new `operator_sessions` row
-Manual select logins do NOT create session records (client-side only, no worker call).
+### Operator Sessions
+Every QR login: closes prior session on device, derives shift from IST, inserts new session row.
 
 ### Void + Status Rollback
-Voiding any scan rolls back `units.current_status` to previous non-voided scan's activity. If no previous scan → `inwarded`.
+Voiding rolls back `units.current_status` to previous non-voided scan's activity.
 
 ---
 
@@ -440,75 +440,45 @@ Voiding any scan rolls back `units.current_status` to previous non-voided scan's
 ### Tabs
 | Tab | Key Features |
 |---|---|
-| Executive | KPI cards, hourly bar chart, runs split Active/Upcoming |
-| Lines | Per-line cards (today only), first scan time, operator output table |
-| QC | Cycle time (IQR outlier-aware), FPY by line, top defects, repeat failures |
+| Executive | KPI cards, hourly battery-cell dispatch chart, PVA cards, runs table |
+| Lines | Per-line cards (today only). SHARED card filtered out. Dispatch numbers now correctly attributed. |
+| QC | Cycle time, FPY by line, top defects, repeat failures |
 | Runs | Plan vs actual |
 | UPC Generator | Searchable dropdown, car/remote toggle, batch history, print |
-| Scans | Real-time feed, activity filter, UPC search, voided toggle. Summary cards via getScanSummary RPC. Falls back to dashes on RPC failure. |
+| Scans | Real-time feed, activity filter, UPC search (auto-pads digits), voided toggle. Summary cards fixed. |
 | Corrections | Tier 2 void + Tier 3 amend |
 | Alerts | Scan violations, acknowledge, badge count |
-| Returns | Units in rto_in status pending production action |
-| Reporting | Date-range: all 3 cycle times, QC summary, product breakdown, daily, line |
-| Operators | Full CRUD operator database, sessions today count, Print QR card ← new April 2026 |
-| Print | Single + bulk batch label reprint by batch label or car UPC ← new April 2026 |
+| Returns | Units in rto_in status |
+| Reporting | Date-range cycle times, QC summary, product breakdown, daily, line |
+| Operators | Full CRUD, sessions today, QR card print |
+| Print | Single + bulk batch label reprint |
 
-### setContentHeight fix ← April 2026
-`setContentHeight` now only sets height on visible (non-hidden) tab panels and zeros out hidden ones. Previously all panels received the same height, pushing later tabs below the viewport.
+### Hourly Chart — Battery Cell Design ← new April 2026
+- One row per active line (SHARED filtered out)
+- Each cell = a battery: container height = hourly target, fill = actual dispatched that hour
+- Colours: green (≥ target), orange (70–99%), red (<70%), dimmed (future), line colour (current partial hour)
+- Metric: **dispatched units** (RTE+RTR) from `get_hourly_dispatch_by_line` via pkg_scans.line
+- Header: target/hr rate, total dispatched, pace status (X ahead / X behind)
+- Hourly target = `target_qty / 9` (equal split, 9am–6pm). Future: weighted by output pattern.
 
-### Operators Tab
-- Add/Edit/Deactivate operators (admin + production_manager only)
-- Filter by role, line, active status
-- Sessions Today count from `operator_sessions`
-- Print QR — generates QR from `operator.qr_code`, opens print window with card layout (name, role, line, QR, LOT logo)
-- `saveOperator` GET action — creates new operator with auto-generated `LOT-OP-XXXXXXXX` QR code, or updates existing
+### Dispatch Attribution Fix ← April 2026
+PKG_OUT device line = SHARED. Three data paths fixed:
+1. `postPkgOut` — writes `pkgScan.line` to future RTE/RTR scans
+2. `getLineView` — overrides rtr/rte/completion_pct via `get_dispatch_by_pkg_line`
+3. `getPlanVsActual` — overrides actual_rtr/rte/completion_pct/gap for single-day calls
+4. `renderLineCards` — filters SHARED line
 
-### Print Tab
-- Single mode: enter batch label or car UPC (auto-prefixes `LOT-` and zero-pads if needed)
-- Bulk mode: paste multiple values one per line
-- Shows match with product/line/channel before printing
-- Individual Print button per row + Print All for bulk
-- Queues to `print_jobs` via `postReprintJob` → routes to correct line printer automatically
+### Store Procurement — BY UNITS Mode ← new April 2026
+Third line item mode. Product → model+color grid with qty inputs → accumulated queue → submitted as po_lines with product/variant/color. `store.po_lines.color` column added. item_type defaults to 'RC Car'. Price left blank for future price master.
 
 ---
 
 ## 7. Print Server — v2.2
 
-**Location:** Windows laptop at each line's PKG station (one per line)
-**Files:** `printserver.js` (identical on all laptops), `config.json` (only `line` differs)
+**Location:** Windows laptop at each line's PKG station.
+**Files:** `printserver.js` (identical), `config.json` (only `line` differs: L1/L2/L3).
 
-### config.json — per-line (only `line` differs between laptops)
-```json
-{
-  "line": "L1",
-  "printer_name": "TSC TE244",
-  "label_width_mm": 50,
-  "label_height_mm": 25,
-  "gap_mm": 2,
-  "darkness": 8,
-  "speed": 4,
-  "poll_interval_ms": 2000,
-  "supabase_url": "https://jkxcnjabmrkteanzoofj.supabase.co",
-  "supabase_key": "sb_publishable_1Dd-r3h9Mou2Wqgn6t24Dw_lmWdBtLh"
-}
-```
-
-### Poll + atomic claim (v2.2)
-```
-Query: status=eq.pending&line=eq.${LINE}&order=created_at.asc&limit=5
-Claim: PATCH ?id=eq.${id}&status=eq.pending → { status: 'printing' }
-       Returns representation — if empty array, another server claimed it → skip
-```
-v2.2 deployed to L1. **Needs deployment to L2 and L3 laptops.**
-
-### Label layout (TSPL, 50×25mm @ 203 DPI)
-```
-BARCODE 24,3,"128",52,1,0,2,2,"LOT-XXXXXXXX-E"
-TEXT 24,60,"2",0,1,1,"LOT-XXXXXXXX-E"
-TEXT 24,82,"1",0,1,1,"Knox Adventure Black"
-TEXT 24,96,"1",0,1,1,"ECOM  06-Apr-2026"
-```
-X position = 24 dots. Not yet confirmed on floor.
+v2.2 deployed to L1. **L2 and L3 still need deployment.**
 
 ---
 
@@ -516,45 +486,28 @@ X position = 24 dots. Not yet confirmed on floor.
 
 | Fix | SQL | Reason |
 |---|---|---|
-| `units.ean` nullable | `ALTER TABLE public.units ALTER COLUMN ean DROP NOT NULL` | Remotes have no EAN |
-| `units.sku` nullable | `ALTER TABLE public.units ALTER COLUMN sku DROP NOT NULL` | Remotes have no SKU |
-| `units.model` nullable | `ALTER TABLE public.units ALTER COLUMN model DROP NOT NULL` | Remotes have no model |
-| `units.color` nullable | `ALTER TABLE public.units ALTER COLUMN color DROP NOT NULL` | Remotes have no color |
-| Defect component mapping | `UPDATE defect_master SET component = 'car' WHERE category::text LIKE 'Car-%'` etc. | Was null, broke filtering |
-| Packaging defects inactive | `UPDATE defect_master SET is_active = false WHERE category::text = 'Packaging'` | Not applicable at QC stage |
-| super_admin permissions | Added `scan_void_supervisor`, `scan_amend_manager`, `loss_note_approve`, `channel_manage` | Various features |
-| Supabase max rows | Settings → API → Data API → Max Rows → 5000 | Default 1000 was capping scan display |
-| Return sequences | `INSERT INTO store.sequences VALUES ('rs',0),('ru',0),('ln',0)` | Return system IDs |
-| `get_scan_summary` RPC | Created in public schema | Accurate scan counts bypassing row limits |
-| `get_scan_summary` RPC updated | DROP + recreate with RTD_RETURN field added — April 2026 | RTD_RETURN not in original output |
-| get_line_view fix | DROP + recreate with line-level grouping + first_scan_at | Was returning two rows per line when run existed |
-| get_qc_cycle_time RPC | Dropped + recreated with IQR outlier detection, new return fields | April 2026 |
-| get_pkg_cycle_time RPC | Created in public schema | PKG cycle time measurement |
-| get_rtd_cycle_time RPC | Created in public schema | RTD cycle time measurement |
-| RTD_RETURN activity enum | `ALTER TYPE public.activity_type ADD VALUE IF NOT EXISTS 'RTD_RETURN'` | Return RTD distinct from RTE/RTR |
-| return_shipments.handed_over_at | `ALTER TABLE store.return_shipments ADD COLUMN IF NOT EXISTS handed_over_at TIMESTAMPTZ` | Handover timestamp |
-| return_shipments status enum | Added `handed_over` value | Store handover flow |
-| upc_batches remote model/color | Worker nulls model/color for 5-char product_code batches | Remotes are product-level not variant-level |
-| `pending_rtd` unit_status enum | `ALTER TYPE unit_status ADD VALUE IF NOT EXISTS 'pending_rtd'` | Worker used pending_rtd but enum only had `packed` |
-| print_jobs table | Created in public schema with status index | Print polling architecture April 2026 |
-| print_jobs.line column | `ALTER TABLE public.print_jobs ADD COLUMN IF NOT EXISTS line TEXT` | Per-line print routing April 2026 |
-| PKG device per-line | `UPDATE public.devices SET device_code='PKG-L1', line='L1', label='PKG Line 1' WHERE device_code='PKG'` | PKG was SHARED — now per-line |
-| PKG-L2/L3 devices | `INSERT INTO public.devices (device_code, station, line, label, is_active) VALUES ('PKG-L2','PKG','L2','PKG Line 2',true),('PKG-L3','PKG','L3','PKG Line 3',true)` | New per-line PKG devices |
-| WKS device per-line | `UPDATE public.devices SET device_code='WKS-L1', line='L1', label='Workshop Line 1' WHERE device_code='WKS' AND station='WKS'` | WKS was SHARED — now per-line |
-| WKS-L2/L3 devices | `INSERT INTO public.devices (device_code, station, line, label, is_active) VALUES ('WKS-L2','WKS','L2','Workshop Line 2',true),('WKS-L3','WKS','L3','Workshop Line 3',true)` | New per-line WKS devices |
-| operator_sessions table | Created April 2026 — migrated from old schema | Scanner login session tracking |
-| B-014 product seeding bug | Worker used `product` name for `product_master` lookup — `LIMIT 1` returned first alphabetical match (Asphalt Black). Fixed to use `product_code`. | All Shadow Tarmac Black units in B-014 range seeded as Asphalt Black |
-| B-014 units data fix | `UPDATE public.units SET sku='shadow-tarmac-black', model='Tarmac', ean='5949998500299' WHERE upc BETWEEN 'LOT-00002615' AND 'LOT-00003214' AND sku='shadow-asphalt-black'` | Run twice — initial + gap period |
-| 18 B-014 batch labels reprinted | INSERT into print_jobs for all B-014 pkg_scans | Labels had wrong EAN from seeding bug |
-| store.return_shipments table | Created April 2026 — shipment_id, channel, received_date, status, handed_over_at | Store return system |
-| store.return_units table | Created April 2026 — return_unit_id, shipment_id, return_category, batch_label, car_upc, disposition, status | Store return system |
-| store.sequences rs/ru | `INSERT INTO store.sequences (name, current_val) VALUES ('rs',0),('ru',0) ON CONFLICT DO NOTHING` | Return shipment + unit ID sequences |
-| get_executive_dashboard RPC | DROP + recreate — car-only counts for QC_PASS/INW/WTD/MTD/dispatch_stock/repair_queue via LEFT JOIN units | Was double-counting car+remote scans |
-| get_plan_vs_actual RPC | DROP + recreate — actuals CTE now joins via units.upc not product_master.ean | EAN join was returning 0 actuals |
-| get_scan_summary RPC | DROP + recreate — added INW_car/INW_remote/QC_PASS_car/QC_PASS_remote fields | Car/remote split for Scans tab |
-| get_line_view RPC | DROP + recreate — car-only INW/QC_PASS/QC_FAIL/PKG counts, added inw_remote_count | Was double-counting remotes |
-| get_line_car_remote_split RPC | Created — per-line car/remote split for INW and QC_PASS | Feeds Lines tab card sub-labels |
-| v_operator_output view | DROP + recreate — car/remote split columns, product join via units.upc, shift removed from GROUP BY | Was duplicating rows per shift |
+| `units.ean/sku/model/color` nullable | ALTER TABLE DROP NOT NULL | Remotes have no EAN/SKU/model/color |
+| Defect component mapping | UPDATE defect_master SET component | Was null, broke filtering |
+| Supabase max rows | Settings → API → Max Rows → 5000 | Default 1000 capped scan display |
+| Return sequences | INSERT INTO store.sequences | Return system IDs |
+| `get_scan_summary` RPC | Created + updated with RTD_RETURN + car/remote split | Accurate counts + split |
+| get_line_view RPC | DROP + recreate multiple times | Line grouping, first_scan_at, car-only counts |
+| Cycle time RPCs | Created (QC, PKG, RTD) with IQR outlier detection | April 2026 |
+| RTD_RETURN activity enum | ALTER TYPE activity_type ADD VALUE | Return RTD path |
+| return_shipments | created + handed_over_at + status enum | Store return system |
+| `pending_rtd` unit_status enum | ALTER TYPE unit_status ADD VALUE | PKG flow |
+| print_jobs table + line column | Created + line column added | Per-line print routing |
+| PKG/WKS devices per-line | UPDATE + INSERT devices | Per-line routing |
+| operator_sessions table | Created April 2026 | Session tracking |
+| B-014 units data fix | UPDATE units SET sku/model/ean WHERE upc BETWEEN ... | Product seeding bug |
+| get_executive_dashboard RPC | DROP + recreate car-only counts | Was double-counting |
+| get_plan_vs_actual RPC | DROP + recreate joins via units.upc | EAN join returned 0 actuals |
+| get_line_car_remote_split RPC | Created | Car/remote split for Lines tab |
+| v_operator_output view | DROP + recreate, shift removed from GROUP BY | Duplicate rows per shift |
+| **get_dispatch_by_pkg_line RPC** | Created April 2026 | PKG_OUT SHARED line attribution bug |
+| **get_hourly_dispatch_by_line RPC** | Created April 2026 | Hourly battery chart |
+| **store.po_lines.color column** | `ALTER TABLE store.po_lines ADD COLUMN IF NOT EXISTS color TEXT` | BY UNITS procurement mode |
+| **Auth admin apikey fix** | `SUPABASE_SERVICE_KEY` used for apikey in createUser/resetPassword/getUsers | Publishable key rejected by Auth Admin API |
 
 ---
 
@@ -563,17 +516,20 @@ X position = 24 dots. Not yet confirmed on floor.
 | Phase | Module | Status |
 |---|---|---|
 | 1 | DB + Scanner App | ✅ Complete |
-| 1b | PKG Print System | ✅ Complete — polling v2.2 per-line atomic (April 2026) |
-| 2 | Reporting Dashboard | ✅ Live (12 tabs including Operators + Print) |
+| 1b | PKG Print System | ✅ Complete — polling v2.2 per-line atomic |
+| 2 | Reporting Dashboard | ✅ Live (12 tabs) |
 | 3 | Repair Module | ✅ Complete |
-| 3b | Return System | ✅ Complete (incl. handover + RTD_RETURN path) |
+| 3b | Return System | ✅ Complete |
 | 3c | Station Status Controls + Alerts | ✅ Complete |
-| 3d | Cycle Time Analytics | ✅ Complete (all 3 RPCs with IQR outlier detection) |
+| 3d | Cycle Time Analytics | ✅ Complete |
 | 3e | Reporting Tab | ✅ Complete |
-| 3f | Operator Management | ✅ Complete — Operators tab + sessions (April 2026) |
-| 3g | Print Tab | ✅ Complete — self-service reprint (April 2026) |
-| 3h | RTO_IN Intact Path + Store Return Endpoints | ✅ Complete — RTD_RETURN dispatch + store return system (April 2026) |
-| 3i | Dashboard Overhaul | ✅ Complete — car/remote split, tab independence, grouped bars, PVA cards, RPC fixes (April 2026) |
+| 3f | Operator Management | ✅ Complete |
+| 3g | Print Tab | ✅ Complete |
+| 3h | RTO_IN Intact Path + Store Returns | ✅ Complete |
+| 3i | Dashboard Overhaul | ✅ Complete |
+| 3j | Dispatch Attribution Fix | ✅ Complete — SHARED line removed, pkg_scans.line used (April 2026) |
+| 3k | Hourly Achievement Chart | ✅ Complete — battery-cell, dispatched metric, per-line (April 2026) |
+| 3l | Store Procurement BY UNITS | ✅ Complete — variant+color ordering mode (April 2026) |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
@@ -589,15 +545,16 @@ None currently open.
 
 **Backlog:**
 2. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
-3. **Legacy UPC manual entry** — for pre-system units returning. Build when triggered.
+3. **Legacy UPC manual entry** — build when triggered
 4. **Daily / weekly / monthly reporting views**
 5. **Reconciliation module** — Phase 4
 6. **Audit module** — Phase 5
 7. **Assembly stations module** — Phase 6
-8. **Dashboard tab RBAC** — deferred until feature set stable
+8. **Dashboard tab RBAC** — deferred
 9. **Biometric integration**
 10. **Unicommerce reconciliation**
-11. **APK rollout to all 15 devices** — decision deferred
+11. **APK rollout to all 15 devices** — deferred
+12. **Price master table** — item_type auto-derived from product master; feeds BY UNITS unit price
 
 ---
 
@@ -620,55 +577,60 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | Camera library | Native getUserMedia + ZXing | html5-qrcode fails silently on MIUI |
 | Scan at PKG_OUT | Batch label not UPC | UPC inaccessible inside sealed box |
 | Batch label format | LOT-XXXXXXXX-E/R | Car UPC + channel — no new identifier pool needed |
-| Channel at PKG | Toggle on device screen | Decided before run, sequential within day |
+| Channel at PKG | Toggle on device screen | Decided before run |
 | Schema separation | store vs public | Legacy origin; RPCs must not include profile headers |
 | RTD definition | RTE + RTR (via PKG_OUT) | Not a physical scan point |
 | Operator login | QR card scan only | Operators can't type reliably |
 | UPC format | LOT-XXXXXXXX (8 digit, global sequential) | Simple, no collision risk, scalable |
 | Display code | KNAK00000007 (product_code + raw LOT seq, no hyphens) | Globally unique, human-readable |
-| QR encodes | LOT- number (not display code) | Permanent anchor; display code is derived |
-| Remote UPC | Independent from car, same pool | Remote travels separately, needs own scan history |
-| Remote pairing | Created at QC_PASS only | No tentative pair state — cleaner model |
+| QR encodes | LOT- number (not display code) | Permanent anchor |
+| Remote UPC | Independent from car, same pool | Remote travels separately |
+| Remote pairing | Created at QC_PASS only | No tentative pair state |
 | QC_FAIL storage | Parent + child rows | Enables defect-level and unit-level queries |
-| Defect filtering | By component type at scan time | Shorter list, no wrong-component codes |
+| Defect filtering | By component type at scan time | Shorter list |
 | Scan correction | Tier 1/2/3 model | Prevent first, correct second; Mahesh read-only always |
-| Void mechanism | voided flag on scans row | Records never deleted; audit trail always complete |
-| Void rollback | Unit status rolled back on void | Prevents units getting stuck after incorrect voids |
-| WKS flow | System-inferred from unit status | No manual IN/OUT modal — eliminates operator error |
-| WKS worker action | `postWksScan` separate from `postScan` | Raw `WKS` is not a valid activity_type enum value |
-| WKS line tracking | device.line directly (per-line devices) | WKS-L1/L2/L3 devices deployed April 2026 — no INW lookup needed |
-| WKS plan_id | UUID guard before writing to scans | store schema production_runs.id is integer not UUID |
-| Print approach | Polling Supabase print_jobs table | Chrome Android blocks local network fetch from HTTPS PWA |
-| PKG label print | Non-blocking via print_jobs | Scan not blocked if printer offline. REPRINT always available. |
-| PKG per-line devices | PKG-L1/L2/L3 | Multiple printers need routing. print_jobs.line + per-line poll prevents cross-line collisions. |
-| WKS per-line devices | WKS-L1/L2/L3 | Inline workshop is line-specific. Repair run (L3 auxiliary) is separate future system. |
-| Print server v2.2 | Atomic job claiming via conditional PATCH | v2.1 had race condition — both L1+L2 servers could claim same job in 2-second poll window |
-| Print tab | Self-service reprint on dashboard | Reduces dependency on Afshaan for manual SQL reprints |
-| Operator sessions | Created on QR card login, closed on next login same device | No explicit logout needed; shift derived from timestamps |
-| Operator allocation | Scanner QR login IS the station allocation | No separate allocation UI for now; non-scanning operators deferred to Phase 6 |
-| Repair run | Design session required before build | Touches production runs, store issuance, unit assignment, aging — too many unknowns |
-| `packed` vs `pending_rtd` | Both in enum, `pending_rtd` is active | `packed` is legacy unused. `pending_rtd` added April 2026 |
-| `getReturnQueue` | Queries units with current_status=rto_in, joins store.return_units for real disposition + category | Updated April 2026 — was hardcoding wks_repair |
+| Void mechanism | voided flag on scans row | Records never deleted |
+| Void rollback | Unit status rolled back on void | Prevents stuck units |
+| WKS flow | System-inferred from unit status | Eliminates operator error |
+| WKS worker action | `postWksScan` separate from `postScan` | Raw WKS not a valid activity_type enum |
+| WKS line tracking | device.line directly (per-line devices) | No INW lookup needed |
+| WKS plan_id | UUID guard before writing | store schema production_runs.id is integer not UUID |
+| Print approach | Polling Supabase print_jobs | Chrome Android blocks local network fetch from HTTPS PWA |
+| PKG label print | Non-blocking via print_jobs | Scan not blocked if printer offline |
+| PKG/WKS per-line devices | PKG-L1/L2/L3, WKS-L1/L2/L3 | Per-line routing |
+| Print server v2.2 | Atomic job claiming via conditional PATCH | Race condition fix |
+| Operator sessions | Created on QR login, closed on next login same device | No explicit logout needed |
+| Repair run | Design session required before build | Too many unknowns |
+| `packed` vs `pending_rtd` | Both in enum, `pending_rtd` is active | `packed` is legacy |
+| **Dispatch line attribution** | `pkgScan.line` not `device.line` in postPkgOut | PKG_OUT is SHARED — join pkg_scans for correct line |
+| **Hourly chart metric** | Dispatched (RTE+RTR) not QC Pass | QC Pass overcounts remotes; dispatched = actual output |
+| **BY UNITS item_type** | Defaults to 'RC Car' | Future: derive from product master |
+| **Auth Admin API key** | SUPABASE_SERVICE_KEY for both apikey + Authorization | Publishable key rejected by Supabase Auth Admin endpoints |
+| **UPC search auto-pad** | Digits → LOT-XXXXXXXX in worker | Operators type short numbers like "4267", not full format |
+| **scanSummaryCards restore** | `style.display = 'grid'` not `''` | Element has inline grid style; `''` removes display, falls back to block |
 
 ---
 
 ## 12. Open Technical Questions
 
-1. **Scan events partitioning:** Defer to month 10 (~500K events/month). Plan DDL now.
+1. **Scan events partitioning:** Defer to month 10 (~500K events/month).
 2. **QC_PASS timeout:** Should second scan time out after N seconds? Recommend yes.
 3. **Rework module schema:** Pending design session.
-4. **Dashboard tab access control:** Deferred — role-gate when feature set stable.
-5. **Defect master ownership:** Who can add/modify defect codes after initial seeding?
-6. **Channel barcode scanning:** Future — scan platform return labels to auto-fill channel/return ID.
-7. **Legacy UPC gap:** Design agreed, build deferred. Trigger = first time volume makes manual handling unworkable.
-8. **Consolidated dispatch view:** Fresh RTD + RTD_RETURN combined — not yet built.
-9. **Repair run schema:** Pending design session. Two contexts: inline (same day, line-specific) vs repair run (L3 auxiliary, cross-line, formal production run).
-10. **Daily/weekly/monthly reporting:** Not yet designed or built.
-11. **`packed` vs `pending_rtd` cleanup:** Both in enum. Remove `packed` when safe.
-12. **print_jobs retention:** Table grows indefinitely. Add cleanup for done/failed rows older than 30 days.
-13. **All 15 devices APK vs PWA:** With polling print, all can stay on browser PWA. Decision deferred.
-14. **Operator performance view:** Per-operator daily scan count + trend. Data is available (scans + sessions); view not yet built.
-15. **Shift time boundaries:** Regular 9am-7pm (PKG), 9am-6pm (Assembly/QC). OT 6pm-9pm. Double OT after 9pm IST. One-hour overlap intentional for PKG load balancing.
+4. **Dashboard tab access control:** Deferred.
+5. **Defect master ownership:** Who can add/modify defect codes post-seeding?
+6. **Channel barcode scanning:** Future — scan platform return labels.
+7. **Legacy UPC gap:** Build when triggered.
+8. **Consolidated dispatch view:** Not yet built.
+9. **Repair run schema:** Two contexts — inline vs L3 auxiliary. Pending design session.
+10. **Daily/weekly/monthly reporting:** Not yet designed.
+11. **`packed` vs `pending_rtd` cleanup:** Remove `packed` when safe.
+12. **print_jobs retention:** Add cleanup for done/failed rows older than 30 days.
+13. **All 15 devices APK vs PWA:** Deferred.
+14. **Operator performance view:** Data available, view not built.
+15. **Shift time boundaries:** Regular 9am-7pm (PKG), 9am-6pm (Assembly/QC). OT 6pm-9pm. Double OT after 9pm IST.
+16. **Price master table:** For unit-level cost on procurement POs. item_type auto-derived from product master.
+17. **Hourly target split intelligence:** Currently equal (target/9 hrs). Future: weight by historical pattern.
+18. **PRODUCT_VARIANTS / PRODUCT_SUBVARIANTS data:** Nitro, Dash, Fang, Atlas need base variant + colors for BY UNITS mode to render correctly.
 
 ---
 
