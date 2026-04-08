@@ -183,7 +183,7 @@ Total: 19 devices. **SHARED devices must never be used to attribute per-line cou
 - Each server filters by its own line — no cross-line contamination
 - Atomic claiming via conditional PATCH prevents duplicate prints
 
-v2.2 deployed to L1. **L2 and L3 need deployment.**
+v2.2 deployed to L1 and L2. **L3 not yet set up.**
 
 ---
 
@@ -231,7 +231,7 @@ Third line item mode in the PO form alongside BOM and MANUAL.
 - **Print server:** Node.js (`printserver.js` v2.2) — polling Supabase, filtered by line, atomic claim
 - **Config:** `config.json` — only `"line"` value differs between laptops (L1/L2/L3)
 - **Auto-start:** Windows Startup shortcut on each laptop
-- **Label X position:** 24 dots (April 2026). Not yet confirmed on floor.
+- **Label X position:** 24 dots (April 2026). Confirmed on floor.
 
 ---
 

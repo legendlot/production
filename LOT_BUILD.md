@@ -423,7 +423,7 @@ Two-scan flow (car + remote). Status → `pending_rtd`. `print_jobs` row inserte
 - **Line attribution:** `effectiveLine = pkgScan.line || d.line || device.line` — uses PKG scan's line (L1/L2/L3), not PKG_OUT device line (SHARED).
 
 ### Print Flow — v2.2 Per-Line
-Poll → atomic claim → print → done/failed. REPRINT via print_jobs. v2.2 on L1; **L2/L3 still need deployment.**
+Poll → atomic claim → print → done/failed. REPRINT via print_jobs. v2.2 on L1 and L2. **L3 not yet set up.**
 
 ### Operator Sessions
 Every QR login: closes prior session on device, derives shift from IST, inserts new session row.
@@ -478,7 +478,7 @@ Third line item mode. Product → model+color grid with qty inputs → accumulat
 **Location:** Windows laptop at each line's PKG station.
 **Files:** `printserver.js` (identical), `config.json` (only `line` differs: L1/L2/L3).
 
-v2.2 deployed to L1. **L2 and L3 still need deployment.**
+v2.2 deployed to L1 and L2. **L3 not yet set up.**
 
 ---
 
