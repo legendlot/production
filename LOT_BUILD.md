@@ -330,6 +330,7 @@ unit_price      NUMERIC
 | `get_line_car_remote_split` | Per-line car/remote counts for INW and QC_PASS | `p_date` |
 | `get_dispatch_by_pkg_line` | RTE/RTR counts attributed via pkg_scans.line | `p_date` ← new April 2026 |
 | `get_hourly_dispatch_by_line` | Dispatched units per hour per line via pkg_scans join | `p_date` ← new April 2026 |
+| `get_defect_breakdown` | Per-product/component/severity/defect counts for QC breakdown view | `p_date_from`, `p_date_to`, `p_line` ← new April 2026 |
 
 ### `get_scan_summary` — returns single row
 Fields: `total, voided, INW, QC_PASS, QC_FAIL, WKS_IN, WKS_OUT, PKG, RTO_IN, RTD_RETURN`
@@ -508,6 +509,11 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 | **get_hourly_dispatch_by_line RPC** | Created April 2026 | Hourly battery chart |
 | **store.po_lines.color column** | `ALTER TABLE store.po_lines ADD COLUMN IF NOT EXISTS color TEXT` | BY UNITS procurement mode |
 | **Auth admin apikey fix** | `SUPABASE_SERVICE_KEY` used for apikey in createUser/resetPassword/getUsers | Publishable key rejected by Auth Admin API |
+| **get_line_car_remote_split RPC** | Added `QC_FAIL` to activity filter (April 2026) | QC Fail car/remote split on dashboard + lines tab |
+| **get_executive_dashboard RPC** | PKG/RTR/RTE/QC_FAIL now filter `component_type = 'car'`; `voided = false` added to all counts (April 2026) | Was double-counting cars+remotes for dispatch/pkg metrics |
+| **get_defect_breakdown RPC** | Created April 2026 — returns product/component/severity/defect breakdown | Powers QC tab product breakdown collapsible view |
+| **get_line_view RPC** | `component_type = 'car'` → `IS DISTINCT FROM 'remote'` on INW/QC_PASS/QC_FAIL/PKG counts — **PENDING, not yet applied** | Silently drops scans where units.component_type is NULL |
+| **store.stock_ledger orphan** | Hard deleted id=7 (HW-SC-M08-23) | Phantom row with 0 received, 46,800 issued, null cost — driving false reorder flag in reorder_flags view |
 
 ---
 
@@ -530,31 +536,42 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 | 3j | Dispatch Attribution Fix | ✅ Complete — SHARED line removed, pkg_scans.line used (April 2026) |
 | 3k | Hourly Achievement Chart | ✅ Complete — battery-cell, dispatched metric, per-line (April 2026) |
 | 3l | Store Procurement BY UNITS | ✅ Complete — variant+color ordering mode (April 2026) |
+| 3m | QC Tab Overhaul | ✅ Complete — cycle time by line, defects by line/functional/visual, product breakdown collapsible (April 2026) |
+| 3n | Alerts Tab Fix | ✅ Complete — violation logging wired to scanner flows, date filter fixed, summary fields fixed, alerts date picker added (April 2026) |
+| 3o | Dashboard Exec Cards Fix | ✅ Complete — QC Fail car/remote split, dispatch double-count fixed (April 2026) |
+| 3p | Store Procurement Fixes | ✅ Complete — init race condition fixed, BOM metal parts filter fixed, variant filter fixed, deduplication on add (April 2026) |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
 
 ### Open Issues — fix before building new features
 
-None currently open.
+| Issue | Detail |
+|---|---|
+| **get_line_view RPC fragile filter** | `component_type = 'car'` should be `IS DISTINCT FROM 'remote'` — SQL written, not yet applied to Supabase |
 
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **Repair run design session** — full design before any build
+1. **Apply get_line_view RPC fix** — SQL ready, run in Supabase editor
+2. **Repair run design session** — full design before any build
+3. **FBU/CKD/SKD procurement format** — design agreed, schema diagnostic SQL pending (product_master columns + purchase_orders columns needed before build)
 
 **Backlog:**
-2. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
-3. **Legacy UPC manual entry** — build when triggered
-4. **Daily / weekly / monthly reporting views**
-5. **Reconciliation module** — Phase 4
-6. **Audit module** — Phase 5
-7. **Assembly stations module** — Phase 6
-8. **Dashboard tab RBAC** — deferred
-9. **Biometric integration**
-10. **Unicommerce reconciliation**
-11. **APK rollout to all 15 devices** — deferred
-12. **Price master table** — item_type auto-derived from product master; feeds BY UNITS unit price
+4. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
+5. **Price master module** — unit cost tracking with history; BOM should dynamically calculate PO value from price charts
+6. **Legacy UPC manual entry** — build when triggered
+7. **Daily / weekly / monthly reporting views**
+8. **Reconciliation module** — Phase 4
+9. **Audit module** — Phase 5
+10. **Assembly stations module** — Phase 6
+11. **Dashboard tab RBAC** — deferred
+12. **Biometric integration**
+13. **Unicommerce reconciliation**
+14. **APK rollout to all 15 devices** — deferred
+15. **Dash/Nitro QR code problem** — cars too small to stick QR label; needs separate design session
+16. **store.material_master name inconsistencies** — `HW-TM-POS` and `UNV-CB-2PIN-01` have two different names across products; rename pending
+17. **Old para items with `(old)` suffix** — still active in Bumble, Flare, Ghost, Shadow BOM; deactivation pending Afshaan confirmation
 
 ---
 
@@ -608,6 +625,11 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | **Auth Admin API key** | SUPABASE_SERVICE_KEY for both apikey + Authorization | Publishable key rejected by Supabase Auth Admin endpoints |
 | **UPC search auto-pad** | Digits → LOT-XXXXXXXX in worker | Operators type short numbers like "4267", not full format |
 | **scanSummaryCards restore** | `style.display = 'grid'` not `''` | Element has inline grid style; `''` removes display, falls back to block |
+| **QC Fail headline** | Total (car+remote) as headline, car·remote breakdown as sub-text | Consistent with how dispatched shows RTR·RTE breakdown |
+| **get_line_view car counts** | `IS DISTINCT FROM 'remote'` preferred over `= 'car'` | Prevents silent drop of scans where units.component_type is NULL |
+| **Violation logging** | Fire-and-forget `.catch(() => {})` inserts to scan_violations | Scanner response not blocked if violation log fails |
+| **FBU/CKD/SKD format** | PO-level `receive_format` override; product master gets `car_receive_format`/`remote_receive_format` defaults | Format drives PO creation UI and GRN receiving template — not production flow |
+| **BOM group filter** | `cats` filters `part_category`, `types` filters `part_type` — both supported per group | Metal Parts uses `part_type IN ('Metal','Hardware')` since metal spans Car/Remote/Fastener categories |
 
 ---
 

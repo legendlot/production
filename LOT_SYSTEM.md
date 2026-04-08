@@ -212,7 +212,7 @@ Third line item mode in the PO form alongside BOM and MANUAL.
 - Mahesh Reddy's read-only access must be enforced at the worker level, not just the UI
 - `product_master` lookup must use `product_code`, not product name — name with LIMIT 1 returns first alphabetical match
 - `production_runs.id` in store schema is an integer, NOT a UUID — do not write to `scans.plan_id` without UUID guard
-- All RPCs and views counting QC_PASS/INW must JOIN units and filter `component_type='car'` — otherwise car+remote scans both counted
+- All RPCs and views counting QC_PASS/INW must JOIN units and filter `component_type IS DISTINCT FROM 'remote'` — `= 'car'` silently drops scans where component_type is NULL
 - `get_plan_vs_actual` actuals CTE must join via `units.upc` not `product_master.ean`
 - `v_operator_output` grouping by shift caused duplicate rows — shift removed from GROUP BY
 - Print server race condition: use conditional PATCH to atomically claim print jobs
@@ -220,6 +220,10 @@ Third line item mode in the PO form alongside BOM and MANUAL.
 - **Supabase Auth Admin API** requires `SUPABASE_SERVICE_KEY` for both `apikey` AND `Authorization` headers — publishable key is rejected
 - **`element.style.display = ''`** removes the display property from inline styles entirely — if the element had `display:grid` as inline style, it will fall back to block. Restore with explicit `style.display = 'grid'`.
 - **UPC sticker status `applied` at INW** means the sticker was already used — it's a physical floor issue (duplicate/reused sticker), not a system bug. Fix: fresh available sticker from same batch.
+- **Violation logging must be fire-and-forget** — `.catch(() => {})` so scanner response is never blocked by a failed violation insert
+- **BOM group filter mixes two taxonomies** — `part_category` (assembly level: Car/Remote/Accessories) vs `part_type` (material level: Metal/Plastic/Electronic). Metal Parts must filter on `part_type`, not `part_category`
+- **Procurement view init race** — `initProcurement()` was defined but never called from `showView()`. Every view with data needs a `if (name === 'X') { initX(); }` hook in `showView`
+- **get_line_view fragile car filter** — `component_type = 'car'` silently drops scans where units JOIN returns NULL. Always use `IS DISTINCT FROM 'remote'` for "non-remote" counts
 
 ---
 
@@ -309,18 +313,27 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 - Return system — store UI + production Returns Queue + RTD_RETURN dispatch path
 - Dashboard — all 12 tabs live
 - **Dispatch attribution** — SHARED line removed; per-line counts via pkg_scans.line ← April 2026
-- **Hourly achievement chart** — battery-cell design, dispatched metric, pace indicator ← April 2026
+- **Hourly achievement chart** — battery-cell design, dispatched metric, pace indicator, OT hours auto-expand ← April 2026
 - **Store procurement BY UNITS** — variant+color ordering, accumulated queue ← April 2026
 - **Auth user creation** — createUser/resetPassword fixed (service key for apikey header) ← April 2026
 - **Scans tab UPC search** — auto-pads digits to LOT-XXXXXXXX; summary cards display fix ← April 2026
+- **QC tab overhaul** — cycle time split by line, defects split by line + functional/visual, product breakdown collapsible view ← April 2026
+- **Alerts tab** — violation logging wired to all scanner status-mismatch points (INW applied/duplicate + QC_PASS/QC_FAIL/WKS/PKG/PKG_OUT wrong status), date filter fixed (IST timezone), summary fields fixed, date picker added ← April 2026
+- **Dashboard exec cards** — QC Fail car/remote split, dispatch double-count fixed ← April 2026
+- **Store procurement fixes** — init race condition fixed, BOM metal parts filter fixed (part_type not part_category), variant filter applied, deduplication on Add Selected ← April 2026
+- **Store BOM download** — button stuck-in-loading bug fixed ← April 2026
 
 ### Open Issues 🔶
 
-None currently open.
+| Issue | Detail |
+|---|---|
+| **get_line_view RPC fragile filter** | `component_type = 'car'` should be `IS DISTINCT FROM 'remote'` on INW/QC_PASS/QC_FAIL/PKG counts — SQL written, not yet applied |
 
 ### Pending Build 🔲
-- Repair run design session (before any build) — **next priority**
-- Price master table — unit cost on procurement; item_type derivation from product master
+- **Apply get_line_view RPC fix** — SQL ready, run in Supabase editor — **next priority**
+- **Repair run design session** (before any build)
+- **FBU/CKD/SKD procurement format** — design agreed, schema SQL diagnostic pending before build
+- **Price master module** — unit cost history; BOM dynamically calculates PO value from price charts
 - Operator performance view — per-operator daily output + trend
 - Consolidated dispatch view — fresh RTD + RTD_RETURN combined
 - Legacy UPC manual entry path (build when triggered)
@@ -331,6 +344,9 @@ None currently open.
 - Biometric integration
 - Unicommerce reconciliation
 - Dashboard tab access control (role-gating — deferred)
+- Dash/Nitro QR code problem — cars too small for QR label; needs design session
+- store.material_master name inconsistencies — HW-TM-POS and UNV-CB-2PIN-01 have two names across products
+- Old para items with `(old)` suffix — still active in Bumble/Flare/Ghost/Shadow BOM; deactivation pending Afshaan confirmation
 - PRODUCT_SUBVARIANTS data for Nitro/Dash/Fang/Atlas (Afshaan to update)
 
 ---
@@ -354,8 +370,12 @@ None currently open.
 15. **All 15 devices APK vs PWA:** Staying on browser PWA viable. Decision deferred.
 16. **Operator performance view:** Per-operator daily scan count, trend over time — data exists, view not built.
 17. **Non-scanning operator allocation:** 20+ assemblers without scanners — deferred to Phase 6.
-18. **Price master table:** For unit-level cost on procurement. item_type should be derived from product master, not hardcoded in BY UNITS mode.
-19. **Hourly target split intelligence:** Currently equal (target/9 hrs). Future: weight by historical output pattern, account for startup ramp, lunch dip.
+18. **Price master module:** Unit cost history per part; BOM should dynamically calculate PO value from price charts. Full module needed — not just a table.
+19. **Hourly target split intelligence:** Currently equal (target/9 hrs). Future: weight by historical output pattern.
+20. **FBU/CKD/SKD receive format:** Design agreed — `product_master` gets `car_receive_format`/`remote_receive_format`; PO header gets `receive_format` override. Schema build pending.
+21. **Dash/Nitro QR code:** Cars too small for QR sticker. Needs dedicated design session.
+22. **Old para `(old)` items:** Still active in Bumble/Flare/Ghost/Shadow BOM. Afshaan to confirm before deactivation.
+23. **material_master name inconsistencies:** `HW-TM-POS` and `UNV-CB-2PIN-01` have two different names across products. Rename pending.
 
 ---
 
