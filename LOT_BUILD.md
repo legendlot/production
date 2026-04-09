@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 2.4 | **Last Updated:** April 2026
+**Version:** 2.5 | **Last Updated:** April 2026
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -514,6 +514,14 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 | **get_defect_breakdown RPC** | Created April 2026 — returns product/component/severity/defect breakdown | Powers QC tab product breakdown collapsible view |
 | **get_line_view RPC** | `component_type = 'car'` → `IS DISTINCT FROM 'remote'` on INW/QC_PASS/QC_FAIL/PKG counts — **PENDING, not yet applied** | Silently drops scans where units.component_type is NULL |
 | **store.stock_ledger orphan** | Hard deleted id=7 (HW-SC-M08-23) | Phantom row with 0 received, 46,800 issued, null cost — driving false reorder flag in reorder_flags view |
+| **product_master: component_type, receive_format, linked_product_code** | ALTER TABLE + check constraints + backfill + 23 remote rows seeded (April 2026) | FBU/CKD/SKD procurement format |
+| **store.po_lines.receive_format** | `ALTER TABLE store.po_lines ADD COLUMN IF NOT EXISTS receive_format TEXT` + check constraint | PO-level receive format override |
+| **store.fbu_stock + fbu_grn_register + fbu_issue_register** | Created April 2026 | FBU stock tracking |
+| **work_orders.issue_mode** | `ALTER TABLE store.work_orders ADD COLUMN IF NOT EXISTS issue_mode TEXT DEFAULT 'components'` | Per-WO FBU vs components issue mode |
+| **update_fbu_stock_received / update_fbu_stock_issued RPCs** | Created April 2026 (store schema) | FBU stock increment/decrement |
+| **get_takt_time RPC** | Created April 2026 — inter-scan gap IQR analysis per station per line; includes QC, QC_PASS, INW, PKG, PKG_OUT | Powers Throughput section |
+| **get_first_unit_timeline RPC** | Created April 2026 — first scan per station per line per day | Powers first unit warm-up table |
+| **get_takt_by_run RPC** | Created April 2026 — takt grouped by date+line+product joined to production_runs | Powers Takt by Run table |
 
 ---
 
@@ -542,14 +550,20 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 | 3p | Store Procurement Fixes | ✅ Complete — init race condition fixed, BOM metal parts filter fixed, variant filter fixed, deduplication on add (April 2026) |
 | 3q | FBU/CKD/SKD Schema | 🔶 Schema only — product_master + po_lines columns added, remote rows seeded (23 products), receive_format backfilled. UI + GRN integration built but pending test. (April 2026) |
 | 3r | FBU/CKD/SKD Store Frontend | 🧪 Built, pending test — BY UNITS BOM explosion for CKD, FBU GRN panel, FBU stock view toggle, issue_mode selector per variant row (FBU products only), issue queue FBU lines section, issueAgainstRun FBU deduction (April 2026) |
-| 3s | QC_PASS / PKG product_master fix | ✅ Deployed — added `component_type=eq.car` filter to postQcPass, postPkg, getProductCodes; prevents remote rows being returned instead of car rows (April 2026) |
+| 3s | QC_PASS / PKG product_master fix | ✅ Deployed — added `component_type=eq.car` filter to postQcPass, postPkg, getProductCodes (April 2026) |
+| 3t | Dashboard Nav Bar Consolidation | ✅ Complete — 11 flat tabs → 4 dropdown groups: Production, Activity, Reporting, Admin (April 2026) |
+| 3u | Reporting Tab v2 | ✅ Complete — section-first layout, time presets, Chart.js charts, Production/Cycle Time/Defects/Downloads sections; chartjs-plugin-datalabels integrated (April 2026) |
+| 3v | Takt Time / Throughput | 🔶 Partial — RPCs built, worker endpoint live, dashboard Throughput section + Lines tab Station Pace built; reporting tab scroll bug not yet fixed (April 2026) |
+| 3w | Auto-refresh Optimisation | ✅ Complete — reporting tab skips 30s timer; lines tab skips takt on auto-refresh; manual nav always force-loads (April 2026) |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
 
 ### Open Issues — fix before building new features
 
-None currently. ✅
+| Issue | Detail |
+|---|---|
+| **Throughput section scroll bug** | Reporting tab → Throughput section clips content below bottleneck viz. `setContentHeight()` fix applied but not working — `rpt-section-content` not getting correct pixel height when tab is hidden during layout. Pick up next session. |
 
 ### Pending Test — built but not yet verified on floor
 
@@ -557,29 +571,32 @@ None currently. ✅
 |---|---|
 | **FBU/CKD/SKD Store Frontend (3r)** | BY UNITS CKD → BOM explosion on PO save; BY UNITS FBU → unit-level po_lines; FBU GRN panel submits and increments fbu_stock; stock view FBU toggle shows fbu_stock; issue_mode selector appears only for FBU products (Dash/Nitro) on production runs; issue queue FBU section present for Dash/Nitro runs; issueAgainstRun deducts fbu_stock and logs to fbu_issue_register |
 | **QC_PASS fix (3s)** | Knox (and any has_remote=true product) scanned at QC_PASS → remote prompt appears correctly; product name in toast is correct |
+| **Takt / Throughput (3v)** | Throughput section shows correct bottleneck per line; first unit timeline shows warm-up times; takt by run table shows per-run takt; Lines tab Station Pace strip shows today's takt |
 
 ### Pending Build Items (prioritised)
 
+**Next session — fix first:**
+1. **Throughput section scroll bug** — `rpt-section-content` height not propagating; needs alternative approach to `setContentHeight`
+
 **Next up:**
-1. **Dashboard nav bar consolidation** — 11 tabs → grouped dropdowns; design session in progress
 2. **Repair run design session** — full design before any build
+3. **Google sign-in** — Supabase Google OAuth for dashboard + store; decision pending: domain-restricted (`@legendoftoys.com`) vs role-gated open
 
 **Dashboard backlog:**
-3. **Dashboard day view for production** — detailed per-line, per-hour breakdown for a single selected day
-4. **Channel allocation** — dispatch system + live stock view showing ecom vs retail allocation and split
-5. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
+4. **Dashboard day view for production** — detailed per-line, per-hour breakdown for a single selected day
+5. **Channel allocation** — dispatch system + live stock view showing ecom vs retail allocation and split
+6. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
 
 **Scanner backlog:**
-6. **Print EAN alongside batch code** — add EAN to PKG thermal label (50×25mm TSC TE244)
-7. **Test scanner mode** — scan any UPC → display current unit status and stage history; diagnostic tool for floor staff
+7. **Print EAN alongside batch code** — add EAN to PKG thermal label (50×25mm TSC TE244)
+8. **Test scanner mode** — scan any UPC → display current unit status and stage history; diagnostic tool for floor staff
 
 **Store backlog:**
-8. **GRN receiving template** — CKD BOM explosion vs FBU unit count path (schema + frontend done; GRN template not yet built)
-9. **Price master module** — unit cost tracking with history; BOM dynamically calculates PO value from price charts
+9. **GRN receiving template** — CKD BOM explosion vs FBU unit count path (schema + frontend done; GRN template not yet built)
+10. **Price master module** — unit cost tracking with history; BOM dynamically calculates PO value from price charts
 
 **General backlog:**
-10. **Legacy UPC manual entry** — build when triggered
-11. **Daily / weekly / monthly reporting views**
+11. **Legacy UPC manual entry** — build when triggered
 12. **Reconciliation module** — Phase 4
 13. **Audit module** — Phase 5
 14. **Assembly stations module** — Phase 6
@@ -652,6 +669,13 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | **product_master component_type filter** | All `postQcPass`, `postPkg`, `getProductCodes` lookups filter `component_type=eq.car` | Remote rows now in product_master; without filter, `limit=1` could return remote row (has_remote=false) |
 | **FBU stock table** | `store.fbu_stock` separate from `stock_ledger` | stock_ledger is component-level; FBU units are a different stock type; both coexist and show separately in UI |
 | **issue_mode per WO** | `work_orders.issue_mode = 'components' | 'fbu'`; toggle only shown for FBU products | Per-line granularity; default components; FBU toggle only visible when product.receive_format = 'FBU' |
+| **Dashboard nav groups** | 4 dropdown groups replace 11 flat tabs | Production (Dashboard/Lines/QC), Activity (Scans/Corrections/Alerts/Returns), Reporting, Admin (UPC Generator/Operators/Print) |
+| **Reporting tab section-first** | Section tabs (Production/Cycle Time/Defects/Throughput/Downloads) above time picker | User picks what they want to see first, then adjusts time period — matches how data is reviewed |
+| **Reporting auto-refresh skip** | Reporting tab excluded from 30s auto-refresh timer | Historical data — no value in re-fetching every 30s; user controls manually via date pickers |
+| **Takt time metric** | Inter-scan gap per station per line (IQR-cleaned) | Measures station throughput pace; bottleneck = station with lowest units/hr on that line |
+| **Takt PKG_OUT** | Uses RTE+RTR scan gaps on SHARED device | Batch label not UPC — one scan per unit regardless of ecom/retail; SHARED so no per-line split |
+| **Takt by run** | Groups by scan_date+line+product, joins to production_runs for run_no | Run-level takt shows which products/runs have assembly/QC/PKG bottlenecks |
+| **First unit timeline** | First scan per station per line per day → elapsed between stations | Measures line warm-up time; colour-coded green/yellow/red by total warm-up mins |
 
 ---
 
@@ -675,6 +699,9 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 16. **Price master table:** For unit-level cost on procurement POs. item_type auto-derived from product master.
 17. **Hourly target split intelligence:** Currently equal (target/9 hrs). Future: weight by historical pattern.
 18. **PRODUCT_VARIANTS / PRODUCT_SUBVARIANTS data:** Nitro, Dash, Fang, Atlas need base variant + colors for BY UNITS mode to render correctly.
+19. **Throughput section scroll:** `rpt-section-content` height calculation fails when tab was hidden during page load. `setContentHeight()` override approach not resolving it. Alternative: use `ResizeObserver` or compute height on section switch rather than on tab switch.
+20. **Google sign-in:** Supabase Google OAuth for dashboard + store. Decision pending: restrict to `@legendoftoys.com` domain (requires Google Workspace) or open + role-gated. Scanner stays QR card auth.
+21. **Takt time thresholds:** Currently colour-coded at ≤5 min (green) / ≤10 min (yellow) / >10 min (red). These are arbitrary — should be calibrated per station per product once enough data is collected.
 
 ---
 
