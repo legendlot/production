@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 2.2 | **Last Updated:** April 2026
+**Version:** 2.3 | **Last Updated:** April 2026
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -12,7 +12,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing. PKG thermal label printing live via polling architecture v2.2. Per-line PKG and WKS devices deployed. Operator session tracking live. Dispatch attribution corrected (SHARED line removed). Hourly achievement chart live. Store procurement BY UNITS mode live.
+**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing. PKG thermal label printing live via polling architecture v2.2. Per-line PKG and WKS devices deployed. Operator session tracking live. Dispatch attribution corrected (SHARED line removed). Hourly achievement chart live. Store procurement BY UNITS mode live. FBU/CKD/SKD receive format schema live — product_master has component_type, receive_format, linked_product_code; remotes seeded as first-class product_master rows.
 
 ---
 
@@ -45,6 +45,13 @@ LOT currently makes RC cars. Future product categories include die cast and DIY 
 
 **`has_remote` flag:** Product master boolean. RC cars = true. Die cast, DIY sets = false. Drives scanner behaviour at QC_PASS and PKG.
 
+**Receive format (April 2026):**
+- FBU (Fully Built Unit) — received as a complete assembled product. No BOM explosion on GRN.
+- CKD (Completely Knocked Down) — received as individual parts. GRN explodes into BOM components.
+- SKD (Semi Knocked Down) — received partially assembled. GRN does partial BOM explosion.
+- Dash + Nitro cars = FBU. All other cars = CKD. All remotes = CKD.
+- PO-level override available on `store.po_lines.receive_format` for crisis shipments (e.g. normally CKD but shipped FBU by air).
+
 ---
 
 ## 4. UPC System ✅ LOCKED
@@ -60,7 +67,9 @@ Human-readable code printed below the QR: **`KNAK00000007`** (product_code + raw
 
 **Color key:** K=Black, B=Blue, G=Green, R=Red, W=White, E=Grey, S=Silver, P=Purple, V=Purple2, M=Multi, N=Pink, X=Excavator, Y=Yellow, O=Orange, D=Desert
 
-**Remote:** car code + 'R'. If car is KNAK, remote is KNAKR.
+**Remote product_code:** PPXXR — 2-char product prefix + XX + R. e.g. Knox = `KNXXR`, Flare = `FLXXR`.
+- XX signals "product-level remote, no specific variant"
+- Collision fallback: if two products share PP, use PPPXR (3-char prefix + X + R) — no current collisions
 
 ### Print Batch Workflow
 1. Admin generates batch in dashboard
@@ -197,11 +206,43 @@ Third line item mode in the PO form alongside BOM and MANUAL.
 
 **item_type:** Defaults to 'RC Car'. Future: derive from product master when price master is built.
 
+**Receive format integration (pending build):** BY UNITS mode needs to read `product_master.receive_format` and `po_lines.receive_format` to determine whether GRN should show a unit count (FBU) or BOM explosion (CKD/SKD).
+
 **Note:** `PRODUCT_SUBVARIANTS` in the store app needs updating for Nitro, Dash, Fang, Atlas (currently empty arrays — no color grid rendered for those products).
 
 ---
 
-## 12. Key Technical Learnings (don't repeat these mistakes)
+## 12. FBU/CKD/SKD Procurement Format ← new April 2026
+
+### Schema
+- `public.product_master.receive_format` TEXT — `'FBU' | 'CKD' | 'SKD' | NULL`. Product-level default.
+- `public.product_master.component_type` TEXT — `'car' | 'remote' | 'accessory'`.
+- `public.product_master.linked_product_code` TEXT — on remote rows, 2-char PP prefix of parent car product.
+- `store.po_lines.receive_format` TEXT — PO line override. When set, takes precedence over product default.
+
+### Logic
+- GRN reads `po_lines.receive_format` first → falls back to `product_master.receive_format`
+- FBU: GRN receives at unit count. No BOM explosion.
+- CKD: GRN receives against BOM components. Full explosion.
+- SKD: GRN receives against partial BOM. Partial explosion.
+
+### Current data state
+- Dash + Nitro cars = FBU
+- All other cars = CKD
+- All remotes = CKD
+- NULL = format not yet set for that product
+
+### Remote product_master rows
+- One row per product (not per SKU variant) — all variants share one remote
+- `product_code` = PPXXR e.g. KNXXR, FLXXR
+- `linked_product_code` = PP (2-char) e.g. KN, FL
+- `ean` = RMT-PPXXR dummy e.g. RMT-KNXXR
+- `model` = NULL, `color` = NULL, `has_remote` = false
+- Bracey has no remote — no remote row needed
+
+---
+
+## 13. Key Technical Learnings (don't repeat these mistakes)
 
 - The `unit_status` enum uses lowercase values; the `activity_type` enum uses uppercase — mixing these caused live bugs
 - Supabase's default row limit (1000) silently caps query results; use Postgres RPCs to bypass
@@ -224,22 +265,23 @@ Third line item mode in the PO form alongside BOM and MANUAL.
 - **BOM group filter mixes two taxonomies** — `part_category` (assembly level: Car/Remote/Accessories) vs `part_type` (material level: Metal/Plastic/Electronic). Metal Parts must filter on `part_type`, not `part_category`
 - **Procurement view init race** — `initProcurement()` was defined but never called from `showView()`. Every view with data needs a `if (name === 'X') { initX(); }` hook in `showView`
 - **get_line_view fragile car filter** — `component_type = 'car'` silently drops scans where units JOIN returns NULL. Always use `IS DISTINCT FROM 'remote'` for "non-remote" counts
+- **Remote rows in product_master are product-level, not variant-level** — one remote row per product, not per SKU. model + color = NULL. All variants of a product share one remote.
+- **receive_format must default NULL, not FBU** — most LOT products are CKD; defaulting FBU would silently poison all procurement and GRN flows
 
 ---
 
-## 13. Thermal Printer Setup
+## 14. Thermal Printer Setup
 
 - **Model:** TSC TE244 (confirmed, on-site)
-- **Label size:** 50mm × 25mm
-- **Connection:** USB to Windows laptop at each line's PKG station
-- **Print server:** Node.js (`printserver.js` v2.2) — polling Supabase, filtered by line, atomic claim
-- **Config:** `config.json` — only `"line"` value differs between laptops (L1/L2/L3)
-- **Auto-start:** Windows Startup shortcut on each laptop
-- **Label X position:** 24 dots (April 2026). Confirmed on floor.
+- **Label size:** 50×25mm
+- **Language:** TSPL
+- **Connection:** USB
+- **Driver:** `@thiagoelg/node-printer` via Node.js print server
+- **Label rolls:** 60mm rolls confirmed
 
 ---
 
-## 14. Shift & Time
+## 15. Shift & Time
 
 - **Regular shift:** 9:00 AM – 6:00 PM (Assembly/QC), 9:00 AM – 7:00 PM (Packing)
 - **OT:** 6:00 PM – 9:00 PM
@@ -248,7 +290,7 @@ Third line item mode in the PO form alongside BOM and MANUAL.
 
 ---
 
-## 15. Lines & Factory
+## 16. Lines & Factory
 
 - 3 lines: L1, L2, L3. Each runs one product at a time.
 - Line switches happen mid-day when parts run out (parts availability = primary daily bottleneck).
@@ -256,7 +298,7 @@ Third line item mode in the PO form alongside BOM and MANUAL.
 
 ---
 
-## 16. Scale
+## 17. Scale
 
 | Month | Units/Month | Scan Events/Month | upc_pool rows (cumulative) |
 |---|---|---|---|
@@ -270,7 +312,7 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 
 ---
 
-## 17. Compliance Readiness
+## 18. Compliance Readiness
 
 ### ISO
 - Full unit traceability (raw material → finished product)
@@ -291,7 +333,7 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 
 ---
 
-## 18. Integration Points
+## 19. Integration Points
 
 | System | Direction | What | Status |
 |---|---|---|---|
@@ -305,7 +347,7 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 
 ---
 
-## 19. Build Status
+## 20. Build Status
 
 ### Live & Confirmed Working ✅
 - All scanner flows: INW, QC_PASS, QC_FAIL, WKS, PKG, PKG_OUT, RTO_IN
@@ -318,21 +360,19 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 - **Auth user creation** — createUser/resetPassword fixed (service key for apikey header) ← April 2026
 - **Scans tab UPC search** — auto-pads digits to LOT-XXXXXXXX; summary cards display fix ← April 2026
 - **QC tab overhaul** — cycle time split by line, defects split by line + functional/visual, product breakdown collapsible view ← April 2026
-- **Alerts tab** — violation logging wired to all scanner status-mismatch points (INW applied/duplicate + QC_PASS/QC_FAIL/WKS/PKG/PKG_OUT wrong status), date filter fixed (IST timezone), summary fields fixed, date picker added ← April 2026
+- **Alerts tab** — violation logging wired to all scanner status-mismatch points, date filter fixed (IST timezone), summary fields fixed, date picker added ← April 2026
 - **Dashboard exec cards** — QC Fail car/remote split, dispatch double-count fixed ← April 2026
-- **Store procurement fixes** — init race condition fixed, BOM metal parts filter fixed (part_type not part_category), variant filter applied, deduplication on Add Selected ← April 2026
-- **Store BOM download** — button stuck-in-loading bug fixed ← April 2026
+- **Store procurement fixes** — init race condition fixed, BOM metal parts filter fixed, variant filter applied, deduplication on Add Selected ← April 2026
+- **get_line_view RPC** — IS DISTINCT FROM 'remote' filter confirmed applied ← April 2026
+- **FBU/CKD/SKD schema** — product_master columns added, remote rows seeded (23 products), receive_format backfilled ← April 2026
 
 ### Open Issues 🔶
 
-| Issue | Detail |
-|---|---|
-| **get_line_view RPC fragile filter** | `component_type = 'car'` should be `IS DISTINCT FROM 'remote'` on INW/QC_PASS/QC_FAIL/PKG counts — SQL written, not yet applied |
+None currently. ✅
 
 ### Pending Build 🔲
-- **Apply get_line_view RPC fix** — SQL ready, run in Supabase editor — **next priority**
-- **Repair run design session** (before any build)
-- **FBU/CKD/SKD procurement format** — design agreed, schema SQL diagnostic pending before build
+- **Repair run design session** (before any build) — **next priority**
+- **FBU/CKD/SKD UI + GRN integration** — schema done; BY UNITS needs receive_format awareness; GRN needs CKD BOM explosion vs FBU unit count path
 - **Price master module** — unit cost history; BOM dynamically calculates PO value from price charts
 - Operator performance view — per-operator daily output + trend
 - Consolidated dispatch view — fresh RTD + RTD_RETURN combined
@@ -351,7 +391,7 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 
 ---
 
-## 20. Open Design Questions
+## 21. Open Design Questions
 
 1. **Variant rework UPC:** Keep original UPC (preferred) or new UPC?
 2. **Rework approval:** Who triggers and approves recall/rework orders?
@@ -372,14 +412,13 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 17. **Non-scanning operator allocation:** 20+ assemblers without scanners — deferred to Phase 6.
 18. **Price master module:** Unit cost history per part; BOM should dynamically calculate PO value from price charts. Full module needed — not just a table.
 19. **Hourly target split intelligence:** Currently equal (target/9 hrs). Future: weight by historical output pattern.
-20. **FBU/CKD/SKD receive format:** Design agreed — `product_master` gets `car_receive_format`/`remote_receive_format`; PO header gets `receive_format` override. Schema build pending.
-21. **Dash/Nitro QR code:** Cars too small for QR sticker. Needs dedicated design session.
-22. **Old para `(old)` items:** Still active in Bumble/Flare/Ghost/Shadow BOM. Afshaan to confirm before deactivation.
-23. **material_master name inconsistencies:** `HW-TM-POS` and `UNV-CB-2PIN-01` have two different names across products. Rename pending.
+20. **Dash/Nitro QR code:** Cars too small for QR sticker. Needs dedicated design session.
+21. **Old para `(old)` items:** Still active in Bumble/Flare/Ghost/Shadow BOM. Afshaan to confirm before deactivation.
+22. **material_master name inconsistencies:** `HW-TM-POS` and `UNV-CB-2PIN-01` have two different names across products. Rename pending.
 
 ---
 
-## 21. Session Start Protocol
+## 22. Session Start Protocol
 
 When starting a new build session:
 1. Ask Afshaan to share `LOT_BUILD.md`, `LOT_SYSTEM.md`, and any relevant HTML/worker files

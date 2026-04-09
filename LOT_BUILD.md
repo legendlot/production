@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 2.2 | **Last Updated:** April 2026
+**Version:** 2.3 | **Last Updated:** April 2026
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -274,6 +274,36 @@ created_at        TIMESTAMPTZ DEFAULT now()
 
 Indexes: `operator_id`, `device_id`, `(device_id, login_at DESC)`
 
+#### `public.product_master` — confirmed columns ← updated April 2026
+```
+ean                   TEXT NOT NULL        -- PRIMARY KEY equivalent; RMT-PPXXR for remote rows
+sku                   TEXT NOT NULL
+product               TEXT NOT NULL
+model                 TEXT                 -- NULL for remote rows
+color                 TEXT                 -- NULL for remote rows
+is_active             BOOLEAN
+created_at            TIMESTAMPTZ
+has_remote            BOOLEAN NOT NULL     -- false on all remote rows
+product_code          TEXT                 -- 4-char car (KNAK) | 5-char remote (KNXXR)
+component_type        TEXT                 -- 'car' | 'remote' | 'accessory' ← added April 2026
+receive_format        TEXT                 -- 'FBU' | 'CKD' | 'SKD' | NULL ← added April 2026
+linked_product_code   TEXT                 -- on remote rows: 2-char PP prefix of parent car ← added April 2026
+```
+
+**Remote row conventions (April 2026):**
+- One row per product (not per variant) — Flare has one remote row regardless of how many car SKUs
+- `ean` = `RMT-PPXXR` e.g. `RMT-KNXXR`
+- `product_code` = `PPXXR` e.g. `KNXXR` — 5 chars, PP (2-char product prefix) + XX + R
+- `linked_product_code` = PP e.g. `KN` — soft link back to car product via 2-char prefix
+- `model` = NULL, `color` = NULL, `has_remote` = false
+- Collision fallback: if two products share PP, use PPP+X+R (3-char prefix + X + R) — no current collisions
+
+**receive_format values (April 2026):**
+- NULL = not yet set (must be set before GRN/procurement flows use it)
+- Dash + Nitro cars = FBU; all other cars = CKD; all remotes = CKD
+- PO-level override: `store.po_lines.receive_format` — when set, overrides product default for that line only
+- GRN logic: reads `po_lines.receive_format` first, falls back to `product_master.receive_format`
+
 #### `store.production_runs` — confirmed columns
 ```
 id           UUID PRIMARY KEY
@@ -307,6 +337,7 @@ qty_ordered     NUMERIC
 qty_received    NUMERIC
 unit            TEXT
 unit_price      NUMERIC
+receive_format  TEXT        -- 'FBU' | 'CKD' | 'SKD' | NULL ← added April 2026; overrides product_master default
 ```
 
 ---
@@ -512,8 +543,12 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 | **get_line_car_remote_split RPC** | Added `QC_FAIL` to activity filter (April 2026) | QC Fail car/remote split on dashboard + lines tab |
 | **get_executive_dashboard RPC** | PKG/RTR/RTE/QC_FAIL now filter `component_type = 'car'`; `voided = false` added to all counts (April 2026) | Was double-counting cars+remotes for dispatch/pkg metrics |
 | **get_defect_breakdown RPC** | Created April 2026 — returns product/component/severity/defect breakdown | Powers QC tab product breakdown collapsible view |
-| **get_line_view RPC** | `component_type = 'car'` → `IS DISTINCT FROM 'remote'` on INW/QC_PASS/QC_FAIL/PKG counts — **PENDING, not yet applied** | Silently drops scans where units.component_type is NULL |
+| **get_line_view RPC** | `component_type = 'car'` → `IS DISTINCT FROM 'remote'` on INW/QC_PASS/QC_FAIL/PKG counts — **confirmed applied April 2026** | Silently drops scans where units.component_type is NULL |
 | **store.stock_ledger orphan** | Hard deleted id=7 (HW-SC-M08-23) | Phantom row with 0 received, 46,800 issued, null cost — driving false reorder flag in reorder_flags view |
+| **product_master: component_type, receive_format, linked_product_code** | `ALTER TABLE public.product_master ADD COLUMN IF NOT EXISTS component_type TEXT, receive_format TEXT, linked_product_code TEXT` + check constraints | FBU/CKD/SKD procurement format — April 2026 |
+| **product_master: remote rows seeded** | 23 product-level remote rows inserted (one per product, PPXXR code convention) | Remotes now first-class product_master entries — April 2026 |
+| **product_master: receive_format backfilled** | Dash + Nitro cars = FBU; all other cars = CKD; all remotes = CKD | Procurement format seeded — April 2026 |
+| **store.po_lines.receive_format** | `ALTER TABLE store.po_lines ADD COLUMN IF NOT EXISTS receive_format TEXT` + check constraint | PO-level receive format override — April 2026 |
 
 ---
 
@@ -540,38 +575,36 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 | 3n | Alerts Tab Fix | ✅ Complete — violation logging wired to scanner flows, date filter fixed, summary fields fixed, alerts date picker added (April 2026) |
 | 3o | Dashboard Exec Cards Fix | ✅ Complete — QC Fail car/remote split, dispatch double-count fixed (April 2026) |
 | 3p | Store Procurement Fixes | ✅ Complete — init race condition fixed, BOM metal parts filter fixed, variant filter fixed, deduplication on add (April 2026) |
+| 3q | FBU/CKD/SKD Schema | ✅ Complete — product_master + po_lines schema, remote rows seeded, receive_format backfilled (April 2026) |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
 
 ### Open Issues — fix before building new features
 
-| Issue | Detail |
-|---|---|
-| **get_line_view RPC fragile filter** | `component_type = 'car'` should be `IS DISTINCT FROM 'remote'` — SQL written, not yet applied to Supabase |
+None currently. ✅
 
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **Apply get_line_view RPC fix** — SQL ready, run in Supabase editor
-2. **Repair run design session** — full design before any build
-3. **FBU/CKD/SKD procurement format** — design agreed, schema diagnostic SQL pending (product_master columns + purchase_orders columns needed before build)
+1. **Repair run design session** — full design before any build
+2. **FBU/CKD/SKD UI + GRN integration** — schema done; BY UNITS mode needs receive_format awareness; GRN receiving template needs CKD BOM explosion vs FBU unit count
 
 **Backlog:**
-4. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
-5. **Price master module** — unit cost tracking with history; BOM should dynamically calculate PO value from price charts
-6. **Legacy UPC manual entry** — build when triggered
-7. **Daily / weekly / monthly reporting views**
-8. **Reconciliation module** — Phase 4
-9. **Audit module** — Phase 5
-10. **Assembly stations module** — Phase 6
-11. **Dashboard tab RBAC** — deferred
-12. **Biometric integration**
-13. **Unicommerce reconciliation**
-14. **APK rollout to all 15 devices** — deferred
-15. **Dash/Nitro QR code problem** — cars too small to stick QR label; needs separate design session
-16. **store.material_master name inconsistencies** — `HW-TM-POS` and `UNV-CB-2PIN-01` have two different names across products; rename pending
-17. **Old para items with `(old)` suffix** — still active in Bumble, Flare, Ghost, Shadow BOM; deactivation pending Afshaan confirmation
+3. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
+4. **Price master module** — unit cost tracking with history; BOM should dynamically calculate PO value from price charts
+5. **Legacy UPC manual entry** — build when triggered
+6. **Daily / weekly / monthly reporting views**
+7. **Reconciliation module** — Phase 4
+8. **Audit module** — Phase 5
+9. **Assembly stations module** — Phase 6
+10. **Dashboard tab RBAC** — deferred
+11. **Biometric integration**
+12. **Unicommerce reconciliation**
+13. **APK rollout to all 15 devices** — deferred
+14. **Dash/Nitro QR code problem** — cars too small to stick QR label; needs separate design session
+15. **store.material_master name inconsistencies** — `HW-TM-POS` and `UNV-CB-2PIN-01` have two different names across products; rename pending
+16. **Old para items with `(old)` suffix** — still active in Bumble, Flare, Ghost, Shadow BOM; deactivation pending Afshaan confirmation
 
 ---
 
@@ -628,7 +661,12 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | **QC Fail headline** | Total (car+remote) as headline, car·remote breakdown as sub-text | Consistent with how dispatched shows RTR·RTE breakdown |
 | **get_line_view car counts** | `IS DISTINCT FROM 'remote'` preferred over `= 'car'` | Prevents silent drop of scans where units.component_type is NULL |
 | **Violation logging** | Fire-and-forget `.catch(() => {})` inserts to scan_violations | Scanner response not blocked if violation log fails |
-| **FBU/CKD/SKD format** | PO-level `receive_format` override; product master gets `car_receive_format`/`remote_receive_format` defaults | Format drives PO creation UI and GRN receiving template — not production flow |
+| **FBU/CKD/SKD format** | Single `receive_format` column per product_master row; PO-level override on po_lines | Remotes are first-class rows — no need for car_receive_format/remote_receive_format split |
+| **Remote product_master rows** | One row per product (not per variant); model + color = NULL | Remote is product-level, not variant-level — Flare Race Grey and Flare Burnout Grey share one remote |
+| **Remote product_code convention** | PPXXR (2-char product prefix + XX + R) | Human-readable, distinct from car codes, no changes to existing car codes. Collision fallback: PPPXR |
+| **Remote linked_product_code** | 2-char PP prefix of parent car | Soft link — scalable, no FK dependency |
+| **Remote dummy EAN** | RMT-PPXXR e.g. RMT-KNXXR | Distinguishable from real EANs, no collision risk |
+| **receive_format default** | NULL (not FBU) | Most products are CKD — defaulting FBU would require mass correction. NULL forces explicit entry. |
 | **BOM group filter** | `cats` filters `part_category`, `types` filters `part_type` — both supported per group | Metal Parts uses `part_type IN ('Metal','Hardware')` since metal spans Car/Remote/Fastener categories |
 
 ---
@@ -653,6 +691,7 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 16. **Price master table:** For unit-level cost on procurement POs. item_type auto-derived from product master.
 17. **Hourly target split intelligence:** Currently equal (target/9 hrs). Future: weight by historical pattern.
 18. **PRODUCT_VARIANTS / PRODUCT_SUBVARIANTS data:** Nitro, Dash, Fang, Atlas need base variant + colors for BY UNITS mode to render correctly.
+19. **FBU/CKD/SKD UI + GRN integration:** Schema done. BY UNITS mode needs receive_format awareness. GRN receiving template needs CKD BOM explosion vs FBU unit count path. Pending build.
 
 ---
 
