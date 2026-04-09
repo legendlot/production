@@ -575,14 +575,16 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 | 3n | Alerts Tab Fix | ✅ Complete — violation logging wired to scanner flows, date filter fixed, summary fields fixed, alerts date picker added (April 2026) |
 | 3o | Dashboard Exec Cards Fix | ✅ Complete — QC Fail car/remote split, dispatch double-count fixed (April 2026) |
 | 3p | Store Procurement Fixes | ✅ Complete — init race condition fixed, BOM metal parts filter fixed, variant filter fixed, deduplication on add (April 2026) |
-| 3q | FBU/CKD/SKD Schema | ✅ Complete — product_master + po_lines schema, remote rows seeded, receive_format backfilled (April 2026) |
+| 3q | FBU/CKD/SKD | 🔶 Schema only — product_master + po_lines schema done, remote rows seeded, receive_format backfilled (April 2026). UI + GRN integration not yet built. |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
 
 ### Open Issues — fix before building new features
 
-None currently. ✅
+| Issue | Detail |
+|---|---|
+| **FBU/CKD/SKD UI + GRN integration** | Schema done. BY UNITS mode needs receive_format awareness. GRN receiving template needs CKD BOM explosion vs FBU unit count path. Not yet built. |
 
 ### Pending Build Items (prioritised)
 

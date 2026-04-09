@@ -364,11 +364,13 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 - **Dashboard exec cards** — QC Fail car/remote split, dispatch double-count fixed ← April 2026
 - **Store procurement fixes** — init race condition fixed, BOM metal parts filter fixed, variant filter applied, deduplication on Add Selected ← April 2026
 - **get_line_view RPC** — IS DISTINCT FROM 'remote' filter confirmed applied ← April 2026
-- **FBU/CKD/SKD schema** — product_master columns added, remote rows seeded (23 products), receive_format backfilled ← April 2026
+- **FBU/CKD/SKD schema** — product_master columns added, remote rows seeded (23 products), receive_format backfilled ← April 2026 (UI + GRN integration pending)
 
 ### Open Issues 🔶
 
-None currently. ✅
+| Issue | Detail |
+|---|---|
+| **FBU/CKD/SKD UI + GRN integration** | Schema done. BY UNITS mode needs receive_format awareness. GRN receiving template needs CKD BOM explosion vs FBU unit count path. Not yet built. |
 
 ### Pending Build 🔲
 - **Repair run design session** (before any build) — **next priority**
