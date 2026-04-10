@@ -1170,7 +1170,7 @@ const STATION_DEFS = {
 };
 
 async function saveSetup() {
-  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on');
+  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on');
   if (!stationEl) { showToast('Select a station', 'err'); return; }
 
   const stationCode = stationEl.dataset.code;
