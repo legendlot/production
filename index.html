@@ -622,8 +622,11 @@
     <div class="field">
       <div class="seg-group" id="s_dispatchStationGroup">
         <div class="seg-row">
-          <div class="seg-btn" data-val="Dispatch In" data-code="DTK"   data-shared="1" onclick="pickStation(this)">Dispatch In</div>
-          <div class="seg-btn" data-val="Allocate"    data-code="ALLOC" data-shared="1" onclick="pickStation(this)">Allocate</div>
+          <div class="seg-btn" data-val="Dispatch In"  data-code="DTK"   data-shared="1" onclick="pickStation(this)">Dispatch In</div>
+          <div class="seg-btn" data-val="Allocate"     data-code="ALLOC" data-shared="1" onclick="pickStation(this)">Allocate</div>
+        </div>
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Dispatch Out" data-code="DOUT"  data-shared="1" onclick="pickStation(this)">Dispatch Out</div>
         </div>
       </div>
     </div>
@@ -1165,8 +1168,9 @@ const STATION_DEFS = {
   PKG:     { label: 'Packaging',    activity: 'PKG',     hint: 'SCAN CAR UPC FIRST' },
   PKG_OUT: { label: 'PKG Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   RTO_IN:  { label: 'RTO In',       activity: 'RTO_IN',  hint: 'SCAN LOT UPC OR EAN' },
-  DTK:     { label: 'Dispatch In', activity: 'DTK',     hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
-  ALLOC:   { label: 'Allocate',    activity: 'ALLOC',   hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
+  DTK:     { label: 'Dispatch In',  activity: 'DTK',   hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
+  ALLOC:   { label: 'Allocate',     activity: 'ALLOC', hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
+  DOUT:    { label: 'Dispatch Out', activity: 'DOUT',  hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
 };
 
 async function saveSetup() {
@@ -1384,7 +1388,7 @@ function actClass(act) {
     INW:'inw', QC_PASS:'qcp', QC_FAIL:'qcf',
     WKS_IN:'wks', WKS_OUT:'wks', RTO_IN:'rto',
     PKG:'pkg', PKG_OUT:'pkg', RTE:'rte', RTR:'rtr',
-    DTK:'dtk', ALLOC:'alloc'
+    DTK:'dtk', ALLOC:'alloc', DOUT:'dout'
   };
   return m[act] || 'inw';
 }
@@ -1393,7 +1397,7 @@ function actBg(act) {
     INW:'#213CE2', QC_PASS:'#22c55e', QC_FAIL:'#DE2A2A',
     WKS_IN:'#f59e0b', WKS_OUT:'#f59e0b', RTO_IN:'#14b8a6',
     PKG:'#8b5cf6', PKG_OUT:'#8b5cf6', RTE:'#0ea5e9', RTR:'#F2CD1A',
-    RTD_RETURN:'#14b8a6', DTK:'#213CE2', ALLOC:'#F2CD1A'
+    RTD_RETURN:'#14b8a6', DTK:'#213CE2', ALLOC:'#F2CD1A', DOUT:'#22c55e'
   };
   return m[act] || '#333';
 }
@@ -1611,6 +1615,34 @@ async function processBarcode(barcode, act) {
       playErrBeep(); vibrate([100,50,100]);
       showReject('ALLOCATION FAILED', res.error || 'Unknown error');
       addLog({ barcode, status:'err', tag:'ALLOC', label:'ALLOC ERR' });
+    }
+    return;
+  }
+
+  // ── DOUT — dispatch out, physical exit scan ──
+  if (act === 'DOUT') {
+    if (!isBatchLabel) {
+      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R)');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'DOUT', label:'WRONG FORMAT' });
+      return;
+    }
+    flash('ok'); vibrate([50]);
+    const res = await workerPost('postDout', {
+      batch_label:  barcode,
+      device_id:    cfg.deviceId || null,
+      operator_id:  operatorUUID || currentOperator?.id || null
+    });
+    if (res.ok) {
+      const d = res.data;
+      playSuccessBeep();
+      const sub = d.channel ? `→ ${d.channel}` : '';
+      showToast(`✓ Dispatched Out ${sub}`, 'ok');
+      addLog({ barcode, status:'ok', tag:'DOUT', label:`DOUT ✓ ${d.product || ''} ${sub}` });
+    } else {
+      playErrBeep(); vibrate([100,50,100]);
+      showReject('DISPATCH OUT FAILED', res.error || 'Unknown error');
+      addLog({ barcode, status:'err', tag:'DOUT', label:'DOUT ERR' });
     }
     return;
   }
