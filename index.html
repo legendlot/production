@@ -615,6 +615,10 @@
         <div class="seg-row">
           <div class="seg-btn" data-val="RTO In"       data-code="RTO_IN"  data-shared="1" onclick="pickStation(this)">RTO In</div>
         </div>
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Dispatch In"  data-code="DTK"     data-shared="1" onclick="pickStation(this)">Dispatch In</div>
+          <div class="seg-btn" data-val="Allocate"     data-code="ALLOC"   data-shared="1" onclick="pickStation(this)">Allocate</div>
+        </div>
       </div>
     </div>
 
@@ -832,6 +836,9 @@ let pendingPkgCar     = null;
 let pkgChannel        = 'ecom';
 let pkgResultShowing  = false;
 let lastPkgData       = null;
+
+// Dispatch state
+let dispatchChannels = [];
 
 // WKS / Defect state
 let pendingDefectUpc       = null;
@@ -1152,6 +1159,8 @@ const STATION_DEFS = {
   PKG:     { label: 'Packaging',    activity: 'PKG',     hint: 'SCAN CAR UPC FIRST' },
   PKG_OUT: { label: 'Dispatch Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   RTO_IN:  { label: 'RTO In',       activity: 'RTO_IN',  hint: 'SCAN LOT UPC OR EAN' },
+  DTK:     { label: 'Dispatch In', activity: 'DTK',     hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
+  ALLOC:   { label: 'Allocate',    activity: 'ALLOC',   hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
 };
 
 async function saveSetup() {
@@ -1263,6 +1272,10 @@ function bootScanner() {
     document.getElementById('chRetail').classList.toggle('active', pkgChannel === 'retail');
   }
 
+  // DTK / ALLOC station setup
+  if (cfg.stationCode === 'DTK')   { setupDtkStation();   }
+  if (cfg.stationCode === 'ALLOC') { setupAllocStation(); }
+
   // Tally — show at PKG_OUT
   document.getElementById('tallyPanel').classList.toggle('show', cfg.activity === 'PKG_OUT');
 
@@ -1274,11 +1287,111 @@ function bootScanner() {
 
 function buildActivityUI() {}
 
+// ── DTK station setup ────────────────────────────────────────────
+function setupDtkStation() {
+  setScanPrompt(
+    'DISPATCH INTAKE',
+    'Scan batch label',
+    'var(--blue)',
+    '📦'
+  );
+  // No toggle, no selection — pure intake scan
+}
+
+// ── ALLOC station setup ──────────────────────────────────────────
+async function setupAllocStation() {
+  setScanPrompt(
+    'ALLOCATE',
+    'Select channel then scan',
+    'var(--yellow)',
+    '🏷'
+  );
+  await loadDispatchChannels();
+  renderChannelDropdown();
+}
+
+async function loadDispatchChannels() {
+  try {
+    const res = await workerPost('getDispatchChannels', {});
+    if (res.ok) dispatchChannels = res.data || [];
+  } catch(e) {
+    dispatchChannels = [];
+  }
+}
+
+function renderChannelDropdown() {
+  const existing = document.getElementById('allocChannelBar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id = 'allocChannelBar';
+  bar.style.cssText = 'padding:12px 16px 0;';
+
+  const activeChannelId = localStorage.getItem('alloc_channel_id') || '';
+  const activeChannel   = dispatchChannels.find(c => c.id === activeChannelId);
+  const label = activeChannel ? activeChannel.name : 'Select Channel';
+
+  bar.innerHTML = `
+    <div style="position:relative">
+      <div id="allocChannelSelected"
+           onclick="toggleChannelList()"
+           style="background:var(--s2);border:1px solid var(--b1);border-radius:8px;
+                  padding:12px 16px;display:flex;align-items:center;justify-content:space-between;
+                  cursor:pointer;font-family:var(--mono);font-size:13px;font-weight:700;
+                  color:${activeChannel ? 'var(--yellow)' : 'var(--t3)'}">
+        <span id="allocChannelLabel">${label}</span>
+        <span style="color:var(--t3);font-size:10px">▼</span>
+      </div>
+      <div id="allocChannelList"
+           style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;
+                  background:var(--s2);border:1px solid var(--b1);border-radius:8px;
+                  max-height:280px;overflow-y:auto;z-index:100;box-shadow:0 8px 24px rgba(0,0,0,.4)">
+        ${dispatchChannels.length
+          ? dispatchChannels.map(c => `
+              <div onclick="selectAllocChannel('${c.id}','${c.name}','${c.type}')"
+                   style="padding:12px 16px;cursor:pointer;font-family:var(--mono);font-size:12px;
+                          border-bottom:1px solid var(--b1);display:flex;align-items:center;
+                          justify-content:space-between;
+                          ${c.id === activeChannelId ? 'color:var(--yellow);background:var(--s3)' : 'color:var(--t1)'}">
+                <span>${c.name}</span>
+                <span style="font-size:10px;color:var(--t3);text-transform:uppercase;
+                             padding:2px 6px;border-radius:3px;
+                             background:${c.type==='ecom'?'rgba(33,60,226,.15)':c.type==='retail'?'rgba(242,205,26,.1)':'rgba(255,255,255,.05)'}">
+                  ${c.type}
+                </span>
+              </div>`).join('')
+          : '<div style="padding:16px;color:var(--t3);font-size:12px">No channels loaded</div>'
+        }
+      </div>
+    </div>`;
+
+  // Insert above the camera wrap
+  const camWrap = document.querySelector('.camera-wrap');
+  if (camWrap) camWrap.parentNode.insertBefore(bar, camWrap);
+}
+
+function toggleChannelList() {
+  const list = document.getElementById('allocChannelList');
+  if (list) list.style.display = list.style.display === 'none' ? 'block' : 'none';
+}
+
+function selectAllocChannel(id, name, type) {
+  localStorage.setItem('alloc_channel_id',   id);
+  localStorage.setItem('alloc_channel_name', name);
+  localStorage.setItem('alloc_channel_type', type);
+  const label = document.getElementById('allocChannelLabel');
+  const sel   = document.getElementById('allocChannelSelected');
+  if (label) label.textContent = name;
+  if (sel)   sel.style.color = 'var(--yellow)';
+  toggleChannelList();
+}
+
 function actClass(act) {
   const m = {
     INW:'inw', QC_PASS:'qcp', QC_FAIL:'qcf',
     WKS_IN:'wks', WKS_OUT:'wks', RTO_IN:'rto',
-    PKG:'pkg', PKG_OUT:'pkg', RTE:'rte', RTR:'rtr'
+    PKG:'pkg', PKG_OUT:'pkg', RTE:'rte', RTR:'rtr',
+    DTK:'dtk', ALLOC:'alloc'
   };
   return m[act] || 'inw';
 }
@@ -1287,7 +1400,7 @@ function actBg(act) {
     INW:'#213CE2', QC_PASS:'#22c55e', QC_FAIL:'#DE2A2A',
     WKS_IN:'#f59e0b', WKS_OUT:'#f59e0b', RTO_IN:'#14b8a6',
     PKG:'#8b5cf6', PKG_OUT:'#8b5cf6', RTE:'#0ea5e9', RTR:'#F2CD1A',
-    RTD_RETURN:'#14b8a6'
+    RTD_RETURN:'#14b8a6', DTK:'#213CE2', ALLOC:'#F2CD1A'
   };
   return m[act] || '#333';
 }
@@ -1441,6 +1554,71 @@ async function processBarcode(barcode, act) {
       return;
     }
     await doPkgOut(barcode);
+    return;
+  }
+
+  // ── DTK — dispatch intake, scans batch label ──
+  if (act === 'DTK') {
+    if (!isBatchLabel) {
+      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R)');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'DTK', label:'WRONG FORMAT' });
+      return;
+    }
+    flash('ok'); vibrate([50]);
+    const res = await workerPost('postDtk', {
+      batch_label: barcode,
+      device_id:   cfg.deviceId || null,
+      operator_id: operatorUUID || currentOperator?.id || null
+    });
+    if (res.ok) {
+      const d = res.data;
+      playSuccessBeep();
+      showToast('✓ Handed Over', 'ok');
+      addLog({ barcode, status:'ok', tag:'DTK', label:`DTK ✓ ${d.product || ''}` });
+    } else {
+      playErrBeep(); vibrate([100,50,100]);
+      showReject('INTAKE FAILED', res.error || 'Unknown error');
+      addLog({ barcode, status:'err', tag:'DTK', label:'DTK ERR' });
+    }
+    return;
+  }
+
+  // ── ALLOC — allocate to channel, scans batch label ──
+  if (act === 'ALLOC') {
+    const channelId   = localStorage.getItem('alloc_channel_id');
+    const channelName = localStorage.getItem('alloc_channel_name');
+
+    if (!channelId) {
+      showReject('NO CHANNEL', 'Select a channel above before scanning');
+      playErrBeep(); vibrate([100,50,100]);
+      return;
+    }
+    if (!isBatchLabel) {
+      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R)');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'ALLOC', label:'WRONG FORMAT' });
+      return;
+    }
+
+    flash('ok'); vibrate([50]);
+    const res = await workerPost('postAlloc', {
+      batch_label:  barcode,
+      device_id:    cfg.deviceId || null,
+      operator_id:  operatorUUID || currentOperator?.id || null,
+      channel_id:   channelId
+    });
+    if (res.ok) {
+      const d = res.data;
+      playSuccessBeep();
+      const lbl = d.is_realloc ? `Re-allocated → ${channelName}` : `Allocated → ${channelName}`;
+      showToast('✓ ' + lbl, 'ok');
+      addLog({ barcode, status:'ok', tag:'ALLOC', label:`ALLOC ✓ ${d.product || ''} → ${channelName}` });
+    } else {
+      playErrBeep(); vibrate([100,50,100]);
+      showReject('ALLOCATION FAILED', res.error || 'Unknown error');
+      addLog({ barcode, status:'err', tag:'ALLOC', label:'ALLOC ERR' });
+    }
     return;
   }
 
