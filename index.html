@@ -1289,23 +1289,11 @@ function buildActivityUI() {}
 
 // ── DTK station setup ────────────────────────────────────────────
 function setupDtkStation() {
-  setScanPrompt(
-    'DISPATCH INTAKE',
-    'Scan batch label',
-    'var(--blue)',
-    '📦'
-  );
-  // No toggle, no selection — pure intake scan
+  // Hint set via STATION_DEFS in updateScanHint() — nothing extra needed
 }
 
 // ── ALLOC station setup ──────────────────────────────────────────
 async function setupAllocStation() {
-  setScanPrompt(
-    'ALLOCATE',
-    'Select channel then scan',
-    'var(--yellow)',
-    '🏷'
-  );
   await loadDispatchChannels();
   renderChannelDropdown();
 }
