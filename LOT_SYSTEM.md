@@ -12,7 +12,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing. PKG thermal label printing live via polling architecture v2.2. Per-line PKG and WKS devices deployed. Operator session tracking live. Dispatch attribution corrected. Hourly achievement chart live. Store procurement BY UNITS mode live. FBU/CKD/SKD receive format schema live. Dashboard nav bar consolidated to 4 dropdown groups. Reporting tab v2 live with Chart.js charts (Production/Cycle Time/Defects/Throughput/Downloads sections). Takt time / throughput tracking live — bottleneck viz per line, first unit warm-up timeline, takt by run. Auto-refresh optimised — reporting tab excluded from 30s timer. **Open issue: Throughput section scroll bug — content clips below bottleneck viz.**
+**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing. PKG thermal label printing live via polling architecture v2.2. Per-line PKG and WKS devices deployed. Operator session tracking live. Dispatch attribution corrected. Hourly achievement chart live. Store procurement BY UNITS mode live. FBU/CKD/SKD receive format schema live. Dashboard nav bar consolidated to 5 groups (Production, Activity, Reporting, Dispatch, Admin). Reporting tab v2 live with Chart.js charts. Takt time / throughput tracking live — scroll bug fixed. Auto-refresh optimised. **Full Dispatch system live** — DTK/ALLOC/DOUT scanner stations, dispatch channel master (17 channels), dispatch dashboard with live cards, allocated-by-channel, sent-out-by-channel (date filtered), units table, shipments manager.
 
 ---
 
@@ -105,6 +105,9 @@ Parts (Store) → Assembly (car + remote on same line) → QC → Packaging → 
 | PKG | Packaging station | 3 (PKG-L1/L2/L3) | Two-scan (car + remote), channel toggle, prints batch label |
 | PKG_OUT | Dispatch Out | 1 shared | Scans batch label — auto-routes RTE/RTR or RTD_RETURN. Line attributed via pkg_scans.line. |
 | RTO_IN | Returns | 1 shared | Two paths: intact → direct RTD, damaged → full production flow |
+| DTK | Dispatch Intake | 1 shared (DTK-DISPATCH) | Scans batch label. Validates `rtd`. Sets `handed_over`. No channel selection — fast intake. |
+| ALLOC | Dispatch Allocate | 1 shared (ALLOC-DISPATCH) | Scans batch label. Channel dropdown (filtered by box type). Sets `allocated`. Re-scan overrides. |
+| DOUT | Dispatch Out | 1 shared (DOUT-DISPATCH) | Scans batch label. Hard rejects if not `allocated`. Sets `shipped`. Stamps `dispatch_allocations.shipped_at`. |
 
 ### Stage Notes
 **Stage 4 (PKG):** `pkg_scans.line` is the source of truth for which line a unit came from. PKG_OUT device is SHARED — do not use `scans.line` for RTE/RTR dispatch counts.
@@ -168,9 +171,50 @@ Total: 19 devices. **SHARED devices must never be used to attribute per-line cou
 | Karthik | QC — defect heatmap, training flags |
 | Mahesh | Read-only audit — enforced at worker level |
 
-**Dashboard nav (April 2026):** 4 dropdown groups — **Production** (Dashboard, Lines, QC), **Activity** (Scans, Corrections, Alerts, Returns), **Reporting** (Reporting), **Admin** (UPC Generator, Operators, Print). Replaces 11 flat tabs.
+**Dashboard nav (April 2026):** 5 groups — **Production** (Dashboard, Lines, QC), **Activity** (Scans, Corrections, Alerts, Returns), **Reporting** (Reporting), **Dispatch** (top-level direct, no dropdown), **Admin** (UPC Generator, Operators, Print).
 
 **Reporting tab v2 (April 2026):** Section-first layout. Sections: Production, Cycle Time, Defects, Throughput, Downloads. Time presets: 10 Days / This Week / This Month / Custom. Chart.js with datalabels plugin. Reporting tab excluded from 30s auto-refresh.
+
+---
+
+## 9a. Dispatch System ← new April 2026
+
+### Dispatch Flow
+```
+PKG scan        → pending_rtd    (at production PKG station)
+PKG_OUT scan    → rtd            (production hands off; "PKG Out" count on exec dashboard)
+DTK scan        → handed_over    (dispatch intakes; fast, no channel selection)
+ALLOC scan      → allocated      (dispatch assigns channel; dropdown filtered by box type)
+DOUT scan       → shipped        (physical exit; hard rejects non-allocated)
+```
+
+### Scanner Stations
+- **DTK (Dispatch Intake):** Scans batch label, validates `rtd`, no channel selection, fast continuous scanning. Device: `DTK-DISPATCH`, SHARED.
+- **ALLOC (Allocate):** Channel dropdown (loaded from `dispatch_channels`, filtered by box type on scan). `-E` box → ecom channels only, `-R` box → retail/other channels only. Re-scan overrides allocation. Device: `ALLOC-DISPATCH`, SHARED.
+- **DOUT (Dispatch Out):** Scans batch label at physical exit. Hard rejects if unit not `allocated`. Stamps `dispatch_allocations.shipped_at`. Device: `DOUT-DISPATCH`, SHARED.
+
+All three stations use the same device (station selected at login), appear in Scans tab, log to `scan_violations` on wrong sequence.
+
+### Channel Master
+17 channels seeded. Managed via Dashboard → Dispatch → Channel Master. Key fields:
+- `type`: `ecom` | `retail` | `other` — drives box-type validation at ALLOC
+- `fulfillment_model`: `unit` | `bulk` — drives shipment layer behaviour
+- `is_sale`: sale channels = revenue-generating; non-sale = cost (Internal, Influencer, Giveaway)
+
+### Dashboard — Dispatch Tab
+- **Live Dispatch Status** — 4 headline cards: PKG Out (rtd), With Dispatch (handed_over), Allocated, Shipped
+- **Allocated — Awaiting Dispatch** — live channel cards showing allocated count per channel
+- **Sent Out by Channel** — channel cards with date presets (10 Days/This Week/This Month/Custom); summary: X sold · Y non-sale · Z total
+- **Units sub-tab** — filterable unit list (status, channel, date)
+- **Shipments sub-tab** — create shipments, assign units, mark shipped (bulk admin path)
+- **Channel Master sub-tab** — full CRUD for dispatch channels
+
+### Key Constraints
+- Ecom box (`-E`) → only ecom channels at ALLOC. Hard reject.
+- Retail box (`-R`) → retail/other channels only. Hard reject.
+- DOUT hard rejects if unit not `allocated`. Must go DTK → ALLOC → DOUT.
+- `dispatch_allocations.car_upc` is UNIQUE — re-allocation = UPDATE, not INSERT.
+- `override` column exists in schema for future soft-warn cross-type override (not yet built).
 
 ---
 
@@ -255,6 +299,14 @@ Third line item mode in the PO form alongside BOM and MANUAL.
 - **`rpt-section-content` scroll issue** — reporting tab sections are flex children inside a fixed-height `.content` div; they don't inherit pixel height when the tab was hidden during initial `setContentHeight()` call. Need to recompute on section switch, not just on tab switch.
 - **FBU and CKD stock are separate ledgers** — `stock_ledger` = component-level (CKD), `fbu_stock` = unit-level (FBU). Never mix. Issue queue shows both types; store issues from the correct ledger based on WO `issue_mode`.
 - **issue_mode is per work-order, not per run** — Flare Race Grey can be FBU while Flare Race Green in the same run is CKD. The `issue_mode` toggle only renders on the variant row when `product_master.receive_format = 'FBU'`.
+- **Reporting tab `flex-shrink` fix** — `.rpt-section-content>*{flex-shrink:0}` required so section children render at natural height and the container scrolls. Without it, children shrink to fit fixed-height flex container and content below bottleneck viz is invisible.
+- **`setContentHeight()` must be called in `switchRptSection()`** — not just on tab switch. Section is hidden when tab loads, so height is 0 until the section becomes visible.
+- **Worker GET vs POST routing** — dashboard `api()` sends GET; scanner `workerPost()` sends POST. Dispatch dashboard actions must be in the GET switch. Scanner-only actions stay in SCANNER_ACTIONS POST block.
+- **`body.data || body` pattern** — all scanner POST actions send `{ action, data: {...} }`. Worker handlers must destructure from `body.data`, not `body` directly. Use `body.data || body` for backward compat.
+- **`getShipments` name collision** — existing GET case queries store `shipment_progress`. Dispatch version must be named `getDispatchShipments`.
+- **`cancelPkgFlow` / `cancelQcPassFlow` unconditional toast** — these are called on every settings open. Only show toast if flow was actually in progress (check pending state before clearing).
+- **`startSession` column mismatch** — actual `operator_sessions` columns are `shift`, `login_at`, `logout_at`. Not `shift_type`, `shift_start`, `shift_end`, `is_active`.
+- **Scanner station setup screen** — `saveSetup()` queries `#s_stationGroup .seg-btn.on`. If dispatch buttons are in a separate group (`#s_dispatchStationGroup`), both selectors must be combined in the query.
 
 ## 13. Takt Time / Throughput ← new April 2026
 
@@ -372,37 +424,36 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 - All scanner flows: INW, QC_PASS, QC_FAIL, WKS, PKG, PKG_OUT, RTO_IN
 - PKG label printing — TSC TE244 via Supabase polling v2.2 (atomic claiming)
 - Return system — store UI + production Returns Queue + RTD_RETURN dispatch path
-- **Dashboard nav consolidation** — 4 dropdown groups (Production/Activity/Reporting/Admin) ← April 2026
+- **Dashboard nav** — 5 groups: Production/Activity/Reporting/Dispatch/Admin ← April 2026
 - **Reporting tab v2** — section-first, Chart.js charts, Production/Cycle Time/Defects/Throughput/Downloads ← April 2026
-- **Takt time / throughput** — bottleneck viz per line, first unit warm-up timeline, takt by run ← April 2026
+- **Takt time / throughput** — bottleneck viz per line, first unit warm-up timeline, takt by run; scroll bug fixed ← April 2026
 - **Auto-refresh optimisation** — reporting tab skips 30s timer; lines tab skips takt on auto-refresh ← April 2026
 - **FBU/CKD/SKD schema** — product_master columns, remote rows, fbu_stock tables, work_orders.issue_mode ← April 2026
 - **QC_PASS / PKG product_master fix** — component_type=eq.car filter prevents remote rows ← April 2026
+- **Full Dispatch System** — DTK/ALLOC/DOUT scanner stations, dispatch channel master (17 channels seeded), dispatch dashboard (live cards + allocated/shipped channel cards + units table + shipments manager + channel master CRUD), all worker GET/POST endpoints ← April 2026
 - All other previously confirmed features remain live
 
 ### Pending Test 🧪
 - **FBU/CKD/SKD store frontend** — BY UNITS BOM explosion, FBU GRN, fbu_stock view, issue_mode on runs, issue queue FBU section
 - **QC_PASS fix** — Knox remote prompt appears correctly after fix
 - **Takt / Throughput** — verify bottleneck detection, warm-up times, takt by run accuracy
+- **Dispatch System** — DTK/ALLOC/DOUT scan flows on real units; dashboard cards populate; channel cards populate after first scans
 
 ### Open Issues 🔶
-
-| Issue | Detail |
-|---|---|
-| **Throughput section scroll bug** | `rpt-section-content` height not propagating correctly — content clips below bottleneck visualization. `setContentHeight()` fix attempted but not resolving. Pick up next session. |
+None currently.
 
 ### Pending Build 🔲
-- **Throughput scroll fix** — **next priority**
 - **Repair run design session** (before any build)
 - **Google sign-in** — Supabase OAuth; domain restriction vs role-gated decision pending
-- **Dashboard day view for production** — per-line, per-hour breakdown for single day
-- **Channel allocation** — dispatch system + live ecom vs retail stock view
-- **Scanner: print EAN on PKG batch label**
-- **Scanner: test mode** — scan UPC → show status and stage history
+- **EAN sticker** — separate sticker printed alongside PKG batch label at PKG station; build together with info scan
+- **Info scan / test scanner mode** — scan UPC or batch label → show status, stage history, line, run, channel; both LOT-XXXXXXXX and batch label supported
+- **Dashboard day view** — per-line, per-hour production breakdown for a single day
+- **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
+- **Unicommerce integration** — once requirements confirmed; unit-level dispatch data ready in system
+- **Dispatch cross-type override** — currently hard reject; future soft warn with confirmation
 - **GRN receiving template** — CKD BOM explosion vs FBU unit count path
 - **Price master module**
 - Operator performance view
-- Consolidated dispatch view
 - Legacy UPC manual entry
 - Reconciliation — Phase 4
 - Audit — Phase 5
@@ -446,7 +497,9 @@ Partition scans table by month at ~500K events/month (~month 10). Dashboard summ
 26. **SKD receive format:** Design agreed but deferred — build after FBU+CKD frontend is stable.
 27. **Google sign-in:** Supabase OAuth for dashboard + store. Decision: restrict to `@legendoftoys.com` domain (needs Google Workspace) OR open + role-gated. Scanner stays on QR card auth.
 28. **Takt time thresholds:** Currently ≤5m=green/≤10m=yellow/>10m=red. Arbitrary — calibrate per station per product once data is collected.
-29. **Throughput scroll bug:** `rpt-section-content` height not propagating in reporting tab. Try ResizeObserver or compute height on section switch instead of tab switch.
+29. **Dispatch cross-type override:** Currently hard rejects ecom box → retail channel. Future: soft warn with manual confirm. `override` column in `dispatch_allocations` ready.
+30. **Dispatch Unicommerce link:** Unit-level dispatch data available. Integration design pending once Unicommerce requirements are confirmed.
+31. **Shipment auto-status from Unicommerce:** Future — auto-set `shipped` via Unicommerce webhook or poll. Currently manual via dashboard.
 
 ---
 

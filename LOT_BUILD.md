@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 2.5 | **Last Updated:** April 2026
+**Version:** 2.6 | **Last Updated:** April 2026
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -200,7 +200,48 @@ rte_rtr_scan_id UUID
 print_sent      BOOLEAN DEFAULT FALSE
 ```
 
-#### `scan_amendments` — Tier 3 amendment log
+#### `dispatch_channels` — Channel master
+```
+id                UUID PRIMARY KEY DEFAULT gen_random_uuid()
+name              TEXT NOT NULL
+type              TEXT NOT NULL CHECK (type IN ('ecom','retail','other'))
+fulfillment_model TEXT NOT NULL CHECK (fulfillment_model IN ('unit','bulk'))
+is_sale           BOOLEAN NOT NULL DEFAULT true
+is_active         BOOLEAN NOT NULL DEFAULT true
+created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+```
+Seeded with 17 channels (April 2026). Managed via dashboard Dispatch → Channel Master.
+
+#### `dispatch_shipments` — Shipment grouping
+```
+id                    UUID PRIMARY KEY DEFAULT gen_random_uuid()
+shipment_no           TEXT UNIQUE NOT NULL  -- SHP-0001 via shp_seq sequence
+channel_id            UUID REFERENCES dispatch_channels
+destination_warehouse TEXT                  -- nullable, bulk channels
+scheduled_date        DATE
+status                TEXT DEFAULT 'draft'  -- draft | ready | shipped
+shipped_at            TIMESTAMPTZ
+notes                 TEXT
+created_by            UUID
+created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+```
+
+#### `dispatch_allocations` — Unit-level channel allocation
+```
+id           UUID PRIMARY KEY DEFAULT gen_random_uuid()
+car_upc      TEXT NOT NULL UNIQUE       -- one allocation per unit
+batch_label  TEXT NOT NULL
+channel_id   UUID REFERENCES dispatch_channels
+shipment_id  UUID REFERENCES dispatch_shipments  -- nullable
+allocated_by UUID
+allocated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+shipped_at   TIMESTAMPTZ                -- stamped on DOUT scan or markShipmentShipped
+override     BOOLEAN NOT NULL DEFAULT false
+created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+```
+Re-allocation = UPDATE on existing row (audit trail via scans ledger).
+
+
 ```
 id              UUID PRIMARY KEY
 original_scan_id UUID
@@ -522,6 +563,16 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 | **get_takt_time RPC** | Created April 2026 — inter-scan gap IQR analysis per station per line; includes QC, QC_PASS, INW, PKG, PKG_OUT | Powers Throughput section |
 | **get_first_unit_timeline RPC** | Created April 2026 — first scan per station per line per day | Powers first unit warm-up table |
 | **get_takt_by_run RPC** | Created April 2026 — takt grouped by date+line+product joined to production_runs | Powers Takt by Run table |
+| **Dispatch system enums** | `unit_status`: `handed_over`, `allocated`, `shipped`; `activity_type`: `DTK`, `ALLOC`, `DOUT` | Dispatch flow (April 2026) |
+| **dispatch_channels table** | Created + seeded 17 channels (April 2026) — `id, name, type, fulfillment_model, is_sale, is_active` | Channel master |
+| **dispatch_shipments table** | Created (April 2026) — `shp_seq` sequence, `SHP-NNNN` format, `destination_warehouse`, `status` enum `draft/ready/shipped` | Shipment grouping |
+| **dispatch_allocations table** | Created (April 2026) — `car_upc UNIQUE`, `channel_id`, `shipment_id`, `allocated_at`, `shipped_at`, `override` | Unit-level channel allocation |
+| **DTK-DISPATCH + ALLOC-DISPATCH + DOUT-DISPATCH devices** | Inserted (April 2026) — SHARED line, dispatch stations | Dispatch scanner stations |
+| **get_dispatch_counts RPC** | Created April 2026 — live counts of rtd/handed_over/allocated/shipped | Dispatch headline cards |
+| **get_dispatch_units RPC** | Created April 2026 — paginated unit list with channel/shipment join, filterable by status/channel/date | Dispatch units table |
+| **get_allocated_by_channel RPC** | Created April 2026 — live count per channel for allocated units | Dispatch allocated cards |
+| **get_shipped_by_channel RPC** | Created April 2026 — shipped count per channel, date-filterable via shipped_at | Dispatch sent-out cards |
+| **dispatch_allocations.shipped_at** | `ALTER TABLE dispatch_allocations ADD COLUMN IF NOT EXISTS shipped_at TIMESTAMPTZ` | Stamped on DOUT scan and markShipmentShipped |
 
 ---
 
@@ -553,17 +604,16 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 | 3s | QC_PASS / PKG product_master fix | ✅ Deployed — added `component_type=eq.car` filter to postQcPass, postPkg, getProductCodes (April 2026) |
 | 3t | Dashboard Nav Bar Consolidation | ✅ Complete — 11 flat tabs → 4 dropdown groups: Production, Activity, Reporting, Admin (April 2026) |
 | 3u | Reporting Tab v2 | ✅ Complete — section-first layout, time presets, Chart.js charts, Production/Cycle Time/Defects/Downloads sections; chartjs-plugin-datalabels integrated (April 2026) |
-| 3v | Takt Time / Throughput | 🔶 Partial — RPCs built, worker endpoint live, dashboard Throughput section + Lines tab Station Pace built; reporting tab scroll bug not yet fixed (April 2026) |
+| 3v | Takt Time / Throughput | ✅ Complete — RPCs built, worker live, Throughput section + Lines tab Station Pace built, scroll bug fixed (`flex-shrink:0` + `setContentHeight()` in `switchRptSection`) (April 2026) |
 | 3w | Auto-refresh Optimisation | ✅ Complete — reporting tab skips 30s timer; lines tab skips takt on auto-refresh; manual nav always force-loads (April 2026) |
+| 3x | Dispatch System | ✅ Complete — full dispatch flow: DTK→handed_over, ALLOC→allocated, DOUT→shipped. Scanner stations (DTK/ALLOC/DOUT), worker GET endpoints, dashboard Dispatch tab (live cards, allocated by channel, sent-out by channel with date presets, units table, shipments manager, channel master CRUD). 17 channels seeded. `cancelPkgFlow`/`cancelQcPassFlow` toast-only-when-active fix. Station setup screen split Production/Dispatch. `startSession` column names fixed. (April 2026) |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
 
 ### Open Issues — fix before building new features
 
-| Issue | Detail |
-|---|---|
-| **Throughput section scroll bug** | Reporting tab → Throughput section clips content below bottleneck viz. `setContentHeight()` fix applied but not working — `rpt-section-content` not getting correct pixel height when tab is hidden during layout. Pick up next session. |
+None currently.
 
 ### Pending Test — built but not yet verified on floor
 
@@ -571,42 +621,45 @@ v2.2 deployed to L1 and L2. **L3 not yet set up.**
 |---|---|
 | **FBU/CKD/SKD Store Frontend (3r)** | BY UNITS CKD → BOM explosion on PO save; BY UNITS FBU → unit-level po_lines; FBU GRN panel submits and increments fbu_stock; stock view FBU toggle shows fbu_stock; issue_mode selector appears only for FBU products (Dash/Nitro) on production runs; issue queue FBU section present for Dash/Nitro runs; issueAgainstRun deducts fbu_stock and logs to fbu_issue_register |
 | **QC_PASS fix (3s)** | Knox (and any has_remote=true product) scanned at QC_PASS → remote prompt appears correctly; product name in toast is correct |
-| **Takt / Throughput (3v)** | Throughput section shows correct bottleneck per line; first unit timeline shows warm-up times; takt by run table shows per-run takt; Lines tab Station Pace strip shows today's takt |
+| **Takt / Throughput (3v)** | Throughput section scrolls correctly; bottleneck detection accurate; first unit warm-up times; takt by run table correct |
+| **Dispatch System (3x)** | DTK scan → unit goes to handed_over; ALLOC scan → channel dropdown appears, filtered by box type, unit goes to allocated; DOUT scan → hard rejects non-allocated, ships unit; dashboard cards update live; allocated/shipped channel cards populate; shipment create/assign/mark-shipped flow; channel master CRUD |
 
 ### Pending Build Items (prioritised)
 
-**Next session — fix first:**
-1. **Throughput section scroll bug** — `rpt-section-content` height not propagating; needs alternative approach to `setContentHeight`
-
 **Next up:**
-2. **Repair run design session** — full design before any build
-3. **Google sign-in** — Supabase Google OAuth for dashboard + store; decision pending: domain-restricted (`@legendoftoys.com`) vs role-gated open
+1. **Repair run design session** — full design before any build
+2. **Google sign-in** — Supabase Google OAuth for dashboard + store; decision pending: domain-restricted (`@legendoftoys.com`) vs role-gated open
 
 **Dashboard backlog:**
-4. **Dashboard day view for production** — detailed per-line, per-hour breakdown for a single selected day
-5. **Channel allocation** — dispatch system + live stock view showing ecom vs retail allocation and split
+3. **EAN sticker** — separate sticker printed alongside PKG batch label; EAN from `product_master`; understanding: batch label = car UPC + channel suffix (internal traceability), EAN sticker = commercial barcode. Same thermal printer, applied at PKG station simultaneously
+4. **Info scan / test scanner mode** — scan UPC or batch label → show unit status, stage history, line, run, channel. Works for both `LOT-XXXXXXXX` and `LOT-XXXXXXXX-E/R`. Both UPC and PKG label in one flow. Build together with EAN sticker work
+5. **Dashboard day view for production** — detailed per-line, per-hour breakdown for a single selected day
 6. **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
 
+**Dispatch backlog:**
+7. **Unicommerce integration** — once Unicommerce requirements are understood; unit-level dispatch data available in system
+8. **Manual override for cross-type allocation** — currently hard rejects ecom box → retail channel (and vice versa). Future: soft warn with confirmation. `override` column exists in `dispatch_allocations` schema ready
+
 **Scanner backlog:**
-7. **Print EAN alongside batch code** — add EAN to PKG thermal label (50×25mm TSC TE244)
-8. **Test scanner mode** — scan any UPC → display current unit status and stage history; diagnostic tool for floor staff
+9. **Print EAN alongside batch code** — add EAN to PKG thermal label (50×25mm TSC TE244)
+10. **Test scanner mode** — see item 4 above
 
 **Store backlog:**
-9. **GRN receiving template** — CKD BOM explosion vs FBU unit count path (schema + frontend done; GRN template not yet built)
-10. **Price master module** — unit cost tracking with history; BOM dynamically calculates PO value from price charts
+11. **GRN receiving template** — CKD BOM explosion vs FBU unit count path (schema + frontend done; GRN template not yet built)
+12. **Price master module** — unit cost tracking with history; BOM dynamically calculates PO value from price charts
 
 **General backlog:**
-11. **Legacy UPC manual entry** — build when triggered
-12. **Reconciliation module** — Phase 4
-13. **Audit module** — Phase 5
-14. **Assembly stations module** — Phase 6
-15. **Dashboard tab RBAC** — deferred
-16. **Biometric integration**
-17. **Unicommerce reconciliation**
-18. **APK rollout to all 15 devices** — deferred
-19. **Dash/Nitro QR code problem** — cars too small to stick QR label; needs separate design session
-20. **store.material_master name inconsistencies** — `HW-TM-POS` and `UNV-CB-2PIN-01` have two different names; rename pending
-21. **Old para items with `(old)` suffix** — still active in Bumble, Flare, Ghost, Shadow BOM; deactivation pending Afshaan confirmation
+13. **Legacy UPC manual entry** — build when triggered
+14. **Reconciliation module** — Phase 4
+15. **Audit module** — Phase 5
+16. **Assembly stations module** — Phase 6
+17. **Dashboard tab RBAC** — deferred
+18. **Biometric integration**
+19. **Unicommerce reconciliation**
+20. **APK rollout to all 15 devices** — deferred
+21. **Dash/Nitro QR code problem** — cars too small to stick QR label; needs separate design session
+22. **store.material_master name inconsistencies** — `HW-TM-POS` and `UNV-CB-2PIN-01` have two different names; rename pending
+23. **Old para items with `(old)` suffix** — still active in Bumble, Flare, Ghost, Shadow BOM; deactivation pending Afshaan confirmation
 
 ---
 
@@ -669,13 +722,24 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | **product_master component_type filter** | All `postQcPass`, `postPkg`, `getProductCodes` lookups filter `component_type=eq.car` | Remote rows now in product_master; without filter, `limit=1` could return remote row (has_remote=false) |
 | **FBU stock table** | `store.fbu_stock` separate from `stock_ledger` | stock_ledger is component-level; FBU units are a different stock type; both coexist and show separately in UI |
 | **issue_mode per WO** | `work_orders.issue_mode = 'components' | 'fbu'`; toggle only shown for FBU products | Per-line granularity; default components; FBU toggle only visible when product.receive_format = 'FBU' |
-| **Dashboard nav groups** | 4 dropdown groups replace 11 flat tabs | Production (Dashboard/Lines/QC), Activity (Scans/Corrections/Alerts/Returns), Reporting, Admin (UPC Generator/Operators/Print) |
-| **Reporting tab section-first** | Section tabs (Production/Cycle Time/Defects/Throughput/Downloads) above time picker | User picks what they want to see first, then adjusts time period — matches how data is reviewed |
-| **Reporting auto-refresh skip** | Reporting tab excluded from 30s auto-refresh timer | Historical data — no value in re-fetching every 30s; user controls manually via date pickers |
-| **Takt time metric** | Inter-scan gap per station per line (IQR-cleaned) | Measures station throughput pace; bottleneck = station with lowest units/hr on that line |
+| **Dashboard nav groups** | 5 groups replace 11 flat tabs — Production, Activity, Reporting, Dispatch (top-level), Admin | Dispatch is top-level, not inside Activity |
+| **Reporting tab section-first** | Section tabs (Production/Cycle Time/Defects/Throughput/Downloads) above time picker | User picks what they want to see first, then adjusts time period |
+| **Reporting auto-refresh skip** | Reporting tab excluded from 30s auto-refresh timer | Historical data — no value in re-fetching every 30s |
+| **Takt time metric** | Inter-scan gap per station per line (IQR-cleaned) | Measures station throughput pace; bottleneck = station with lowest units/hr |
 | **Takt PKG_OUT** | Uses RTE+RTR scan gaps on SHARED device | Batch label not UPC — one scan per unit regardless of ecom/retail; SHARED so no per-line split |
 | **Takt by run** | Groups by scan_date+line+product, joins to production_runs for run_no | Run-level takt shows which products/runs have assembly/QC/PKG bottlenecks |
 | **First unit timeline** | First scan per station per line per day → elapsed between stations | Measures line warm-up time; colour-coded green/yellow/red by total warm-up mins |
+| **Throughput scroll fix** | `flex-shrink:0` on `.rpt-section-content>*` + `setContentHeight()` called in `switchRptSection` | Children were shrinking to fit fixed-height flex container; now overflow correctly with scroll |
+| **Dispatch station setup** | Scanner Device Setup screen split into Production Station + Dispatch Station sections | Prevents production operators from accidentally selecting dispatch stations |
+| **DTK/ALLOC/DOUT — no `setScanPrompt`** | Station hint set via `STATION_DEFS` + `updateScanHint()` | `setScanPrompt` does not exist in scanner — invented name that caused ReferenceError |
+| **startSession column fix** | `shift` not `shift_type`; `login_at` not `shift_start`; `logout_at` not `shift_end`; no `is_active` column | Column mismatch caused 400 on every session create |
+| **cancelPkgFlow / cancelQcPassFlow** | Toast only fires if flow was active (`pendingPkgCar` / `pendingQcPassCar` non-null) | Was toasting on every settings open/operator switch even when no flow was in progress |
+| **Dispatch GET vs POST routing** | GET dashboard actions (`getDispatchChannels`, `getDispatchDashboard`, `getDispatchShipments`) added to GET switch | Were only in SCANNER_ACTIONS POST block — dashboard sends GET, so 400 |
+| **getShipments name collision** | Dispatch shipments renamed `getDispatchShipments` | Existing `getShipments` in GET switch queries store `shipment_progress` — different table |
+| **Dispatch POST body convention** | `body.data || body` for all dispatch POST handlers | All existing scanner actions use `body.data`; new handlers incorrectly read from `body` directly |
+| **Dispatch channel type validation** | Hard reject: ecom box (`-E`) → only ecom channels; retail box (`-R`) → retail/other channels | No soft warn yet; `override` column in schema for future |
+| **Dispatch channel cards** | `renderChannelCountCards` shared by both allocated and shipped sections | Identical layout; only data source and date filter differ |
+| **EAN + batch label** | EAN printed as separate sticker alongside batch label at PKG station | 50×25mm label too small for both; separate sticker keeps commercial barcode clean |
 
 ---
 
