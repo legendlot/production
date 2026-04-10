@@ -597,27 +597,33 @@
   </div>
 
   <div class="setup-body">
-    <div class="sec-div">Station</div>
+    <div class="sec-div">Production Station</div>
     <div class="field">
       <div class="seg-group" id="s_stationGroup">
         <div class="seg-row">
-          <div class="seg-btn" data-val="Assembly"     data-code="INW"     data-shared="0" onclick="pickStation(this)">Assembly</div>
-          <div class="seg-btn" data-val="QC Pass"      data-code="QC_PASS" data-shared="0" onclick="pickStation(this)">QC Pass</div>
+          <div class="seg-btn" data-val="Assembly"  data-code="INW"     data-shared="0" onclick="pickStation(this)">Assembly</div>
+          <div class="seg-btn" data-val="QC Pass"   data-code="QC_PASS" data-shared="0" onclick="pickStation(this)">QC Pass</div>
         </div>
         <div class="seg-row">
-          <div class="seg-btn" data-val="QC Fail"      data-code="QC_FAIL" data-shared="0" onclick="pickStation(this)">QC Fail</div>
-          <div class="seg-btn" data-val="Workshop"     data-code="WKS"     data-shared="0" onclick="pickStation(this)">Workshop</div>
+          <div class="seg-btn" data-val="QC Fail"   data-code="QC_FAIL" data-shared="0" onclick="pickStation(this)">QC Fail</div>
+          <div class="seg-btn" data-val="Workshop"  data-code="WKS"     data-shared="0" onclick="pickStation(this)">Workshop</div>
         </div>
         <div class="seg-row">
-          <div class="seg-btn" data-val="Packaging" data-code="PKG" data-shared="0" onclick="pickStation(this)">Packaging</div>
-          <div class="seg-btn" data-val="Dispatch Out" data-code="PKG_OUT" data-shared="1" onclick="pickStation(this)">Dispatch Out</div>
+          <div class="seg-btn" data-val="Packaging" data-code="PKG"     data-shared="0" onclick="pickStation(this)">Packaging</div>
+          <div class="seg-btn" data-val="PKG Out"   data-code="PKG_OUT" data-shared="1" onclick="pickStation(this)">PKG Out</div>
         </div>
         <div class="seg-row">
-          <div class="seg-btn" data-val="RTO In"       data-code="RTO_IN"  data-shared="1" onclick="pickStation(this)">RTO In</div>
+          <div class="seg-btn" data-val="RTO In"    data-code="RTO_IN"  data-shared="1" onclick="pickStation(this)">RTO In</div>
         </div>
+      </div>
+    </div>
+
+    <div class="sec-div">Dispatch Station</div>
+    <div class="field">
+      <div class="seg-group" id="s_dispatchStationGroup">
         <div class="seg-row">
-          <div class="seg-btn" data-val="Dispatch In"  data-code="DTK"     data-shared="1" onclick="pickStation(this)">Dispatch In</div>
-          <div class="seg-btn" data-val="Allocate"     data-code="ALLOC"   data-shared="1" onclick="pickStation(this)">Allocate</div>
+          <div class="seg-btn" data-val="Dispatch In" data-code="DTK"   data-shared="1" onclick="pickStation(this)">Dispatch In</div>
+          <div class="seg-btn" data-val="Allocate"    data-code="ALLOC" data-shared="1" onclick="pickStation(this)">Allocate</div>
         </div>
       </div>
     </div>
@@ -1131,7 +1137,7 @@ function goToSetup() {
 }
 
 function pickStation(el) {
-  document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => b.classList.remove('on'));
+  document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn').forEach(b => b.classList.remove('on'));
   el.classList.add('on');
   const isShared = el.dataset.shared === '1';
   document.getElementById('s_lineField').style.display = isShared ? 'none' : '';
@@ -1157,7 +1163,7 @@ const STATION_DEFS = {
   QC_FAIL: { label: 'QC Fail',      activity: 'QC_FAIL', hint: 'SCAN LOT UPC — DEFECT SELECT FOLLOWS' },
   WKS:     { label: 'Workshop',     activity: 'WKS',     hint: 'SCAN LOT UPC' },
   PKG:     { label: 'Packaging',    activity: 'PKG',     hint: 'SCAN CAR UPC FIRST' },
-  PKG_OUT: { label: 'Dispatch Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
+  PKG_OUT: { label: 'PKG Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   RTO_IN:  { label: 'RTO In',       activity: 'RTO_IN',  hint: 'SCAN LOT UPC OR EAN' },
   DTK:     { label: 'Dispatch In', activity: 'DTK',     hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   ALLOC:   { label: 'Allocate',    activity: 'ALLOC',   hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
@@ -1963,9 +1969,14 @@ function hidePkgRemotePrompt() {
   updateScanHint();
 }
 function cancelPkgFlow() {
-  pendingPkgCar = null;
-  hidePkgRemotePrompt();
-  showToast('Packaging flow cancelled', 'warn');
+  if (pendingPkgCar) {
+    pendingPkgCar = null;
+    hidePkgRemotePrompt();
+    showToast('Packaging flow cancelled', 'warn');
+  } else {
+    pendingPkgCar = null;
+    hidePkgRemotePrompt();
+  }
 }
 
 // ══════════════════════════════════════════════════════
