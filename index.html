@@ -1229,9 +1229,9 @@ async function startSession() {
   if (!currentOperator) return;
   try {
     const existing = await sbGet('operator_sessions',
-      `operator_id=eq.${currentOperator.id}&is_active=eq.true`);
+      `operator_id=eq.${currentOperator.id}&logout_at=is.null`);
     for (const s of existing) {
-      await sbPatch('operator_sessions', s.id, { is_active: false, shift_end: new Date().toISOString() });
+      await sbPatch('operator_sessions', s.id, { logout_at: new Date().toISOString() });
     }
     let deviceId = null;
     if (cfg.deviceCode) {
@@ -1241,11 +1241,10 @@ async function startSession() {
     const sess = await sbPost('operator_sessions', {
       operator_id: currentOperator.id,
       device_id:   deviceId,
-      shift_type:  currentShift,
+      shift:       currentShift,
       line:        cfg.line,
       station:     cfg.stationCode,
-      shift_start: new Date().toISOString(),
-      is_active:   true
+      login_at:    new Date().toISOString()
     });
     currentSession = sess[0];
   } catch(e) {}
@@ -1740,10 +1739,16 @@ function hideQcPassRemotePrompt() {
   updateScanHint();
 }
 function cancelQcPassFlow() {
-  pendingQcPassCar = null;
-  pendingQcPassProduct = null;
-  hideQcPassRemotePrompt();
-  showToast('QC Pass flow cancelled', 'warn');
+  if (pendingQcPassCar) {
+    pendingQcPassCar = null;
+    pendingQcPassProduct = null;
+    hideQcPassRemotePrompt();
+    showToast('QC Pass flow cancelled', 'warn');
+  } else {
+    pendingQcPassCar = null;
+    pendingQcPassProduct = null;
+    hideQcPassRemotePrompt();
+  }
 }
 
 // ══════════════════════════════════════════════════════
