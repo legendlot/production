@@ -1,18 +1,18 @@
 # Legend of Toys — System Understanding Document
-**Version:** 2.5 | **Last Updated:** April 2026
+**Version:** 2.6 | **Last Updated:** April 2026
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
 
 ## 1. Company & Context
 
-**Legend of Toys (LOT)** is a toy manufacturing company producing RC cars. Currently manufacturing ~20,000 units/month with 20% month-on-month growth. At this trajectory, the system must be designed to handle ~120,000 units/month by end of Year 1 and potentially 700,000+ units/month by end of Year 2.
+**Legend of Toys (LOT)** is a toy manufacturing company producing RC cars. Currently manufacturing ~20,000 units/month with 20% month-on-month growth.
 
 **Co-founders:**
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Google Sheets + Apps Script replaced. New integrated production operations system on Supabase + Cloudflare Workers + PWA is live and scanning on the factory floor. System confirmed working in live floor testing. PKG thermal label printing live via polling architecture v2.2. Per-line PKG and WKS devices deployed. Operator session tracking live. Dispatch attribution corrected. Hourly achievement chart live. Store procurement BY UNITS mode live. FBU/CKD/SKD receive format schema live. Dashboard nav bar consolidated to 5 groups (Production, Activity, Reporting, Dispatch, Admin). Reporting tab v2 live with Chart.js charts. Takt time / throughput tracking live — scroll bug fixed. Auto-refresh optimised. **Full Dispatch system live** — DTK/ALLOC/DOUT scanner stations, dispatch channel master (17 channels), dispatch dashboard with live cards, allocated-by-channel, sent-out-by-channel (date filtered), units table, shipments manager.
+**Current state:** Full production operations system live on floor. Store receiving system overhauled to box-first flow with PO-linked SKU intake, reconciliation panel, and box contents breakdown. FBU receiving fully designed and built. PO order type auto-detection live. Full dispatch system live.
 
 ---
 
@@ -25,491 +25,207 @@ Afshaan (Co-founder)
 │   │   ├── Kishan (Line Manager — owns the lines day-to-day)
 │   │   │   └── Line Leaders / Supervisors (per line)
 │   │   └── Karthik (Inline QC Supervisor — across all 3 lines)
-│   └── Reann (Temporary Store Manager — not production, reports to Varun until proper hire)
+│   └── Reann (Temporary Store Manager — not production, reports to Varun)
 └── Mahesh Reddy (External QC Auditor — reports to Afshaan directly)
 ```
 
-**Why Mahesh reports to Afshaan and not Varun:** Deliberate structural decision. Mahesh cross-references inline QC data against actual audit findings. Mixed incentives avoided. Scope expanding to cover stores and dispatch.
-
-**Mahesh's system access:** Read-only across all data. Cannot amend, void, or modify any record — ever. **Permanent system constraint**, enforced at worker level.
-
-**Operator profile:** Unskilled workers on the factory floor. Any interface they touch must be **descriptive, visual, and foolproof** — assume worst-case user at all times.
+**Mahesh's system access:** Read-only across all data. Enforced at worker level. Permanent constraint.
 
 ---
 
 ## 3. Products
 
-LOT currently makes RC cars. Future product categories include die cast and DIY sets (no remotes). A finished RC car unit consists of: car body (UPC sticker on bottom), remote control (UPC sticker — independent), accessories, packaging tray + box, shrink wrap.
+LOT currently makes RC cars. A finished RC car unit consists of: car body (UPC sticker on bottom), remote control (UPC sticker — independent), accessories, packaging tray + box, shrink wrap.
 
 **SKUs:** 86 active SKUs across ~28 products with multiple model/color variants.
 
-**`has_remote` flag:** Product master boolean. RC cars = true. Die cast, DIY sets = false. Drives scanner behaviour at QC_PASS and PKG.
+**`has_remote` flag:** RC cars = true. Die cast, DIY sets = false.
 
 **Receive format (April 2026):**
-- `FBU` (Fully Built Unit) — received as a complete assembled product. No BOM explosion at GRN. Stock tracked at unit level in `fbu_stock`.
-- `CKD` (Completely Knocked Down) — received as individual parts. GRN records component-level receipts against stock_ledger.
-- `SKD` (Semi Knocked Down) — partial BOM. Deferred, not yet built.
-- **Current data:** Dash + Nitro cars = FBU. All other cars = CKD. All remotes = CKD.
-- PO-level override available on `store.po_lines.receive_format` for crisis shipments (e.g. normally CKD shipped FBU by air).
-
-**Remote product_master rows (April 2026):**
-- One row per product (not per variant) — all Knox variants share one Knox remote row
-- `product_code` = PPXXR (e.g. `KNXXR`, `FLXXR`) — XX signals product-level, no specific variant
-- `linked_product_code` = 2-char PP prefix of parent car (e.g. `KN`)
-- `ean` = `RMT-PPXXR` dummy EAN (e.g. `RMT-KNXXR`)
-- `has_remote = false`, `component_type = 'remote'`, model + color = NULL
-- Bracey has no remote row (no remote)
+- `FBU` (Fully Built Unit) — received as complete assembled product. Stock tracked at unit level in `fbu_stock`.
+- `CKD` (Completely Knocked Down) — received as individual parts. GRN records component-level receipts.
+- `SKD` (Semi Knocked Down) — partial BOM. Deferred.
+- **Current data:** Dash + Nitro = FBU. All other cars = CKD. All remotes = CKD.
+- PO-level override available on `store.po_lines.receive_format`.
 
 ---
 
 ## 4. UPC System ✅ LOCKED
 
-### Format — LOCKED
-**`LOT-00000001`** — 8 digits, zero-padded, globally sequential. QR encodes this string. Never reassigned, never reused, never deleted.
-
-### Display Code — LOCKED
-Human-readable code printed below the QR: **`KNAK00000007`** (product_code + raw 8-digit LOT sequence, no hyphens).
-
-### Product Code System ✅ LOCKED
-**Formula:** PP+M+C (2-char product + 1-char model + 1-char color)
-
-**Color key:** K=Black, B=Blue, G=Green, R=Red, W=White, E=Grey, S=Silver, P=Purple, V=Purple2, M=Multi, N=Pink, X=Excavator, Y=Yellow, O=Orange, D=Desert
-
-**Remote:** car code + 'R'. If car is KNAK, individual remote sticker uses KNAKR. Product-level remote code is KNXXR (used in product_master, not in upc_pool).
-
-### Print Batch Workflow
-1. Admin generates batch in dashboard
-2. System assigns LOT- numbers + display codes, creates batch record
-3. Print file sent to external printer (A3, 21×29 grid = 609 stickers/sheet, no borders, 13mm cells)
-4. Stickers received → admin clicks Received → all UPCs flip `generated` → `available`
-5. Stickers applied on floor → each UPC marked `applied` when scanned at INW
-
-**Critical:** Batch must be marked Received before any sticker can be inwarded. Status `applied` at INW means duplicate sticker — fix by applying a fresh available sticker.
+**Format:** `LOT-00000001` — 8 digits, zero-padded, globally sequential.
+**Display Code:** `KNAK00000007` (product_code + raw 8-digit LOT sequence, no hyphens).
+**QR encodes:** `LOT-` number (permanent, immutable).
 
 ---
 
 ## 5. Physical Production Flow
 
-### High-Level Flow
 ```
-Parts (Store) → Assembly (car + remote on same line) → QC → Packaging → RTD → Dispatch
+Parts (Store) → Assembly → QC → Packaging → RTD → Dispatch
 ```
 
 ### Scan Points — LOCKED
-| Scan Code | Stage | Devices | Notes |
-|---|---|---|---|
-| INW | End of Assembly | 3 (one per line) | Single scan — car or remote independently |
-| QC_PASS | End of QC | 3 (one per line) | Two-scan flow if has_remote = true; pairing created here |
-| QC_FAIL | End of QC | 3 (one per line) | Single scan — whichever component failed |
-| WKS | Workshop | 3 (WKS-L1/L2/L3) | System-inferred direction. Per-line April 2026. |
-| PKG | Packaging station | 3 (PKG-L1/L2/L3) | Two-scan (car + remote), channel toggle, prints batch label |
-| PKG_OUT | Dispatch Out | 1 shared | Scans batch label — auto-routes RTE/RTR or RTD_RETURN. Line attributed via pkg_scans.line. |
-| RTO_IN | Returns | 1 shared | Two paths: intact → direct RTD, damaged → full production flow |
-| DTK | Dispatch Intake | 1 shared (DTK-DISPATCH) | Scans batch label. Validates `rtd`. Sets `handed_over`. No channel selection — fast intake. |
-| ALLOC | Dispatch Allocate | 1 shared (ALLOC-DISPATCH) | Scans batch label. Channel dropdown (filtered by box type). Sets `allocated`. Re-scan overrides. |
-| DOUT | Dispatch Out | 1 shared (DOUT-DISPATCH) | Scans batch label. Hard rejects if not `allocated`. Sets `shipped`. Stamps `dispatch_allocations.shipped_at`. |
-
-### Stage Notes
-**Stage 4 (PKG):** `pkg_scans.line` is the source of truth for which line a unit came from. PKG_OUT device is SHARED — do not use `scans.line` for RTE/RTR dispatch counts.
-
-**Stage 5 (PKG_OUT):** `effectiveLine = pkgScan.line || device.line`. This ensures all dispatch metrics (hourly chart, line cards, PVA cards) attribute correctly.
+| Scan Code | Stage | Notes |
+|---|---|---|
+| INW | End of Assembly | Single scan — car or remote independently |
+| QC_PASS | End of QC | Two-scan if has_remote = true |
+| QC_FAIL | End of QC | Single scan — whichever component failed |
+| WKS | Workshop | System-inferred direction |
+| PKG | Packaging station | Two-scan (car + remote), prints batch label |
+| PKG_OUT | Dispatch Out | Scans batch label — auto-routes RTE/RTR or RTD_RETURN |
+| RTO_IN | Returns | Two paths: intact → direct RTD, damaged → full production flow |
+| DTK | Dispatch Intake | Sets handed_over. Fast intake, no channel selection. |
+| ALLOC | Dispatch Allocate | Channel dropdown (filtered by box type). Sets allocated. |
+| DOUT | Dispatch Out | Hard rejects if not allocated. Sets shipped. |
 
 ### Batch Label Format — LOCKED
-**`LOT-XXXXXXXX-E`** (ecom) or **`LOT-XXXXXXXX-R`** (retail). 50×25mm on TSC TE244.
+`LOT-XXXXXXXX-E` (ecom) or `LOT-XXXXXXXX-R` (retail).
 
 ---
 
-## 6. Devices & Station Mapping ✅ LOCKED
+## 6. Store Receiving System ← redesigned April 2026
 
-| Device Code | Station | Line |
-|---|---|---|
-| INW-L1/L2/L3 | INW | L1/L2/L3 |
-| QCP-L1/L2/L3 | QC_PASS | L1/L2/L3 |
-| QCF-L1/L2/L3 | QC_FAIL | L1/L2/L3 |
-| WKS-L1/L2/L3 | WKS | L1/L2/L3 |
-| PKG-L1/L2/L3 | PKG | L1/L2/L3 |
-| PKG-OUT | PKG_OUT | SHARED |
-| RTO | RTO_IN | SHARED |
+### Mental model
+**Box-first.** Staff open boxes one by one and record what's inside. The system reconciles against PO expectations.
 
-Total: 19 devices. **SHARED devices must never be used to attribute per-line counts** — always join via pkg_scans for dispatch.
+### Flow
+1. Create shipment (linked to PO) → SKU lines auto-populated from PO
+2. Add shipping marks via RANGE entry (prefix + from + to + skip) or SINGLE
+3. Click OPEN BOX on a mark → Box Intake form appears
+4. Box Intake: pre-filled grid of expected SKUs with OK qty + Damaged qty inputs per row
+5. Unexpected items via "+ ADD UNEXPECTED ITEM" escape hatch
+6. Submit box → entries recorded, qty_counted aggregated per SKU
+7. Repeat for each box
+8. Reconciliation panel shows Matched / Short / Over / Has Damage / Pending per SKU
+9. Box Contents panel shows per-mark SKU breakdown
+10. Raise GRN → FBU path (fbu_grn_register + fbu_stock) or Parts path (grn_register + stock_ledger)
 
----
+### Key rules
+- **Short is derived:** expected − (OK + Damaged total). Never manually entered. Only meaningful at final reconciliation.
+- **Split disposition:** OK qty + Damaged qty per SKU per box = two separate entries
+- **Unexpected items:** flagged with UNEXPECTED badge in reconciliation, expected = 0
+- **Parts and FBU:** same flow, different SKU label format
 
-## 7. Operators & Sessions
-
-### Operator Master (`operators` table)
-- Name, role (enum), default line, QR code, active status
-- Managed via dashboard Operators tab
-- QR code format: `LOT-OP-XXXXXXXX` (auto-generated on creation)
-- Physical QR ID cards printed from dashboard → used for scanner login
-
-### Operator Roles (enum)
-`assembly | qc_inline | qc_audit | repair | packing | rtd | store | supervisor | line_manager | production_manager | admin`
-
-### Session Tracking (`operator_sessions` table)
-- Created automatically on every QR card scan login
-- Closed when next operator scans on same device
-- Fields: operator_id, device_id, station, line, production_run_id, shift, login_at, logout_at
-
-### Shift Time Boundaries (IST)
-- **Regular:** 9:00 AM – 6:00 PM (Assembly/QC), 9:00 AM – 7:00 PM (Packing)
-- **OT:** 6:00 PM – 9:00 PM
-- **Double OT:** After 9:00 PM
-- One-hour overlap (6–7pm) intentional for PKG load balancing
+### Upcoming POs
+Receiving list shows two sections: Active Shipments + Upcoming from POs. Upcoming = confirmed POs without a receiving shipment created yet. Click + CREATE SHIPMENT to pre-fill and open the new shipment form.
 
 ---
 
-## 8. Dashboard Access
+## 7. Dispatch System
 
-| Role | Access |
-|---|---|
-| Afshaan | Full access including Operators add/edit |
-| Vinay | Executive + financial views |
-| Varun | Executive + full production |
-| Siddhant | Production manager — hourly live |
-| Kishan | Line manager |
-| Karthik | QC — defect heatmap, training flags |
-| Mahesh | Read-only audit — enforced at worker level |
-
-**Dashboard nav (April 2026):** 5 groups — **Production** (Dashboard, Lines, QC), **Activity** (Scans, Corrections, Alerts, Returns), **Reporting** (Reporting), **Dispatch** (top-level direct, no dropdown), **Admin** (UPC Generator, Operators, Print).
-
-**Reporting tab v2 (April 2026):** Section-first layout. Sections: Production, Cycle Time, Defects, Throughput, Downloads. Time presets: 10 Days / This Week / This Month / Custom. Chart.js with datalabels plugin. Reporting tab excluded from 30s auto-refresh.
-
----
-
-## 9a. Dispatch System ← new April 2026
-
-### Dispatch Flow
+### Flow
 ```
-PKG scan        → pending_rtd    (at production PKG station)
-PKG_OUT scan    → rtd            (production hands off; "PKG Out" count on exec dashboard)
-DTK scan        → handed_over    (dispatch intakes; fast, no channel selection)
-ALLOC scan      → allocated      (dispatch assigns channel; dropdown filtered by box type)
-DOUT scan       → shipped        (physical exit; hard rejects non-allocated)
+PKG → pending_rtd → PKG_OUT → rtd → DTK → handed_over → ALLOC → allocated → DOUT → shipped
 ```
 
-### Scanner Stations
-- **DTK (Dispatch Intake):** Scans batch label, validates `rtd`, no channel selection, fast continuous scanning. Device: `DTK-DISPATCH`, SHARED.
-- **ALLOC (Allocate):** Channel dropdown (loaded from `dispatch_channels`, filtered by box type on scan). `-E` box → ecom channels only, `-R` box → retail/other channels only. Re-scan overrides allocation. Device: `ALLOC-DISPATCH`, SHARED.
-- **DOUT (Dispatch Out):** Scans batch label at physical exit. Hard rejects if unit not `allocated`. Stamps `dispatch_allocations.shipped_at`. Device: `DOUT-DISPATCH`, SHARED.
-
-All three stations use the same device (station selected at login), appear in Scans tab, log to `scan_violations` on wrong sequence.
-
-### Channel Master
-17 channels seeded. Managed via Dashboard → Dispatch → Channel Master. Key fields:
-- `type`: `ecom` | `retail` | `other` — drives box-type validation at ALLOC
-- `fulfillment_model`: `unit` | `bulk` — drives shipment layer behaviour
-- `is_sale`: sale channels = revenue-generating; non-sale = cost (Internal, Influencer, Giveaway)
-
-### Dashboard — Dispatch Tab
-- **Live Dispatch Status** — 4 headline cards: PKG Out (rtd), With Dispatch (handed_over), Allocated, Shipped
-- **Allocated — Awaiting Dispatch** — live channel cards showing allocated count per channel
-- **Sent Out by Channel** — channel cards with date presets (10 Days/This Week/This Month/Custom); summary: X sold · Y non-sale · Z total
-- **Units sub-tab** — filterable unit list (status, channel, date)
-- **Shipments sub-tab** — create shipments, assign units, mark shipped (bulk admin path)
-- **Channel Master sub-tab** — full CRUD for dispatch channels
-
-### Key Constraints
-- Ecom box (`-E`) → only ecom channels at ALLOC. Hard reject.
-- Retail box (`-R`) → retail/other channels only. Hard reject.
-- DOUT hard rejects if unit not `allocated`. Must go DTK → ALLOC → DOUT.
-- `dispatch_allocations.car_upc` is UNIQUE — re-allocation = UPDATE, not INSERT.
-- `override` column exists in schema for future soft-warn cross-type override (not yet built).
+### Key constraints
+- Ecom box (-E) → ecom channels only at ALLOC
+- Retail box (-R) → retail/other channels only
+- DOUT hard rejects if not allocated
+- PKG_OUT line attribution via pkg_scans.line (not scans.line which is SHARED)
 
 ---
 
-## 9. Returns System
+## 8. Returns System
 
 ### Return Categories
-| Code | Name | Definition |
+| Code | Name |
+|---|---|
+| UDR | Undamaged Return |
+| CXR | Customer Return |
+| BRV | Bulk Return — Vendor |
+
+### Flow
+Store receives → intake → inspection → disposition → handover to production → PKG_OUT RTD_RETURN (intact) or repair (damaged)
+
+---
+
+## 9. Print System
+
+`print_jobs` table → Node.js print server (v2.2) on each PKG laptop → TSC TE244 thermal printer. Atomic claiming prevents duplicate prints. v2.2 deployed to L1 and L2. L3 not yet set up.
+
+---
+
+## 10. FBU vs CKD — Key Distinctions
+
+| Aspect | CKD | FBU |
 |---|---|---|
-| UDR | Undamaged Return | Box sealed, product untouched. Batch label scannable on outside. |
-| CXR | Customer Return | Customer opened, returned for any reason. |
-| BRV | Bulk Return — Vendor | Platform or trade partner returning unsold/excess stock in bulk. |
-
-### Return Flow
-1. Store receives return shipment
-2. Store does intake → inspection → disposition (3-stage UI)
-3. Store hands over to production
-4. Production — UDR: Scan batch label at PKG_OUT → `RTD_RETURN`. Does not count in RTE/RTR tally.
-5. Production — Damaged: `wks_repair` → repair run (pending design)
+| Receiving | Part-by-part, bagged | Unit-level, no bagging |
+| Stock ledger | `stock_ledger` (component level) | `fbu_stock` (unit level) |
+| GRN | `grn_register` + `bulk_update_stock_received` | `fbu_grn_register` + `update_fbu_stock_received` |
+| Issue | Issues from `stock_ledger` via BOM | Issues from `fbu_stock` at unit level |
+| Work order | `issue_mode = 'components'` | `issue_mode = 'fbu'` |
+| BOM at INW | Not needed — parts already issued | Not needed — car arrives assembled |
+| Reconciliation | issued = produced × BOM + wastage | issued = INW units (1:1) |
 
 ---
 
-## 10. Print System
+## 11. Key Technical Learnings
 
-### Architecture
-- `print_jobs` table in public schema
-- Print server (Node.js v2.2) on each line's PKG laptop
-- Each server filters by its own line — no cross-line contamination
-- Atomic claiming via conditional PATCH prevents duplicate prints
-
-v2.2 deployed to L1 and L2. **L3 not yet set up.**
-
----
-
-## 11. Store Procurement — BY UNITS Mode ← updated April 2026
-
-Third line item mode in the PO form alongside BOM and MANUAL.
-
-**Flow:** Select product → grid shows all model+color combinations → enter quantities for desired variants → ADD TO ORDER → accumulated queue shown → PO submitted.
-
-**Receive format determines PO line behaviour (April 2026):**
-- **CKD product:** BY UNITS entry explodes BOM via `calcKit` on PO save → PO gets component-level lines
-- **FBU product:** BY UNITS entry stays as unit-level line → PO gets one line per variant with `receive_format = 'FBU'`
-- Format badge shown in grid (blue = FBU, yellow = CKD)
-
-**Data model:** Each CKD line explodes to part_code rows. FBU lines: `po_lines.product`, `po_lines.variant`, `po_lines.color`, `po_lines.receive_format = 'FBU'`. `store.po_lines.color TEXT` and `store.po_lines.receive_format TEXT` added April 2026.
-
-**item_type:** Defaults to 'RC Car' for unit lines. Future: derive from product master when price master is built.
-
-**FBU stock:** Separate `store.fbu_stock` table — one row per product+variant+color. Incremented at FBU GRN, decremented at issue. Shown in stock ledger under FBU UNITS toggle.
-
-**Note:** `PRODUCT_SUBVARIANTS` in the store app needs updating for Nitro, Dash, Fang, Atlas (currently empty arrays — no color grid rendered for those products).
+- `unit_status` enum = lowercase; `activity_type` enum = uppercase — mixing caused live bugs
+- Supabase row limit 5000 (changed from 1000)
+- PKG_OUT scans always have `scans.line = 'SHARED'` — use pkg_scans.car_upc for line attribution
+- `product_master` lookup must use `product_code` not product name
+- `production_runs.id` in store schema is integer not UUID — UUID guard required
+- Supabase Auth Admin API requires `SUPABASE_SERVICE_KEY` for both apikey + Authorization headers
+- `element.style.display = ''` removes inline display property — use explicit value
+- Worker GET vs POST routing — dashboard sends GET; scanner sends POST
+- `body.data || body` pattern for all scanner POST actions
+- **Cloudflare caches HTML for store.legendoftoys.com** — after deploying changes, purge Cloudflare cache (Caching → Purge Everything) or wait for TTL expiry. This has caused confusion multiple times.
+- **receiving_entries.qty_counted recompute** — postBoxIntake recomputes qty_counted on parent receiving_lines after each submission. If values show null, check worker logs for update failure.
 
 ---
 
-## 12. Key Technical Learnings (don't repeat these mistakes)
+## 12. Scale
 
-- The `unit_status` enum uses lowercase values; the `activity_type` enum uses uppercase — mixing these caused live bugs
-- Supabase's default row limit (1000) silently caps query results; use Postgres RPCs to bypass
-- WKS direction (IN/OUT) must be system-inferred from unit status, not operator-selected
-- Worker endpoints must be in the `SCANNER_ACTIONS` array or auth will fail
-- Void rollback is essential: voiding a scan must restore the unit's prior status
-- PKG_OUT auto-routing from batch label suffix eliminates mode selection and prevents cross-channel errors
-- Mahesh Reddy's read-only access must be enforced at the worker level, not just the UI
-- `product_master` lookup must use `product_code`, not product name — name with LIMIT 1 returns first alphabetical match
-- `production_runs.id` in store schema is an integer, NOT a UUID — do not write to `scans.plan_id` without UUID guard
-- All RPCs and views counting QC_PASS/INW must JOIN units and filter `component_type IS DISTINCT FROM 'remote'` — `= 'car'` silently drops scans where component_type is NULL
-- `get_plan_vs_actual` actuals CTE must join via `units.upc` not `product_master.ean`
-- `v_operator_output` grouping by shift caused duplicate rows — shift removed from GROUP BY
-- Print server race condition: use conditional PATCH to atomically claim print jobs
-- **PKG_OUT scans always have `scans.line = 'SHARED'`** — never use `scans.line` for dispatch attribution. Always join via `pkg_scans.car_upc` to get originating line.
-- **Supabase Auth Admin API** requires `SUPABASE_SERVICE_KEY` for both `apikey` AND `Authorization` headers — publishable key is rejected
-- **`element.style.display = ''`** removes the display property from inline styles entirely — if the element had `display:grid` as inline style, it will fall back to block. Restore with explicit `style.display = 'grid'`.
-- **UPC sticker status `applied` at INW** means the sticker was already used — it's a physical floor issue (duplicate/reused sticker), not a system bug. Fix: fresh available sticker from same batch.
-- **Violation logging must be fire-and-forget** — `.catch(() => {})` so scanner response is never blocked by a failed violation insert
-- **BOM group filter mixes two taxonomies** — `part_category` (assembly level: Car/Remote/Accessories) vs `part_type` (material level: Metal/Plastic/Electronic). Metal Parts must filter on `part_type`, not `part_category`
-- **Procurement view init race** — `initProcurement()` was defined but never called from `showView()`. Every view with data needs a `if (name === 'X') { initX(); }` hook in `showView`
-- **get_line_view fragile car filter** — `component_type = 'car'` silently drops scans where units JOIN returns NULL. Always use `IS DISTINCT FROM 'remote'` for "non-remote" counts
-- **issue_mode is per work-order, not per run** — Flare Race Grey can be FBU while Flare Race Green in the same run is CKD. The `issue_mode` toggle only renders on the variant row when `product_master.receive_format = 'FBU'`
-- **Reporting tab must be excluded from 30s auto-refresh** — historical date-range data has no value being re-fetched every 30s; `loadTab` checks `forceRefresh` flag before fetching reporting data
-- **Takt time ≠ cycle time** — cycle time = how long a unit travels between two stations (latency); takt time = inter-scan gap at a single station (throughput pace). Both are needed for different insights.
-- **Takt PKG_OUT uses RTE+RTR gaps not batch label** — PKG_OUT scans a batch label (one per unit) so RTE/RTR scan gaps correctly measure dispatch station throughput
-- **`rpt-section-content` scroll issue** — reporting tab sections are flex children inside a fixed-height `.content` div; they don't inherit pixel height when the tab was hidden during initial `setContentHeight()` call. Need to recompute on section switch, not just on tab switch.
-- **FBU and CKD stock are separate ledgers** — `stock_ledger` = component-level (CKD), `fbu_stock` = unit-level (FBU). Never mix. Issue queue shows both types; store issues from the correct ledger based on WO `issue_mode`.
-- **issue_mode is per work-order, not per run** — Flare Race Grey can be FBU while Flare Race Green in the same run is CKD. The `issue_mode` toggle only renders on the variant row when `product_master.receive_format = 'FBU'`.
-- **Reporting tab `flex-shrink` fix** — `.rpt-section-content>*{flex-shrink:0}` required so section children render at natural height and the container scrolls. Without it, children shrink to fit fixed-height flex container and content below bottleneck viz is invisible.
-- **`setContentHeight()` must be called in `switchRptSection()`** — not just on tab switch. Section is hidden when tab loads, so height is 0 until the section becomes visible.
-- **Worker GET vs POST routing** — dashboard `api()` sends GET; scanner `workerPost()` sends POST. Dispatch dashboard actions must be in the GET switch. Scanner-only actions stay in SCANNER_ACTIONS POST block.
-- **`body.data || body` pattern** — all scanner POST actions send `{ action, data: {...} }`. Worker handlers must destructure from `body.data`, not `body` directly. Use `body.data || body` for backward compat.
-- **`getShipments` name collision** — existing GET case queries store `shipment_progress`. Dispatch version must be named `getDispatchShipments`.
-- **`cancelPkgFlow` / `cancelQcPassFlow` unconditional toast** — these are called on every settings open. Only show toast if flow was actually in progress (check pending state before clearing).
-- **`startSession` column mismatch** — actual `operator_sessions` columns are `shift`, `login_at`, `logout_at`. Not `shift_type`, `shift_start`, `shift_end`, `is_active`.
-- **Scanner station setup screen** — `saveSetup()` queries `#s_stationGroup .seg-btn.on`. If dispatch buttons are in a separate group (`#s_dispatchStationGroup`), both selectors must be combined in the query.
-
-## 13. Takt Time / Throughput ← new April 2026
-
-### What it measures
-**Takt time** = inter-scan gap at each station = pace at which units flow through that station. Distinct from cycle time (which measures how long a unit travels between two stations). Takt is the throughput metric; cycle time is the transit metric.
-
-### Stations measured
-| Station | Source | Line |
-|---|---|---|
-| INW | Car scans only (IS DISTINCT FROM remote) | Per line |
-| QC | QC_PASS + QC_FAIL car scans | Per line |
-| QC_PASS | QC_PASS car scans only | Per line |
-| PKG | PKG car scans | Per line |
-| PKG_OUT | RTE + RTR scans | SHARED (no per-line split) |
-
-### Bottleneck identification
-Within each line: station with lowest units/hr = bottleneck. Visualised as horizontal bars — bar width = relative throughput, colour = green/yellow/red.
-
-### First unit timeline
-Per line per day: timestamp of first scan at each station → elapsed time between stations. Measures line warm-up. Total warm-up = time from first INW to first PKG_OUT on that line that day.
-
-### Takt by run
-Groups inter-scan gaps by scan_date + line + product, joined to production_runs for run_no. Shows which products/runs are slower through each station.
-
-### RPCs
-- `get_takt_time(p_date_from, p_date_to, p_line)` — IQR-cleaned takt per station per line
-- `get_first_unit_timeline(p_date_from, p_date_to, p_line)` — first unit timestamps per station
-- `get_takt_by_run(p_date_from, p_date_to, p_line)` — takt grouped by run
-
-### Where it appears
-- Reporting tab → Throughput section (full view with charts, tables, warm-up)
-- Lines tab → Station Pace strip below each line card (today only)
+| Month | Units/Month |
+|---|---|
+| Now | 20,000 |
+| +6 | 50,000 |
+| +12 | 124,000 |
+| +18 | 308,000 |
+| +24 | 763,000 |
 
 ---
 
-- **Model:** TSC TE244 (confirmed, on-site)
-- **Label size:** 50mm × 25mm
-- **Connection:** USB to Windows laptop at each line's PKG station
-- **Print server:** Node.js (`printserver.js` v2.2) — polling Supabase, filtered by line, atomic claim
-- **Config:** `config.json` — only `"line"` value differs between laptops (L1/L2/L3)
-- **Auto-start:** Windows Startup shortcut on each laptop
-- **Label X position:** 24 dots (April 2026). Confirmed on floor.
+## 13. Build Status
 
----
-
-## 14. Shift & Time
-
-- **Regular shift:** 9:00 AM – 6:00 PM (Assembly/QC), 9:00 AM – 7:00 PM (Packing)
-- **OT:** 6:00 PM – 9:00 PM
-- **Double OT:** After 9:00 PM
-- Biometric attendance exists on-site, not connected to system.
-
----
-
-## 15. Lines & Factory
-
-- 3 lines: L1, L2, L3. Each runs one product at a time.
-- Line switches happen mid-day when parts run out (parts availability = primary daily bottleneck).
-- **New factory acquired, move pending** — system must support more lines without structural changes. Device and line configuration fully dynamic via dashboard.
-
----
-
-## 16. Scale
-
-| Month | Units/Month | Scan Events/Month | upc_pool rows (cumulative) |
-|---|---|---|---|
-| Now | 20,000 | ~100,000 | ~20,000 |
-| +6 | 50,000 | ~250,000 | ~220,000 |
-| +12 | 124,000 | ~620,000 | ~920,000 |
-| +18 | 308,000 | ~1,540,000 | ~3M |
-| +24 | 763,000 | ~3,800,000 | ~10M |
-
-Partition scans table by month at ~500K events/month (~month 10). Dashboard summary cards use `get_scan_summary` RPC — never queries raw scan table.
-
----
-
-## 17. Compliance Readiness
-
-### ISO
-- Full unit traceability (raw material → finished product)
-- Non-conformance records (QC_FAIL + defect codes + scan violations)
-- Corrective action tracking (training flags on repeat defects, Alerts tab)
-- Loss notes for scrapped/damaged/rejected units
-
-### IND AS
-- WIP: units between INW and RTD
-- Finished goods: units at RTD
-- Loss notes carry estimated_value field (filled by Vinay)
-
-### Non-negotiable architectural constraints
-- Records never deleted — void with reason only
-- Every mutation logged with actor + timestamp + metadata
-- Timestamps stored UTC, displayed IST
-- UPC permanent — never reassigned, never reused
-
----
-
-## 18. Integration Points
-
-| System | Direction | What | Status |
-|---|---|---|---|
-| Unicommerce | Out | RTD handoff, channel routing | Manual currently |
-| Biometric | In | Headcount / shift data | On-site, not connected |
-| External UPC printer | Both | Batch gen → A3 print → receive | ✅ Live |
-| TSC TE244 thermal printer | Out | Batch label at each line's PKG station | ✅ Live — polling v2.2 per-line atomic |
-| Supabase | Core | All data | ✅ Live |
-| Cloudflare Workers | API | Auth, logic, mutations | ✅ Live |
-| Store system | Both | Returns handoff, loss notes, handover to production, procurement | ✅ Live |
-
----
-
-## 19. Build Status
-
-### Live & Confirmed Working ✅
+### Live & Confirmed ✅
 - All scanner flows: INW, QC_PASS, QC_FAIL, WKS, PKG, PKG_OUT, RTO_IN
-- PKG label printing — TSC TE244 via Supabase polling v2.2 (atomic claiming)
-- Return system — store UI + production Returns Queue + RTD_RETURN dispatch path
-- **Dashboard nav** — 5 groups: Production/Activity/Reporting/Dispatch/Admin ← April 2026
-- **Reporting tab v2** — section-first, Chart.js charts, Production/Cycle Time/Defects/Throughput/Downloads ← April 2026
-- **Takt time / throughput** — bottleneck viz per line, first unit warm-up timeline, takt by run; scroll bug fixed ← April 2026
-- **Auto-refresh optimisation** — reporting tab skips 30s timer; lines tab skips takt on auto-refresh ← April 2026
-- **FBU/CKD/SKD schema** — product_master columns, remote rows, fbu_stock tables, work_orders.issue_mode ← April 2026
-- **QC_PASS / PKG product_master fix** — component_type=eq.car filter prevents remote rows ← April 2026
-- **Full Dispatch System** — DTK/ALLOC/DOUT scanner stations, dispatch channel master (17 channels seeded), dispatch dashboard (live cards + allocated/shipped channel cards + units table + shipments manager + channel master CRUD), all worker GET/POST endpoints ← April 2026
-- All other previously confirmed features remain live
+- PKG label printing — TSC TE244 via Supabase polling v2.2
+- Full Dispatch system — DTK/ALLOC/DOUT, 17 channels, dispatch dashboard
+- Store receiving overhaul — box-first flow, mark range, box intake, reconciliation, box contents
+- PO order type auto-detection
+- Reporting tab v2, Takt time / throughput
+- FBU/CKD/SKD schema
+
+### 🚨 Critical Open Issue
+**BOX CONTENTS panel invisible on store site** — element is in deployed file but browser returns null. Root cause: Cloudflare CDN serving stale HTML for `store.legendoftoys.com`. **Fix: Cloudflare dashboard → Caching → Purge Everything.** Must be first action next session.
 
 ### Pending Test 🧪
-- **FBU/CKD/SKD store frontend** — BY UNITS BOM explosion, FBU GRN, fbu_stock view, issue_mode on runs, issue queue FBU section
-- **QC_PASS fix** — Knox remote prompt appears correctly after fix
-- **Takt / Throughput** — verify bottleneck detection, warm-up times, takt by run accuracy
-- **Dispatch System** — DTK/ALLOC/DOUT scan flows on real units; dashboard cards populate; channel cards populate after first scans
-
-### Open Issues 🔶
-None currently.
+- FBU/CKD/SKD store frontend (issue_mode, fbu_stock, GRN paths)
+- Receiving overhaul full end-to-end (mark range, box intake, reconciliation, GRN)
+- Dispatch system on real units
 
 ### Pending Build 🔲
-- **Repair run design session** (before any build)
-- **Google sign-in** — Supabase OAuth; domain restriction vs role-gated decision pending
-- **EAN sticker** — separate sticker printed alongside PKG batch label at PKG station; build together with info scan
-- **Info scan / test scanner mode** — scan UPC or batch label → show status, stage history, line, run, channel; both LOT-XXXXXXXX and batch label supported
-- **Dashboard day view** — per-line, per-hour production breakdown for a single day
-- **Consolidated dispatch view** — fresh RTD + RTD_RETURN combined per product per day
-- **Unicommerce integration** — once requirements confirmed; unit-level dispatch data ready in system
-- **Dispatch cross-type override** — currently hard reject; future soft warn with confirmation
-- **GRN receiving template** — CKD BOM explosion vs FBU unit count path
-- **Price master module**
-- Operator performance view
-- Legacy UPC manual entry
-- Reconciliation — Phase 4
-- Audit — Phase 5
-- Assembly stations — Phase 6
-- Biometric integration, Unicommerce reconciliation
-- Dashboard tab RBAC (deferred)
-- Dash/Nitro QR code problem (deferred)
-- material_master name inconsistencies (rename pending)
-- Old para `(old)` items (deactivation pending Afshaan confirmation)
-- PRODUCT_SUBVARIANTS for Nitro/Dash/Fang/Atlas
+- Parts receiving box-first flow (same design as FBU, needs wiring)
+- Repair run design session
+- Google sign-in (OAuth)
+- EAN sticker at PKG
+- GRN receiving template
+- Price master
+- Reconciliation module (Phase 4)
+- Audit module (Phase 5)
+- Assembly stations (Phase 6)
 
 ---
 
-## 20. Open Design Questions
+## 14. Session Start Protocol
 
-1. **Variant rework UPC:** Keep original UPC (preferred) or new UPC?
-2. **Rework approval:** Who triggers and approves recall/rework orders?
-3. **WIP valuation:** Material cost only or material + proportional labour?
-4. **Unicommerce integration:** Formal API or reconciliation-based handoff?
-5. **Biometric integration:** Headcount only or individual operator clock-in/out?
-6. **Defect master ownership:** Who can add/modify defect codes post-seeding?
-7. **QC_PASS timeout:** Should second scan time out after N seconds? Recommend yes.
-8. **Channel barcode scanning:** Currently manual. Future: scan platform return labels directly.
-9. **Legacy UPC gap:** Units dispatched pre-system have no `pkg_scans` record. Build when triggered.
-10. **Consolidated dispatch view:** Fresh RTD + RTD_RETURN combined per product per day. Not yet built.
-11. **Repair run schema:** Two contexts confirmed — inline (same-day, line-specific) vs repair run (L3 auxiliary). Pending full design session.
-12. **Daily/weekly/monthly reporting:** Not yet built.
-13. **`packed` vs `pending_rtd`:** Both in enum. When is it safe to remove `packed`?
-14. **print_jobs retention:** Cleanup policy for old done/failed rows (suggest 30 days).
-15. **All 15 devices APK vs PWA:** Staying on browser PWA viable. Decision deferred.
-16. **Operator performance view:** Per-operator daily scan count, trend over time — data exists, view not built.
-17. **Non-scanning operator allocation:** 20+ assemblers without scanners — deferred to Phase 6.
-18. **Price master module:** Unit cost history per part; BOM should dynamically calculate PO value from price charts.
-19. **Hourly target split intelligence:** Currently equal (target/9 hrs). Future: weight by historical output pattern.
-20. **Dashboard nav bar consolidation:** ✅ Complete — 4 groups live.
-21. **Channel allocation design:** Dispatch system + live ecom vs retail stock view — not yet designed.
-22. **Dashboard day view:** Per-line, per-hour production breakdown for a single day — not yet designed.
-23. **Dash/Nitro QR code:** Cars too small for QR sticker. Needs dedicated design session.
-24. **Old para `(old)` items:** Still active in Bumble/Flare/Ghost/Shadow BOM. Afshaan to confirm before deactivation.
-25. **material_master name inconsistencies:** `HW-TM-POS` and `UNV-CB-2PIN-01` have two different names across products. Rename pending.
-26. **SKD receive format:** Design agreed but deferred — build after FBU+CKD frontend is stable.
-27. **Google sign-in:** Supabase OAuth for dashboard + store. Decision: restrict to `@legendoftoys.com` domain (needs Google Workspace) OR open + role-gated. Scanner stays on QR card auth.
-28. **Takt time thresholds:** Currently ≤5m=green/≤10m=yellow/>10m=red. Arbitrary — calibrate per station per product once data is collected.
-29. **Dispatch cross-type override:** Currently hard rejects ecom box → retail channel. Future: soft warn with manual confirm. `override` column in `dispatch_allocations` ready.
-30. **Dispatch Unicommerce link:** Unit-level dispatch data available. Integration design pending once Unicommerce requirements are confirmed.
-31. **Shipment auto-status from Unicommerce:** Future — auto-set `shipped` via Unicommerce webhook or poll. Currently manual via dashboard.
-
----
-
-## 21. Session Start Protocol
-
-When starting a new build session:
-1. Ask Afshaan to share `LOT_BUILD.md`, `LOT_SYSTEM.md`, and any relevant HTML/worker files
+1. Ask Afshaan to share `LOT_BUILD.md`, `LOT_SYSTEM.md`, and relevant source files
 2. Read all files before writing any code
-3. Check Open Issues first — confirm floor status before building new features
-4. Design before build — discuss architecture conversationally before writing instructions
+3. **Check Open Issues first** — fix before building new features
+4. Design before build
 
 ---
 
