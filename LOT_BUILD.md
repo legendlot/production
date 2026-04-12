@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 2.7 | **Last Updated:** April 2026
+**Version:** 2.8 | **Last Updated:** April 2026
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -13,7 +13,7 @@
 | Scanner PWA | Vanilla JS + ZXing | `scanner.legendoftoys.com` — GitHub Pages, repo `legendlot/production` |
 | Scanner APK | TWA (Bubblewrap) | Built via bubblewrap CLI — `app-release-signed.apk`. PKG station Redmi A5 uses APK. Keystore at `/Users/afshaansiddiqui/Documents/lot-scanner-apk/android.keystore` |
 | Dashboard | Vanilla JS | `dashboard.legendoftoys.com` — GitHub Pages, repo `legendlot/dashboard` |
-| Store system | Vanilla JS | Separate app — store schema. Repo: `legendlot/Stores`. Hosted at `store.legendoftoys.com` via GitHub Pages + Cloudflare custom domain. |
+| Store system | Vanilla JS | Separate app — store schema. Repo: `legendlot/Stores`. Hosted at `store.legendoftoys.com` via GitHub Pages (no Cloudflare proxy — direct GitHub Pages). |
 | Camera/scanning | Native `getUserMedia` + ZXing | Replaced html5-qrcode (MIUI incompatibility) |
 | Print server | Node.js v2.2 | `printserver.js` on each line's PKG station laptop — polls Supabase filtered by line. Atomic job claiming prevents cross-line duplicate prints. No HTTP server, no firewall rules needed. |
 | Thermal printer | TSC TE244 | TSPL, USB, 50×25mm labels, `@thiagoelg/node-printer` |
@@ -156,48 +156,21 @@ failed_at       TIMESTAMPTZ
 id              UUID PRIMARY KEY
 qc_fail_event_id UUID REFERENCES qc_fail_events
 defect_code     TEXT
-severity        TEXT
-```
-
-#### `defect_master` — Defect code definitions
-```
-id              UUID PRIMARY KEY
-code            TEXT
-category        TEXT (enum)         -- Car-Functional | Car-Visual | Remote-Functional | Remote-Visual | Packaging
-issue           TEXT
-severity        TEXT
-sub_issues      JSONB
-is_active       BOOLEAN
-created_at      TIMESTAMPTZ
-component       TEXT                -- 'car' | 'remote' | 'both'
-product         TEXT
-training_flag   BOOLEAN DEFAULT false
-```
-
-#### `unit_pairs` — QC pairing records
-```
-id              UUID PRIMARY KEY
-car_upc         TEXT
-remote_upc      TEXT
-paired_at       TIMESTAMPTZ
-paired_by       UUID
-scan_id         UUID
-status          TEXT                -- active | broken
 ```
 
 #### `pkg_scans` — Packaging station records
 ```
-id              UUID PRIMARY KEY
-car_upc         TEXT NOT NULL
-remote_upc      TEXT
-batch_label     TEXT NOT NULL UNIQUE    -- e.g. LOT-00000042-E
-channel         TEXT                    -- 'ecom' | 'retail'
-operator_id     UUID
-device_id       UUID
-line            TEXT                    -- source of truth for which line dispatched a unit
-packed_at       TIMESTAMPTZ DEFAULT NOW()
+id           UUID PRIMARY KEY
+car_upc      TEXT NOT NULL
+remote_upc   TEXT
+batch_label  TEXT NOT NULL UNIQUE    -- e.g. LOT-00000042-E
+channel      TEXT                    -- 'ecom' | 'retail'
+operator_id  UUID
+device_id    UUID
+line         TEXT                    -- source of truth for which line dispatched a unit
+packed_at    TIMESTAMPTZ DEFAULT NOW()
 rte_rtr_scan_id UUID
-print_sent      BOOLEAN DEFAULT FALSE
+print_sent   BOOLEAN DEFAULT FALSE
 ```
 
 #### `dispatch_channels` — Channel master
@@ -328,6 +301,7 @@ qty_received    NUMERIC
 unit            TEXT
 unit_price      NUMERIC
 receive_format  TEXT                -- 'FBU' | 'CKD' | 'SKD' | null
+component_type  TEXT                -- 'car' | 'remote' | null ← added April 2026
 ```
 
 #### `store.shipments` — Receiving shipments
@@ -370,11 +344,12 @@ line_id         TEXT                -- RCV-001...
 shipment_id     TEXT
 mark_id         TEXT                -- nullable (line level, not entry level)
 part_code       TEXT
-part_name       TEXT
+part_name       TEXT                -- FBU lines: "Dash Street White — Car" or "— Remote" suffix
 product         TEXT
 variant         TEXT                -- added April 2026
 color           TEXT                -- added April 2026
 line_type       TEXT DEFAULT 'parts'  -- 'parts' | 'fbu' | 'unexpected' ← added April 2026
+component_type  TEXT                -- 'car' | 'remote' | null ← added April 2026
 qty_expected    INTEGER DEFAULT 0
 qty_counted     INTEGER DEFAULT 0   -- maintained as sum of receiving_entries.qty
 bags_of         INTEGER DEFAULT 25
@@ -387,6 +362,8 @@ notes           TEXT
 created_at      TIMESTAMPTZ
 updated_at      TIMESTAMPTZ
 ```
+
+**FBU remote line naming:** `part_name` for FBU lines now appends " — Car" or " — Remote" suffix so box intake grid distinguishes them clearly.
 
 #### `store.receiving_entries` — Per-box per-SKU counts ← new April 2026
 ```
@@ -402,6 +379,63 @@ logged_by   TEXT
 created_at  TIMESTAMPTZ DEFAULT now()
 ```
 
+#### `store.fbu_stock` — FBU unit-level stock
+```
+id             BIGSERIAL PRIMARY KEY
+product        TEXT
+variant        TEXT
+color          TEXT
+component_type TEXT DEFAULT 'car'   -- 'car' | 'remote' ← added April 2026
+qty_on_hand    NUMERIC DEFAULT 0
+updated_at     TIMESTAMPTZ
+```
+
+**Unique key:** `(product, variant, color, component_type)` — separate rows for cars and remotes.
+
+#### `store.fbu_grn_register` — FBU GRN records
+```
+grn_no         TEXT
+grn_date       DATE
+product        TEXT
+variant        TEXT
+color          TEXT
+component_type TEXT DEFAULT 'car'   -- 'car' | 'remote' ← added April 2026
+qty_received   NUMERIC
+supplier       TEXT
+po_reference   TEXT
+received_by    TEXT
+notes          TEXT
+```
+
+#### `store.vendor_supplied_items` — Vendor-product associations ← new April 2026
+```
+id             SERIAL PRIMARY KEY
+vendor_code    TEXT NOT NULL
+po_category    TEXT NOT NULL        -- 'fbu' | 'ckd' | 'packaging' | 'metal' | 'electronics' | 'consumables' | 'para' | 'other'
+product        TEXT                 -- nullable = applies to any product in category
+variant        TEXT
+color          TEXT
+component_type TEXT DEFAULT 'all'   -- 'all' | 'car' | 'remote' | 'parts'
+notes          TEXT
+created_at     TIMESTAMPTZ DEFAULT now()
+```
+
+#### `store.reorder_requests` — Stock reorder requests ← new April 2026 (schema only)
+```
+request_id      TEXT PRIMARY KEY
+part_code       TEXT NOT NULL
+part_name       TEXT
+product         TEXT
+requested_qty   INT NOT NULL
+requested_by    TEXT
+urgency         TEXT DEFAULT 'Normal'  -- Normal | Urgent | Critical
+notes           TEXT
+status          TEXT DEFAULT 'Pending' -- Pending | Converted | Rejected
+converted_po_id TEXT
+created_at      TIMESTAMPTZ DEFAULT now()
+updated_at      TIMESTAMPTZ DEFAULT now()
+```
+
 #### `store.shipment_progress` — View
 Columns: `shipment_id, supplier, arrival_date, status, receive_format, total_boxes_expected, total_boxes_received, marks_total, marks_received, parts_total, parts_grn_raised, parts_counted, parts_in_progress`
 Note: Recreated April 2026 (DROP + CREATE) to add `receive_format`. Grants re-applied after recreation.
@@ -411,7 +445,7 @@ Note: Recreated April 2026 (DROP + CREATE) to add `receive_format`. Grants re-ap
 name        TEXT PRIMARY KEY
 current_val INTEGER
 ```
-Seeded sequences include: `grn, wo, iss, ret, rs, ru, shp, mrk, rcv, bag, fl, po, run, ent`
+Seeded sequences include: `grn, wo, iss, ret, rs, ru, shp, mrk, rcv, bag, fl, po, run, ent, vnd`
 **`ent` sequence** added April 2026 for `receiving_entries.entry_id`.
 
 ---
@@ -439,6 +473,9 @@ Seeded sequences include: `grn, wo, iss, ret, rs, ru, shp, mrk, rcv, bag, fl, po
 | `get_takt_time` | Inter-scan gap IQR analysis per station per line | `p_date_from`, `p_date_to`, `p_line` |
 | `get_first_unit_timeline` | First scan per station per line per day | `p_date_from`, `p_date_to`, `p_line` |
 | `get_takt_by_run` | Takt grouped by date+line+product joined to production_runs | `p_date_from`, `p_date_to`, `p_line` |
+| `update_fbu_stock_received` | Upsert fbu_stock on GRN | `p_product, p_variant, p_color, p_qty, p_component_type DEFAULT 'car'` ← updated April 2026 |
+| `update_fbu_stock_issued` | Deduct fbu_stock on issue | `p_product, p_variant, p_color, p_qty` |
+| `bulk_update_stock_received` | Bulk increment stock_ledger | `p_updates` |
 
 ---
 
@@ -471,6 +508,11 @@ Seeded sequences include: `grn, wo, iss, ret, rs, ru, shp, mrk, rcv, bag, fl, po
 | `getUpcomingShipments` | Receiving — POs pending inward without a shipment yet |
 | `getProductReceiveFormats` | Store — product → receive_format map |
 | `getPendingInward` | Store — POs awaiting inward (includes outstanding_lines JSON) |
+| `getVendors` | Procurement — all active vendors |
+| `getVendor` | Procurement — single vendor by code |
+| `getVendorSuppliedItems` | Procurement — items a vendor supplies ← new April 2026 |
+| `getVendorsForProduct` | Procurement — vendors that supply a given category + product ← new April 2026 |
+| `getProductMeta` | Procurement — distinct products with has_remote flag ← new April 2026 |
 
 ## 4b. Worker Endpoints (POST actions)
 
@@ -496,8 +538,14 @@ Seeded sequences include: `grn, wo, iss, ret, rs, ru, shp, mrk, rcv, bag, fl, po
 | `postBoxIntake` | Receiving — bulk entries from box intake form ← new April 2026 |
 | `updateReceivingLine` | Receiving — updates line status/qty |
 | `generateBags` | Receiving — generates bag records for parts line |
-| `raiseGRNFromReceiving` | Receiving — raises GRN, branches FBU vs parts |
+| `raiseGRNFromReceiving` | Receiving — raises GRN, branches FBU vs parts, passes component_type ← updated April 2026 |
 | `updateShipmentStatus` | Receiving — updates shipment status |
+| `postPO` | Procurement — creates PO + lines, passes component_type ← updated April 2026 |
+| `amendPO` | Procurement — amends PO + lines, passes component_type ← updated April 2026 |
+| `postVendor` | Procurement — creates vendor |
+| `updateVendor` | Procurement — updates vendor |
+| `postVendorSuppliedItem` | Procurement — adds supplied item to vendor ← new April 2026 |
+| `deleteVendorSuppliedItem` | Procurement — removes supplied item ← new April 2026 |
 
 ### SCANNER_ACTIONS (bypass JWT, use device auth)
 ```
@@ -528,95 +576,74 @@ Two-scan flow (car + remote). Status → `pending_rtd`. `print_jobs` row inserte
 
 ### PKG_OUT
 - **Fresh** (`pending_rtd`): `-E` → RTE, `-R` → RTR. Both units → `rtd`.
-- **Return RTD**: `RTD_RETURN` scan.
-- **Line attribution:** `effectiveLine = pkgScan.line || d.line || device.line`
-
-### Print Flow — v2.2 Per-Line
-Poll → atomic claim → print → done/failed. v2.2 on L1 and L2. **L3 not yet set up.**
+- **Return** (`rto_in`, intact): RTD_RETURN scan. Unit → `rtd`.
+- **Dispatch return** (`rto_in`, damaged): Full repair flow.
 
 ---
 
-## 6. Dashboard
-**URL:** `dashboard.legendoftoys.com` | **Repo:** `legendlot/dashboard`
+## 6. Store / Receiving System
 
-### Tabs
-| Tab | Key Features |
-|---|---|
-| Executive | KPI cards, hourly battery-cell dispatch chart, PVA cards, runs table |
-| Lines | Per-line cards (today only). SHARED filtered. |
-| QC | Cycle time, FPY, top defects, repeat failures |
-| Runs | Plan vs actual |
-| UPC Generator | Searchable dropdown, car/remote toggle, batch history, print |
-| Scans | Real-time feed, activity filter, UPC search, voided toggle |
-| Corrections | Tier 2 void + Tier 3 amend |
-| Alerts | Scan violations, acknowledge, badge count |
-| Returns | Units in rto_in status |
-| Reporting | Section-first: Production/Cycle Time/Defects/Throughput/Downloads |
-| Operators | Full CRUD, sessions today, QR card print |
-| Print | Single + bulk batch label reprint |
+### Box-first receiving flow
+1. Create shipment (linked to PO) → receiving_lines auto-populated from po_lines
+2. Add shipping marks (RANGE or SINGLE)
+3. OPEN BOX on a mark → box intake grid (one qty per SKU, car + remote for FBU+has_remote)
+4. Submit box → entries written with mark_id
+5. Repeat per box
+6. Reconciliation panel: Matched / Short / Over / Has Damage / Pending per SKU
+7. BOX CONTENTS panel: per-mark SKU breakdown with OK/Damaged columns
+8. RAISE GRN → FBU path (fbu_grn_register + fbu_stock) or Parts path (grn_register + stock_ledger)
 
----
+### FBU remote line handling ← new April 2026
+For FBU POs with `has_remote` products:
+- PO creation (BY UNITS mode): two qty inputs per color row — Car and Remote. Remote defaults to car qty (editable). Pushes two `po_lines` rows with `component_type = 'car'` and `component_type = 'remote'`.
+- `postShipment` seeds two `receiving_lines` rows per variant/color — part_name suffixed with " — Car" or " — Remote".
+- Box intake grid shows both rows distinctly.
+- GRN: `raiseGRNFromReceiving` inserts two `fbu_grn_register` rows and upserts two `fbu_stock` rows (keyed by product + variant + color + component_type).
+- `update_fbu_stock_received` RPC now accepts `p_component_type DEFAULT 'car'`.
 
-## 7. Store System
-**URL:** `store.legendoftoys.com` | **Repo:** `legendlot/Stores`
-
-### Key modules
-- **Overview** — dashboard KPIs
-- **Inventory** — stock ledger, FBU stock toggle, reorder flags, bags
-- **Procurement** — PO creation (FROM BOM / MANUAL / BY UNITS modes), vendor/forwarder management
-- **Receiving** — inbound shipment management (see Section 7a)
-- **Production** — production runs, work orders, issue queue
-- **Store** — GRN entry, issue management
-- **Returns** — return shipments, inspection, disposition
-- **Library** — BOM management, material master
-
-### 7a. Receiving System ← major redesign April 2026
-
-#### Flow
-```
-Create shipment (linked to PO) → auto-populated SKU lines from PO
-→ Add shipping marks (RANGE or SINGLE)
-→ Open box per mark → BOX INTAKE form (PO-linked SKU grid: OK qty + Damaged qty per SKU)
-→ Unexpected items via escape hatch
-→ Reconciliation panel (auto-computed: Matched/Short/Over/Has Damage/Pending per SKU)
-→ Box Contents panel (per-mark SKU breakdown)
-→ Raise GRN (branches FBU → fbu_grn_register + fbu_stock; Parts → grn_register + stock_ledger)
-```
-
-#### Key design principles
-- **Box-first**: primary navigation is by mark/box, not by SKU
-- **Short is derived**: expected − total found, never manually entered
-- **Split disposition**: OK qty + Damaged qty per SKU per box (two entries created)
-- **PO pre-population**: shipment creation auto-inserts receiving_lines from PO outstanding lines
-- **Upcoming POs**: receiving list shows POs without shipments as "upcoming" with + CREATE SHIPMENT
-
-#### Mark range entry
-- Prefix + From + To + Skip (exceptions) → bulk generates marks
-- e.g. prefix=`da-Kai-`, from=1, to=15, skip=8 → 14 marks
-
-#### Reconciliation states (auto-derived)
-- ✅ Matched — total counted = expected
-- 🟠 Has Damage — counted = expected but some damaged
+### Reconciliation status logic
+- ✅ Matched — counted = expected, no damage
+- 🟠 Has Damage — counted = expected but damaged qty > 0
 - 🔴 Short — counted < expected
 - 🟡 Over — counted > expected
 - ⚪ Pending — nothing counted yet
 
-#### Parts vs FBU receiving
+### Parts vs FBU receiving
 Identical flow. Parts lines have part_code + part_name. FBU lines have product + variant + color. `line_type` column distinguishes them. GRN path branches on `line_type`.
 
 ### 7b. PO order type auto-detection
-`detectAndSetOrderType()` fires when lines are added. Maps item_type → order type:
-- RC Car / Construction Toy → Product (locks immediately for BY UNITS)
-- Part / Tie Screw → Component
-- Ecom/Retail Packaging / Tray / Shrink Wrap → Packaging
-- Comic / Manual / Licence Card / Stickers → Para
-- Other → Consumable
-- Tools/Machines → Tools/Machines
+`detectAndSetOrderType()` fires when lines are added. Maps item_type → order type. Yellow border + "auto-detected" label shown when auto-set.
 
-Yellow border + "auto-detected" label shown when auto-set. User can still override manually.
+### 7c. BY UNITS mode — Car/Remote split ← new April 2026
+For FBU products with `has_remote`: grid shows 4-column layout (color | CAR | REMOTE | pcs). Remote input auto-syncs to car qty via `syncRemoteQty()`. Both independently editable. `HAS_REMOTE` constant is a fallback — primary source is `productMetaCache[product]?.has_remote` loaded from `getProductMeta` endpoint.
 
-### 7c. BY UNITS mode — per-product format override
-`poUnitsFormatOverride` map: product → 'FBU'|'CKD'. CKD|FBU toggle shown per product in grid. Default from `receiveFormatCache`. Override shown with ★ and "(overridden)" note. Queue shows Format column. Reset on PO clear.
+---
+
+## 7. Procurement System (partial redesign — April 2026)
+
+### Category picker ← new
+NEW PO form now starts with an 8-card category picker:
+- Full Units (FBU) → BY UNITS mode, China, RMB, FOB
+- Components (CKD) → FROM BOM mode, China, RMB, FOB
+- Packaging / Metal / Electronics / Consumables / Para → MANUAL mode, India, INR
+- Custom / Other → MANUAL mode
+
+Category selection auto-fills: order type, source, currency, incoterms. Mode buttons hidden — mode set by category. Shipping timeline hidden for India orders.
+
+### Vendor supplied items ← new
+Each vendor has a SUPPLIED ITEMS section (visible in edit mode only). Items link a vendor to: `po_category`, `product`, `variant`, `color`, `component_type`. When a product is selected in BY UNITS mode during PO creation, `getVendorsForProduct` is called and auto-fills or shows a picker if multiple vendors match.
+
+### ⚠️ Procurement redesign — INCOMPLETE, needs design session
+Current state:
+- Category picker built and deployed ✅
+- Auto-fill of header fields ✅
+- Vendor supplied items (schema + worker + UI) ✅
+- `productMetaCache` + `getProductMeta` endpoint ✅
+- **PROBLEM:** After selecting FBU category, line items still show all products including CKD ones. CKD/FBU format toggle still visible and functional. Selecting a CKD product in FBU mode shows CKD BOM note, not Car/Remote split.
+- **ROOT CAUSE:** Category selection currently only sets mode and auto-fills header — it doesn't filter the product list or enforce FBU-only display for the chosen category.
+- **DESIGN NEEDED:** Clarify how FBU vs CKD remote tracking works. For CKD products, remotes are part of the BOM — different from FBU where cars and remotes are tracked as separate unit-level lines. The procurement UI needs to reflect this clearly without confusing the user.
+
+**Next session must start with a design conversation before any further procurement code.**
 
 ---
 
@@ -624,18 +651,25 @@ Yellow border + "auto-detected" label shown when auto-set. User can still overri
 
 | Change | SQL | Purpose |
 |---|---|---|
-| `store.shipments.receive_format` | `ALTER TABLE store.shipments ADD COLUMN IF NOT EXISTS receive_format TEXT DEFAULT 'parts'` | FBU vs parts receiving |
-| `store.receiving_lines.variant/color/line_type` | `ALTER TABLE store.receiving_lines ADD COLUMN IF NOT EXISTS variant TEXT; ... color TEXT; ... line_type TEXT DEFAULT 'parts'` | FBU line support |
-| `store.receiving_entries` | `CREATE TABLE store.receiving_entries (...)` + GRANT | Per-box per-SKU entry table |
-| `store.sequences 'ent'` | `INSERT INTO store.sequences (name, current_val) VALUES ('ent', 0)` | entry_id sequence |
-| `store.shipment_progress` view | DROP + CREATE to add `receive_format` column + re-GRANT | FBU badge in shipments list |
-| **store.po_lines.color** | `ALTER TABLE store.po_lines ADD COLUMN IF NOT EXISTS color TEXT` | BY UNITS color ordering |
-| **store.po_lines.receive_format** | `ALTER TABLE store.po_lines ADD COLUMN IF NOT EXISTS receive_format TEXT` | PO-level FBU override |
-| **store.fbu_stock + fbu_grn_register + fbu_issue_register** | Created April 2026 | FBU stock tracking |
-| **work_orders.issue_mode** | `ALTER TABLE store.work_orders ADD COLUMN IF NOT EXISTS issue_mode TEXT DEFAULT 'components'` | Per-WO FBU vs components |
-| **update_fbu_stock_received / update_fbu_stock_issued RPCs** | Created April 2026 (store schema) | FBU stock increment/decrement |
-| **product_master: component_type, receive_format, linked_product_code** | ALTER TABLE + backfill + 23 remote rows seeded | FBU/CKD procurement format |
-| **Dispatch system** | dispatch_channels, dispatch_shipments, dispatch_allocations + enums | Full dispatch flow |
+| `store.shipments.receive_format` | ALTER TABLE | FBU vs parts receiving |
+| `store.receiving_lines.variant/color/line_type` | ALTER TABLE | FBU line support |
+| `store.receiving_entries` | CREATE TABLE + GRANT | Per-box per-SKU entry table |
+| `store.sequences 'ent'` | INSERT | entry_id sequence |
+| `store.shipment_progress` view | DROP + CREATE + re-GRANT | FBU badge in shipments list |
+| `store.po_lines.color` | ALTER TABLE | BY UNITS color ordering |
+| `store.po_lines.receive_format` | ALTER TABLE | PO-level FBU override |
+| `store.fbu_stock + fbu_grn_register + fbu_issue_register` | CREATE TABLE | FBU stock tracking |
+| `store.work_orders.issue_mode` | ALTER TABLE | Per-WO FBU vs components |
+| `update_fbu_stock_received / update_fbu_stock_issued RPCs` | CREATE FUNCTION | FBU stock increment/decrement |
+| `product_master: component_type, receive_format, linked_product_code` | ALTER TABLE + backfill + 23 remote rows | FBU/CKD procurement format |
+| Dispatch system tables | CREATE TABLE | Full dispatch flow |
+| **store.po_lines.component_type** | `ALTER TABLE store.po_lines ADD COLUMN IF NOT EXISTS component_type TEXT` | Car vs remote line distinction ← April 2026 |
+| **store.receiving_lines.component_type** | `ALTER TABLE store.receiving_lines ADD COLUMN IF NOT EXISTS component_type TEXT` | Passed through from po_lines ← April 2026 |
+| **store.fbu_stock.component_type** | `ALTER TABLE store.fbu_stock ADD COLUMN IF NOT EXISTS component_type TEXT DEFAULT 'car'` | Separate car/remote stock rows ← April 2026 |
+| **store.fbu_grn_register.component_type** | `ALTER TABLE store.fbu_grn_register ADD COLUMN IF NOT EXISTS component_type TEXT DEFAULT 'car'` | GRN tracking per component ← April 2026 |
+| **update_fbu_stock_received RPC** | `CREATE OR REPLACE FUNCTION` — added `p_component_type TEXT DEFAULT 'car'` param | Upsert key now includes component_type ← April 2026 |
+| **store.vendor_supplied_items** | CREATE TABLE | Vendor-product associations for PO auto-fill ← April 2026 |
+| **store.reorder_requests** | CREATE TABLE | Reorder request pipeline (schema only) ← April 2026 |
 
 ---
 
@@ -670,8 +704,11 @@ Yellow border + "auto-detected" label shown when auto-set. User can still overri
 | 3v | Takt Time / Throughput | ✅ Complete |
 | 3w | Auto-refresh Optimisation | ✅ Complete |
 | 3x | Dispatch System | ✅ Complete |
-| 3y | Store Receiving Overhaul | ✅ Complete — box-first flow, mark range entry, PO auto-populate, box intake with OK/Damaged split, reconciliation panel, box contents panel, upcoming POs, FBU + parts path unified (April 2026) |
-| 3z | PO Order Type Auto-detection | ✅ Complete — item_type → order type mapping, auto-set with yellow border, manual override supported (April 2026) |
+| 3y | Store Receiving Overhaul | ✅ Complete — box-first flow, mark range, box intake OK/Damaged split, reconciliation, box contents panel, upcoming POs, FBU + parts unified |
+| 3z | PO Order Type Auto-detection | ✅ Complete |
+| 3aa | BOX CONTENTS + qty_counted bug fix | ✅ Complete — root cause was stale GitHub Pages cache; dummy commit forced redeploy |
+| 3ab | FBU Remote Tracking (component_type) | ✅ Schema + worker deployed. Car/Remote split in BY UNITS grid live. |
+| 3ac | Procurement Redesign | ⚠️ Partial — category picker + vendor supplied items built; FBU product filtering broken; needs design session |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
@@ -680,49 +717,51 @@ Yellow border + "auto-detected" label shown when auto-set. User can still overri
 
 | Issue | Detail |
 |---|---|
-| **BOX CONTENTS panel not rendering on store site** | `getElementById('box-contents-body')` returns null in browser despite element being present in deployed GitHub file. Cloudflare CDN is caching stale HTML for `store.legendoftoys.com`. **Fix: purge Cloudflare cache** (Caching → Configuration → Purge Everything) for `store.legendoftoys.com`. Verify by checking `box-contents-body` in console after purge. |
-| **`qty_counted` null on receiving lines** | `postReceivingEntry` recomputes and writes `qty_counted` via `update()` but the value shows null in the UI. Error checking added to the handler — if purge resolves the cache issue, test again to see if this is also a stale-file symptom or a genuine worker bug. |
+| **Procurement redesign incomplete** | Category picker built but selecting FBU still shows all products + CKD toggle in line items. Product list not filtered by category. FBU vs CKD remote handling needs design — for CKD, remotes are part of the BOM; for FBU, they're separate unit-level lines. **Must design before building further.** |
 
 ### Pending Test — built but not yet verified on floor
 
 | Item | What to test |
 |---|---|
 | **FBU/CKD/SKD Store Frontend (3r)** | BY UNITS CKD BOM explosion; FBU GRN; fbu_stock view; issue_mode on runs; issue queue FBU section |
-| **Receiving overhaul (3y)** | Mark range entry; box intake OK/Damaged split; reconciliation Matched/Short/Over/Damage states; box contents per-mark breakdown; GRN raise FBU + parts paths; upcoming POs list |
+| **FBU remote tracking (3ab)** | Create Dash FBU PO with car + remote lines → create shipment → box intake → raise GRN → verify fbu_stock has two rows per variant (car + remote) |
 | **QC_PASS fix (3s)** | Knox remote prompt appears correctly |
 | **Takt / Throughput (3v)** | Throughput section scroll; bottleneck detection; first unit warm-up |
 | **Dispatch System (3x)** | Full DTK→ALLOC→DOUT flow on real units |
 
 ### Pending Build Items (prioritised)
 
-**Next up (after fixing open issues):**
-1. **Parts receiving flow** — extend box-first receiving to parts shipments (same flow, different SKU grid). Currently designed for FBU; parts path needs the box intake form connected for CKD shipments.
-2. **Repair run design session** — full design before any build
-3. **Google sign-in** — Supabase OAuth
+**Next session — must start with design:**
+1. **Procurement redesign design session** — clarify FBU vs CKD remote tracking in procurement context; fix product filtering by category; finalize vendor auto-fill flow; then build
+2. **Parts receiving flow** — box-first receiving for CKD shipments; same design as FBU, parts path needs wiring
+3. **Repair run design session** — full design before any build
+4. **Google sign-in** — Supabase OAuth
 
 **Store backlog:**
-4. **GRN receiving template** — CKD BOM explosion vs FBU unit count (schema + frontend done; GRN template not yet built)
-5. **Price master module**
+5. **Reorder requests** — schema done; UI + worker endpoints + stock page integration pending
+6. **Print PO** — generate formatted PDF for emailing to vendor
+7. **GRN receiving template** — CKD BOM explosion vs FBU unit count
+8. **Price master module**
 
 **Dashboard backlog:**
-6. **EAN sticker** — separate sticker at PKG station
-7. **Info scan / test scanner mode**
-8. **Dashboard day view for production**
-9. **Consolidated dispatch view**
+9. **EAN sticker** — separate sticker at PKG station
+10. **Info scan / test scanner mode**
+11. **Dashboard day view for production**
+12. **Consolidated dispatch view**
 
 **General backlog:**
-10. **Unicommerce integration**
-11. **Manual override cross-type allocation**
-12. **Legacy UPC manual entry**
-13. **Reconciliation module** — Phase 4
-14. **Audit module** — Phase 5
-15. **Assembly stations** — Phase 6
-16. **Dashboard tab RBAC**
-17. **Biometric integration**
-18. **APK rollout to all 15 devices**
-19. **Dash/Nitro QR code problem**
-20. **material_master name inconsistencies**
-21. **Old para items with `(old)` suffix** — pending Afshaan confirmation
+13. **Unicommerce integration**
+14. **Manual override cross-type allocation**
+15. **Legacy UPC manual entry**
+16. **Reconciliation module** — Phase 4
+17. **Audit module** — Phase 5
+18. **Assembly stations** — Phase 6
+19. **Dashboard tab RBAC**
+20. **Biometric integration**
+21. **APK rollout to all 15 devices**
+22. **Dash/Nitro QR code problem**
+23. **material_master name inconsistencies**
+24. **Old para items with `(old)` suffix** — pending Afshaan confirmation
 
 ---
 
@@ -771,6 +810,11 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | **receive_format auto-select** | Derived from po_lines outstanding_lines JSON in po_pending_inward | Data already available; no extra query needed |
 | **Order type auto-detect** | item_type → order type mapping, dominant type wins | Eliminates manual selection for 95% of POs |
 | **Dispatch station setup** | Scanner Device Setup screen split into Production + Dispatch sections | Prevents production operators from accidentally selecting dispatch stations |
+| **component_type on po_lines/receiving_lines/fbu_stock** | Text column 'car'|'remote'|null | Enables separate car and remote tracking through full PO→receiving→GRN→stock flow ← April 2026 |
+| **FBU remote qty default** | Remote defaults to car qty, independently editable | Supplier usually ships same qty; user adjusts when they have spare remotes ← April 2026 |
+| **GitHub Pages cache** | Dummy commit (add space) forces Pages CDN invalidation | Pages/Fastly caches HTML aggressively; no Cloudflare proxy on store site ← April 2026 |
+| **Procurement category-first** | 8-card picker replaces 3 mode buttons | Intent-centric UX — what you're buying determines the form, not technical mode ← April 2026 (incomplete) |
+| **Vendor supplied items** | Separate table links vendors to categories/products | Drives PO auto-fill without requiring manual vendor selection per order ← April 2026 |
 
 ---
 
@@ -795,7 +839,9 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 17. **Takt time thresholds:** Currently ≤5m/≤10m/>10m. Arbitrary — calibrate per station per product.
 18. **Dispatch Unicommerce link:** Integration design pending.
 19. **SKD receive format:** Deferred — build after FBU+CKD stable.
-20. **Cloudflare cache invalidation strategy:** Store site uses Cloudflare CDN. HTML changes may not propagate immediately. Consider cache-busting strategy or setting HTML cache TTL to 0.
+20. **Procurement: FBU vs CKD remote in line items** — CKD remotes are BOM components; FBU remotes are unit-level lines. Category picker must enforce this distinction in product display and line item mode. Design needed.
+21. **Reorder requests workflow** — Schema built. UI entry point (from stock page + procurement page), part code validation, and convert-to-PO flow not yet built.
+22. **Print PO** — Designed; not built. Language-ready (Chinese support deferred).
 
 ---
 
