@@ -1210,6 +1210,7 @@ async function saveSetup() {
       stationLabel: stationEl.dataset.val,
       line,
       deviceCode:   device.device_code,
+      deviceId:     device.id,
       activity:     STATION_DEFS[stationCode]?.activity || stationCode,
       shift:        currentShift,
       camFacing:    camEl ? camEl.dataset.val : 'environment',
