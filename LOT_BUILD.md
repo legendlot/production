@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 2.8 | **Last Updated:** April 2026 (Session: 13 Apr 2026)
+**Version:** 2.9 | **Last Updated:** April 2026 (Session: 14 Apr 2026)
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -190,6 +190,8 @@ RLS policy `service_role_all` exists. `vendor_supplied_items_id_seq` granted to 
 | `get_pkg_cycle_time` | Avg time QC_PASS → PKG with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
 | `get_rtd_cycle_time` | Avg time PKG → RTE/RTR with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
 | `next_seq` | Auto-increment named sequences | `seq_name` |
+| `next_seq_batch` | Reserve N sequential values atomically, returns first value | `seq_name`, `batch_count` | ← April 14 2026 |
+| `recompute_line_counts` | Batch-update qty_counted + status on receiving_lines from entries sum | `p_line_ids TEXT[]` | ← April 14 2026 |
 | `get_line_car_remote_split` | Per-line car/remote counts for INW and QC_PASS | `p_date` |
 | `get_dispatch_by_pkg_line` | RTE/RTR counts attributed via pkg_scans.line | `p_date` |
 | `get_hourly_dispatch_by_line` | Dispatched units per hour per line via pkg_scans join | `p_date` |
@@ -225,6 +227,9 @@ RLS policy `service_role_all` exists. `vendor_supplied_items_id_seq` granted to 
 | `getPkgScanLookup` | Print tab |
 | `getSettings` | Store — reads store.settings table ← new April 13 2026 |
 | `getReorderRequests` | Store — list reorder requests with status/urgency filter ← new April 13 2026 |
+| `getGRN` | Store — full grn_register list |
+| `getGRNSummary` | Store — grouped GRN summary view |
+| `getGRNDetail` | Store — summary + all lines for a single GRN | ← April 14 2026 |
 
 ## 4b. Worker Endpoints (POST actions)
 
@@ -248,6 +253,11 @@ RLS policy `service_role_all` exists. `vendor_supplied_items_id_seq` granted to 
 | `deleteVendorSuppliedItem` | Store — delete by id |
 | `postReorderRequest` | Store — creates RR-XXXX reorder request ← new April 13 2026 |
 | `updateReorderRequest` | Store — convert to PO or reject with note ← new April 13 2026 |
+| `postShipment` | Store — creates shipment + auto-populates receiving lines from PO; bag_size from material_current ← updated April 14 2026 |
+| `postBoxIntake` | Store — batch entry insert + recompute_line_counts RPC; subrequest-safe ← updated April 14 2026 |
+| `generateBags` | Store — append-only bag generation per line; updates total_bags on existing bags ← updated April 14 2026 |
+| `generateBagsForShipment` | Store — batch append-only bag generation for all counted lines in a shipment ← new April 14 2026 |
+| `updateLineBagSize` | Store — edit bags_of per receiving line; applies to future bags only ← new April 14 2026 |
 
 ---
 
@@ -280,8 +290,27 @@ Unchanged from prior sessions.
 - Car rows show green "Car" badge, Remote rows show blue "Remote" badge
 - Column header: "Product / Type" (was "Product")
 
-### FBU remote line collapsing ← new April 13 2026
-Remote lines in FBU PO are now product-level, not variant/color level. `addUnitsToQueue()` accumulates all remote qtys per product and pushes one collapsed "Flare Remote" line. Rationale: remotes arrive as product SKU, not variant-specific. Applies to all `has_remote` products.
+### Bag system ← new April 14 2026
+- `bags_of` on receiving lines now pulled from `material_current.bag_size` at shipment creation (was hardcoded 25)
+- Bag generation is **append-only**: only generates bags for qty not yet bagged; appends from `existing_count + 1`; updates `total_bags` on all prior bags for that line
+- Multiple bag sizes per part across shipments fully supported — each bag carries its own qty
+- Bag ID format: `BAG-{part_code}-{line_id_last6}-{seq}` — globally unique, QR-scannable at issue time
+- Label format: LOT logo + part code + shipment ref | part name + qty + bag X of Y | QR of bag_id | unique bag ID footer
+- Per-line controls in reconciliation: editable bag size, expected bag count, GEN button, Print button
+- GEN ALL BAGS + PRINT ALL at reconciliation header level
+- Editing bag size after bags exist: new size applies to new bags only (old sealed bags unchanged)
+
+### GRN improvements ← April 14 2026
+- `grn_summary` view rebuilt: single product if uniform, "N products" if mixed, "—" if all blank
+- `product` field in `grn_register` now derived from `bom_current` for lines with blank product (HW/UNV parts inherit parent product)
+- GRN rows are now clickable — opens detail modal with full line-by-line breakdown
+- GRN detail modal placed at app root (not inside receiving section) so it works from any page
+
+### Cloudflare subrequest limit fixes ← April 14 2026
+- Root cause: Cloudflare Workers limit = 50 subrequests per invocation. CKD POs with 77 lines hit this in 3 places.
+- `postShipment`: `batchNextSeq` for receiving line IDs (1 RPC instead of N)
+- `postBoxIntake`: `batchNextSeq` for ENT IDs + single batch insert + `recompute_line_counts` RPC (was N×4 subrequests)
+- `raiseGRNFromReceiving`: single batch update with `IN` filter (was N individual updates)
 
 ---
 
@@ -297,19 +326,36 @@ Procurement
 └── Forwarders       ← unchanged
 ```
 
-### PO Creation flow — rebuilt
-**Step 1: Category** — 8-card picker. Sets order type, source, currency, incoterms automatically.
+### PO Creation flow — FBU ← updated April 14 2026
+**New layout:** Product selector panel comes FIRST (before ORDER DETAILS). Header is now a contained breadcrumb bar. Expected Delivery field removed from ORDER DETAILS (calculated from Shipping Timeline instead).
+- SELECT PRODUCT panel: single product dropdown + format badge
+- ORDER DETAILS: Vendor + Payment Terms only (no expected delivery)
+- LINE ITEMS: variant qty grid + ADD TO ORDER + queue
+- SHIPPING TIMELINE: calculates expected arrival; auto-sets `po-delivery` hidden field
 
-**Step 2: Order Details** — split layout:
-- Auto-set strip (compact, read-only): shows order type · source · currency · incoterms. EDIT button reveals editable fields if override needed.
-- User fills: Vendor (searchable, auto-filled from supplied items) · Payment Terms · Expected Delivery · Lead Time (auto) · Port of Loading · Notes
+### PO Creation flow — CKD ← rebuilt April 14 2026
+**New mode:** `ckd-units` (replaces old `bom` mode). Multi-product queue with BOM explosion.
 
-**Step 3: Line Items** — changes per category:
-- FBU: Step 1 = select product → FBU format badge forced regardless of product default → Step 2 = enter car + remote qtys per variant/color
-- CKD: product + variant + BOM explosion
-- All others: manual part code rows
+**SELECT PRODUCTS panel:**
+- Add multiple products from dropdown; each expands into variant grid
+- Each variant row: Car qty + Remote qty (Remote defaults to mirror Car, editable independently)
+- Remote qty is **product-level** in explosion: sum of all variant remote qtys per product
+- `CKD_EXCLUDED_PRODUCTS`: Dash, Nitro, Flare LE (FBU-only — hidden from CKD selector)
+- EXPLODE BOM button enabled once any qty is entered
 
-**Format locking:** Category always overrides `receiveFormatCache`. FBU category → FBU format in grid, badge, and submission. No CKD toggle shown when category is set. Fixed April 13 2026.
+**BOM explosion logic:**
+- Car parts: `calcKit(product, variant, colour, carQty)` per variant row, **excluding Remote category**
+- Remote parts: `calcKit(product, '', '', totalRemoteQty)` per product, **Remote category only**
+- Parts merged by `part_code` across all calls (quantities summed)
+- Results grouped into display categories: Car Parts, Remote Parts, Fasteners, Batteries, Packaging (off by default), Para (off by default), Other
+
+**LINE ITEMS panel after explosion:**
+- Summary bar: total cars + remotes, per-product breakdown
+- Collapsible BOM groups with master include/exclude toggle per group
+- Editable qty per part row
+- RE-SELECT button resets explosion
+
+**On submit:** `getCKDLines()` reads checked groups + edited qtys; submitted as parts lines with `receive_format: 'CKD'`
 
 ### Vendor supplied items — redesigned April 13 2026
 Three supply types (replaces old category+product+variant+color+component_type system):
@@ -346,7 +392,10 @@ Managed via `store.settings` table, key `po_approval_threshold`. Null = self-app
 | `store.settings` RLS | GRANT ALL TO service_role | Permission fix (RLS disabled on table) ← April 13 2026 |
 | `store.reorder_requests` RLS | GRANT ALL TO service_role | Permission fix (RLS disabled on table) ← April 13 2026 |
 | `public.product_master` | INSERT 2 rows (FERK car + FEXXR remote) | Flare LE product added ← April 13 2026 |
-| All prior schema changes | — | See v2.7 for full history |
+| `store.next_seq_batch` | CREATE FUNCTION | Batch sequence reservation — returns first value of N reserved | ← April 14 2026 |
+| `store.recompute_line_counts` | CREATE FUNCTION | Batch recompute qty_counted on receiving_lines | ← April 14 2026 |
+| `store.grn_summary` | CREATE OR REPLACE VIEW | Product column now shows single product / "N products" / "—" | ← April 14 2026 |
+| All prior schema changes | — | See v2.8 for full history |
 
 ---
 
@@ -364,6 +413,11 @@ Managed via `store.settings` table, key `po_approval_threshold`. Null = self-app
 | 3af | `buildProductList` FBU fix | ✅ Complete — FBU products with no BOM now appear in all dropdowns ← April 13 2026 |
 | 3ag | QC line attribution fix | ✅ Complete — Knox QC_PASS scans corrected L1→L2 via SQL; scanner setup screen now shows active run per line ← April 13 2026 |
 | 3ah | Flare LE product | ✅ Complete — product_master rows inserted, store frontend updated ← April 13 2026 |
+| 3ai | FBU PO form redesign | ✅ Complete — product-first layout, breadcrumb header, expected delivery removed ← April 14 2026 |
+| 3aj | CKD PO flow rebuild | ✅ Complete — ckd-units mode, multi-product queue, BOM explosion, grouped result, editable qtys ← April 14 2026 |
+| 3ak | Cloudflare subrequest fixes | ✅ Complete — batchNextSeq, recompute_line_counts, batch IN filter ← April 14 2026 |
+| 3al | Bag system | ✅ Complete — append-only generation, material_master bag_size defaults, per-line controls, labels with QR ← April 14 2026 |
+| 3am | GRN improvements | ✅ Complete — grn_summary view rebuilt, detail modal, product derivation from bom_current ← April 14 2026 |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
@@ -376,29 +430,28 @@ None currently. All known bugs fixed this session.
 
 | Item | What to test |
 |---|---|
+| **CKD PO full flow** | Create CKD PO with Ghost × 125 → explode BOM → submit → PO lines correct |
+| **Receiving against CKD PO** | Create shipment → marks → open box → submit → reconciliation shows correctly |
+| **Bag generation** | GEN per line → correct bag count; GEN ALL → all lines; PRINT → label with QR opens |
+| **Bag append** | Day 2 more qty → GEN → new bags appended, total_bags updated on existing bags |
+| **GRN detail modal** | Click GRN row → modal opens with correct lines and qtys |
+| **FBU PO form** | Product-first layout renders; expected delivery absent; shipping timeline auto-calculates |
 | **Dispatch DTK fix (3ad)** | Operator redoes setup on DTK device → DTK scan succeeds |
 | **INW component_type fix (3ae)** | Ghost Burnout Red and remote stickers inward with correct component_type |
-| **Procurement full flow** | FBU PO → Flare → quantities → submit → no BOM explosion; remote line collapsed to product level |
-| **Reorder request flow** | Submit by part code → appears in procurement dashboard → convert to PO → RR marked Converted |
-| **Vendor supplied items** | Add product/part/category type items; auto-fill works on PO creation |
-| **Setup screen active run display** | Operator selects line → sees active product/run before confirming |
-| **Flare LE UPC batch** | Generate 200 stickers via UPC Generator → confirm batch created |
-| **FBU/CKD/SKD Store Frontend (3r)** | BY UNITS CKD BOM explosion; FBU GRN; fbu_stock view; issue_mode on runs |
-| **Dispatch System (3x)** | Full DTK→ALLOC→DOUT flow on real units |
 
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **Scanner setup screen: show active run** — when operator picks a line, show current product + run number before they hit LAUNCH (prevents wrong-line mistakes like today's Knox/L1 incident). Design agreed; build pending.
-2. **Reorder requests — stock page integration** — raise request directly from stock/inventory page (entry point 2). Current: procurement tab only.
-3. **Procurement approval gate** — wire `po_approval_threshold` from settings to actual PO status. Currently UI indicator exists but no enforcement.
-4. **Parts receiving box-first flow** — CKD shipment box intake (FBU path done; parts path needs wiring)
-5. **Repair run design session** — full design before any build
+1. **Full receiving → stock flow verification** — end-to-end with real CKD PO on live data
+2. **Scanner setup screen: show active run** — when operator picks a line, show current product + run before LAUNCH
+3. **Reorder requests — stock page integration** — raise request directly from stock/inventory page
+4. **Procurement approval gate** — wire `po_approval_threshold` to actual PO status enforcement
+5. **Repair run design session** — design only, no code
 
 **Store backlog:**
 6. **Print PO** — PDF for emailing to vendor
-7. **GRN receiving template** — CKD BOM explosion vs FBU unit count
-8. **Price master module**
+7. **Price master module**
+8. **Parts receiving reconciliation edge cases** — Short/Over/Damage handling in GRN raise flow
 
 **Dashboard backlog:**
 9. **EAN sticker** — separate sticker at PKG station
@@ -407,7 +460,7 @@ None currently. All known bugs fixed this session.
 12. **Consolidated dispatch view**
 
 **General backlog:**
-13. **Product entry frontend** — UI for adding new products/variants without SQL or code changes ← noted April 13 2026
+13. **Product entry frontend** — UI for adding new products/variants without SQL
 14. **Unicommerce integration**
 15. **Legacy UPC manual entry**
 16. **Reconciliation module** — Phase 4
@@ -453,7 +506,11 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | **store.settings table** | Key-value store for system config | First use: `po_approval_threshold`. Managed by super_admin. ← April 13 2026 |
 | **RLS on new tables** | Disabled; GRANT ALL to service_role | Worker uses service_role key; RLS without policies = permission denied ← April 13 2026 |
 | **buildProductList FBU products** | Merge PRODUCT_VARIANTS keys into product list | FBU products have no BOM entries → never appeared in `materialCache` → missing from all dropdowns ← April 13 2026 |
-| All prior decisions | — | See v2.7 for full history |
+| **Cloudflare 50-subrequest limit** | Never loop `await` calls per-line in a Worker handler. Always batch: use `batchNextSeq` for sequences, single INSERT for row arrays, `IN` filter for batch updates, RPCs for aggregate operations. N lines = must stay under ~40 total subrequests including auth + logging. ← April 14 2026 |
+| **`closing_stock` is generated** | `stock_ledger.closing_stock` is a Postgres generated column (`opening_stock + total_received - total_issued + returned`). Cannot UPDATE directly. Reverse stock by subtracting from `total_received`. ← April 14 2026 |
+| **`grn_register.product` blank for CKD** | `receiving_lines.product` is null for hardware/universal parts. Fix: derive from `bom_current` by part_code at GRN creation time. ← April 14 2026 |
+| **Fixed-position modals must be at app root** | A `position:fixed` element inside a `display:none` parent is hidden regardless. GRN detail modal (and any future modals) must live outside all view sections, directly inside `#app`. ← April 14 2026 |
+| All prior decisions | — | See v2.8 for full history |
 
 ---
 

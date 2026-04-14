@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 2.8 | **Last Updated:** April 2026 (Session: 13 Apr 2026)
+**Version:** 2.9 | **Last Updated:** April 2026 (Session: 14 Apr 2026)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -12,7 +12,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Full production operations system live on floor. Full procurement system rebuilt and live — category-first PO creation, redesigned header, reorder requests, vendor supplied items (product/part/category model). Scanner `deviceId` bug fixed (DTK/ALLOC/DOUT now working). INW `component_type` derivation fixed (no more remote stickers being classified as cars). Flare LE product added to system. Line attribution correction tooling used in production (Knox QC scans corrected L1→L2).
+**Current state:** Full production operations system live on floor. Procurement system live with FBU and CKD PO flows fully rebuilt. CKD PO now uses multi-product queue with live BOM explosion, grouped editable results, and correct car/remote separation. Receiving system live with full box-first flow, bag generation (append-only, QR labels), and GRN raise updating stock. Cloudflare subrequest limit issues resolved across postShipment, postBoxIntake, and raiseGRNFromReceiving. GRN detail modal built and accessible from any page.
 
 ---
 
@@ -146,19 +146,23 @@ Procurement
 └── Forwarders
 ```
 
-### PO creation flow
-1. **Category** (8 cards) — FBU / CKD / Packaging / Metal / Electronics / Consumables / Para / Other
-2. **Order Details** — auto-set strip (type · source · currency · incoterms, EDIT to override) + user fills (vendor · payment terms · delivery · port · notes)
-3. **Line items** — mode set by category, not user
+### PO creation flow — FBU
+1. **Category** (8 cards) — FBU sets Product type, China, RMB, FOB automatically
+2. **SELECT PRODUCT** panel (first) — product dropdown + format badge
+3. **Order Details** — Vendor + Payment Terms (Expected Delivery removed; calculated from Shipping Timeline)
+4. **Line Items** — variant qty grid with Car + Remote columns; ADD TO ORDER queues lines; remote collapses to product-level
+5. **Shipping Timeline** — calculates expected arrival; auto-sets hidden `po-delivery` field
 
-**FBU line items:**
-- Step 1: Select product → format badge shows FBU (forced by category regardless of product default)
-- Step 2: Enter car + remote qty per variant/color (remote auto-syncs to car qty)
-- On ADD TO ORDER: car lines = per variant/color; remote lines = collapsed to one product-level line
-- On submit: FBU category always submits as unit-level lines, never BOM-explodes
-
-**CKD line items:** Product + variant → BOM explosion on submit.
-**Manual (all others):** Part code search + qty rows.
+### PO creation flow — CKD
+1. **Category** — CKD sets Component type, China, RMB, FOB
+2. **SELECT PRODUCTS** panel (first) — multi-product queue; each product expands into variant grid
+   - Car qty + Remote qty per variant; Remote defaults to mirror Car
+   - Remote qty is product-level in explosion (sum across all variants)
+   - FBU-only products excluded: Dash, Nitro, Flare LE
+3. **EXPLODE BOM** — calls `calcKit` per variant (car parts) + per product (remote parts); merges by part_code
+4. **Order Details** — Vendor + Payment Terms
+5. **LINE ITEMS** — explosion result grouped by category; Packaging + Para off by default; editable qtys; RE-SELECT resets
+6. **Shipping Timeline**
 
 ### Vendor supplied items (3 types)
 - **Product** — "Kai supplies Flare" — product dropdown
@@ -179,7 +183,29 @@ Auto-fill on PO: product-level match → category-level match → no auto-fill.
 
 ---
 
-## 10. Print System
+## 10. Bag System ← new April 14 2026
+
+Bags are physical bags that parts are sorted into during receiving. Each bag gets a unique label scanned at store-to-production issue time.
+
+**Flow:** Count parts into box → submit box → reconciliation shows qty_counted → GEN bags (per line or all) → print labels → seal bags.
+
+**Bag size:** Default from `material_current.bag_size` per part. Editable per receiving line before generation. New size applies to future bags only; existing sealed bags unchanged.
+
+**Append logic:** Generation is append-only. Day 2 more qty arrives → GEN creates only new bags starting from next seq; updates `total_bags` on all prior bags for that line.
+
+**Multiple bag sizes per part across shipments:** Fully supported. Each bag carries its own qty. No conflict between a bag of 25 from shipment A and bag of 50 from shipment B.
+
+**Label:** LOT logo + part code + shipment ID | part name + qty (large) + bag X of Y | QR code (encodes `bag_id`) | unique bag ID + date footer.
+
+**Bag ID format:** `BAG-{part_code}-{line_id_last6}-{seq}` — globally unique.
+
+**Issue flow (future):** Store team scans `bag_id` QR at issue time to consume the bag against a work order.
+
+---
+
+## 11. Key Technical Learnings (don't repeat these mistakes)
+
+## 12. Print System
 
 `print_jobs` table → Node.js print server (v2.2) on each PKG laptop → TSC TE244 thermal printer. Atomic claiming prevents duplicate prints. v2.2 deployed to L1 and L2. L3 not yet set up.
 
@@ -200,7 +226,10 @@ Auto-fill on PO: product-level match → category-level match → no auto-fill.
 - **FBU remote lines are product-level** — one remote line per product (total qty), not per variant/color. Remotes arrive as product SKU. ← April 13 2026
 - **RLS on new store tables** — when RLS is disabled (`relrowsecurity = false`), policies don't matter. Issue is grants. `GRANT ALL ON table TO service_role` is the fix. ← April 13 2026
 - **`buildProductList` misses FBU products** — FBU-only products (no BOM entries) never appear in `materialCache` → not in PRODUCTS list → missing from all dropdowns. Fix: merge `PRODUCT_VARIANTS` keys into PRODUCTS after materialCache scan. ← April 13 2026
-- **Wrong line attribution** — operators can set up devices on the wrong line. Prevention: show active production run on setup screen when line is selected. SQL correction: `UPDATE scans SET line = 'L2' WHERE ... product = 'Knox' AND line = 'L1' AND DATE(...) = CURRENT_DATE`. ← April 13 2026
+- **Fixed-position modals must live at app root** — `position:fixed` inside `display:none` parent = invisible. All modals go directly inside `#app`, outside all view sections. ← April 14 2026
+- **`closing_stock` is a generated column** — `stock_ledger.closing_stock` cannot be updated directly. Reverse received stock by subtracting from `total_received`. Formula: `opening_stock + total_received - total_issued + returned`. ← April 14 2026
+- **Cloudflare Workers: 50 subrequest limit** — never loop `await` per line inside a handler. Use `batchNextSeq`, single-array INSERT, `IN` filter for batch updates, RPCs for aggregates. Always count subrequests before deploying a new handler that iterates over PO/shipment lines. ← April 14 2026
+- **`grn_register.product` is blank for HW/UNV parts** — these parts have no product linkage in `receiving_lines`. Must derive from `bom_current` at GRN creation time by looking up each part_code. ← April 14 2026
 
 ---
 
@@ -222,37 +251,35 @@ Auto-fill on PO: product-level match → category-level match → no auto-fill.
 - All scanner flows: INW (component_type fix), QC_PASS, QC_FAIL, WKS, PKG, PKG_OUT, RTO_IN
 - PKG label printing — TSC TE244 via Supabase polling v2.2
 - Full Dispatch system — DTK/ALLOC/DOUT (deviceId fix deployed), 17 channels, dispatch dashboard
-- Store receiving — box-first flow, FBU Car/Remote badges, upcoming POs
-- Procurement system — full rebuild: category-first PO, redesigned header, reorder requests, vendor supplied items (3-type model), procurement dashboard
+- Store receiving — box-first flow, FBU Car/Remote badges, CKD parts flow, bag generation + labels
+- Procurement system — FBU PO (product-first layout), CKD PO (multi-product queue + BOM explosion), reorder requests, vendor supplied items, procurement dashboard
 - Reporting tab v2, Takt time / throughput, all dashboard tabs
 - FBU/CKD/SKD schema + FBU remote tracking
-- Flare LE product added (FERK + FEXXR in product_master, store frontend updated)
+- Flare LE product added
+- GRN system — raises stock correctly, detail modal, product shown correctly
 
 ### Pending Test 🧪
-- **DTK scan** — operator redoes setup after deviceId fix
-- **INW component_type** — Ghost Burnout Red + remote stickers inward correctly
-- **Procurement full flow** — FBU PO create → no BOM explosion → collapsed remote line
-- **Reorder request flow** — raise → convert → PO linked
-- **Vendor supplied items** — 3-type entry + auto-fill on PO
-- **Setup screen active run** — shows product/run on line selection (not yet built — pending)
-- **Flare LE UPC batch** — generate 200 stickers
-- **FBU/CKD/SKD store frontend** — issue_mode, fbu_stock, GRN paths
+- **CKD PO full flow** — create → explode → submit → PO lines correct
+- **Receiving against CKD PO** — shipment → boxes → reconciliation → GRN → stock updated
+- **Bag generation** — GEN per line + GEN ALL + PRINT; append on day 2
+- **GRN detail modal** — click row → opens with correct lines
+- **FBU PO form** — product-first, no expected delivery, shipping timeline auto-calc
+- **Dispatch DTK fix** — operator redoes setup → DTK scan succeeds
+- **INW component_type** — Ghost Burnout Red + remote inward correctly
 
 ### Open Issues 🔶
 None currently.
 
 ### Pending Build 🔲
-- **Scanner setup: show active run per line** — design agreed; not yet built
-- **Reorder requests: stock page entry point** — procurement tab entry done; stock page pending
-- **Procurement approval gate** — threshold in settings, enforcement not wired
-- **Parts receiving box-first** — FBU done; CKD parts path needs wiring
+- **Scanner setup: show active run per line**
+- **Reorder requests: stock page entry point**
+- **Procurement approval gate**
 - **Repair run design + build**
 - **Google sign-in** — Supabase OAuth
 - **EAN sticker at PKG**
 - **Info scan / test scanner mode**
-- **GRN receiving template**
 - **Price master module**
-- **Product entry frontend** ← noted April 13 2026
+- **Product entry frontend**
 - Reconciliation (Phase 4), Audit (Phase 5), Assembly stations (Phase 6)
 - Dashboard day view, Consolidated dispatch view
 - Unicommerce integration, Biometric integration
