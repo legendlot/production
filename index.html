@@ -547,6 +547,65 @@
     .toast.ok{border-color:var(--green);color:var(--green)}
     .toast.err{border-color:var(--red);color:var(--red)}
     .toast.warn{border-color:var(--orange);color:var(--orange)}
+
+    /* ── PACK STATION ── */
+    .pack-shipment-bar{padding:10px 14px 0;flex-shrink:0}
+    .pack-shipment-selected{
+      background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
+      padding:11px 14px;display:flex;align-items:center;justify-content:space-between;
+      cursor:pointer;font-size:13px;font-weight:700;color:var(--text2);
+    }
+    .pack-shipment-selected.active{color:var(--yellow)}
+    .pack-shipment-list{
+      display:none;position:absolute;left:14px;right:14px;
+      background:var(--surface2);border:1px solid var(--border2);border-radius:8px;
+      max-height:260px;overflow-y:auto;z-index:100;
+      box-shadow:0 8px 24px rgba(0,0,0,.4);
+    }
+    .pack-shipment-list.show{display:block}
+    .pack-ship-item{
+      padding:12px 14px;cursor:pointer;border-bottom:1px solid var(--border);
+      display:flex;align-items:center;gap:8px;
+    }
+    .pack-ship-item:active{background:var(--surface3)}
+    .pack-ship-name{font-size:12px;font-weight:700;flex:1}
+    .pack-ship-meta{font-size:10px;color:var(--muted)}
+    .pack-ready-dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
+    .pack-box-bar{
+      padding:8px 14px;background:var(--surface);border-bottom:1px solid var(--border);
+      flex-shrink:0;display:flex;align-items:center;gap:10px;
+    }
+    .pack-box-info{flex:1;min-width:0}
+    .pack-box-ref{font-size:12px;font-weight:700;letter-spacing:0.06em;color:var(--yellow)}
+    .pack-box-count{font-size:10px;color:var(--muted);margin-top:2px}
+    .pack-box-btn{
+      padding:8px 14px;border:none;border-radius:8px;font-size:11px;font-weight:700;
+      letter-spacing:0.08em;cursor:pointer;font-family:'JetBrains Mono',monospace;
+    }
+    .pack-box-btn.open{background:var(--yellow);color:#000}
+    .pack-box-btn.close{background:var(--green);color:#000}
+    .pack-box-btn.reopen{background:var(--surface2);color:var(--text2);border:1px solid var(--border2)}
+    .pack-result{
+      display:none;position:absolute;inset:0;z-index:50;
+      background:rgba(8,8,8,0.97);
+      flex-direction:column;align-items:center;justify-content:center;
+      gap:12px;padding:28px 24px;
+    }
+    .pack-result.show{display:flex}
+    .pack-result-icon{font-size:44px;line-height:1}
+    .pack-result-title{font-size:10px;color:var(--green);letter-spacing:0.18em;text-transform:uppercase}
+    .pack-result-box{
+      font-size:18px;font-weight:700;color:var(--yellow);
+      background:var(--surface);border:1px solid var(--border2);
+      padding:10px 20px;border-radius:8px;text-align:center;width:100%;
+    }
+    .pack-result-detail{font-size:11px;color:var(--text2);text-align:center;letter-spacing:0.04em}
+    .pack-result-sub{font-size:10px;color:var(--muted);letter-spacing:0.06em;text-align:center}
+    .pack-result-done{
+      margin-top:6px;padding:16px 40px;background:var(--green);color:#000;
+      font-weight:900;font-size:13px;letter-spacing:0.1em;border:none;
+      border-radius:12px;cursor:pointer;font-family:'JetBrains Mono',monospace;width:100%;
+    }
   </style>
 </head>
 <body>
@@ -614,6 +673,7 @@
         </div>
         <div class="seg-row">
           <div class="seg-btn" data-val="RTO In"    data-code="RTO_IN"  data-shared="1" onclick="pickStation(this)">RTO In</div>
+          <div class="seg-btn" data-val="Dispatch Pack" data-code="PACK" data-shared="1" onclick="pickStation(this)">Pack</div>
         </div>
       </div>
     </div>
@@ -754,6 +814,16 @@
       <button id="pkgReprintBtn" onclick="retryPrint()" style="width:100%;padding:13px;background:var(--surface2);color:var(--text2);font-weight:700;font-size:12px;letter-spacing:0.1em;border:1px solid var(--border2);border-radius:10px;cursor:pointer;font-family:'JetBrains Mono',monospace">🖨 REPRINT LABEL</button>
       <button class="pkg-result-done" onclick="clearPkgResult()">NEXT UNIT →</button>
     </div>
+
+    <!-- PACK result overlay -->
+    <div class="pack-result" id="packResult">
+      <div class="pack-result-icon">📦</div>
+      <div class="pack-result-title">UNIT PACKED — LABEL QUEUED</div>
+      <div class="pack-result-box" id="packResultBox">—</div>
+      <div class="pack-result-detail" id="packResultDetail">—</div>
+      <div class="pack-result-sub" id="packResultSub">—</div>
+      <button class="pack-result-done" onclick="clearPackResult()">NEXT UNIT →</button>
+    </div>
   </div>
 
   <div class="tally-panel" id="tallyPanel">
@@ -848,6 +918,12 @@ let lastPkgData       = null;
 
 // Dispatch state
 let dispatchChannels = [];
+
+// PACK state
+let activeShipments   = [];
+let packShipment      = null;
+let packBox           = null;
+let packResultShowing = false;
 
 // WKS / Defect state
 let pendingDefectUpc       = null;
@@ -1168,9 +1244,10 @@ const STATION_DEFS = {
   PKG:     { label: 'Packaging',    activity: 'PKG',     hint: 'SCAN CAR UPC FIRST' },
   PKG_OUT: { label: 'PKG Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   RTO_IN:  { label: 'RTO In',       activity: 'RTO_IN',  hint: 'SCAN LOT UPC OR EAN' },
+  PACK:    { label: 'Dispatch Pack', activity: 'PACK',    hint: 'SELECT SHIPMENT THEN SCAN BATCH LABEL' },
   DTK:     { label: 'Dispatch In',  activity: 'DTK',   hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   ALLOC:   { label: 'Allocate',     activity: 'ALLOC', hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
-  DOUT:    { label: 'Dispatch Out', activity: 'DOUT',  hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
+  DOUT:    { label: 'Dispatch Out', activity: 'DOUT',  hint: 'SCAN BOX LABEL (BOX-XXXXX) OR BATCH LABEL' },
 };
 
 async function saveSetup() {
@@ -1285,6 +1362,7 @@ function bootScanner() {
   // DTK / ALLOC station setup
   if (cfg.stationCode === 'DTK')   { setupDtkStation();   }
   if (cfg.stationCode === 'ALLOC') { setupAllocStation(); }
+  if (cfg.stationCode === 'PACK')  { setupPackStation();  }
 
   // Tally — show at PKG_OUT
   document.getElementById('tallyPanel').classList.toggle('show', cfg.activity === 'PKG_OUT');
@@ -1300,6 +1378,247 @@ function buildActivityUI() {}
 // ── DTK station setup ────────────────────────────────────────────
 function setupDtkStation() {
   // Hint set via STATION_DEFS in updateScanHint() — nothing extra needed
+}
+
+// ── PACK station setup ──────────────────────────────────────────
+async function setupPackStation() {
+  await loadActiveShipments();
+  renderPackShipmentSelector();
+
+  // Recover session — last selected shipment
+  const savedId = localStorage.getItem('pack_shipment_id');
+  if (savedId && activeShipments.find(s => s.id === savedId)) {
+    await selectPackShipment(savedId, false);
+  }
+}
+
+async function loadActiveShipments() {
+  const res = await workerPost('getActiveShipments', {});
+  activeShipments = res.ok ? res.data : [];
+}
+
+function renderPackShipmentSelector() {
+  const existing = document.getElementById('packShipmentBar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id        = 'packShipmentBar';
+  bar.className = 'pack-shipment-bar';
+  bar.style.position = 'relative';
+
+  const label  = packShipment
+    ? `${packShipment.shipment_no} · ${packShipment.dispatch_channels?.name || ''}`
+    : 'Select Shipment';
+  const isActive = !!packShipment;
+
+  bar.innerHTML = `
+    <div id="packShipmentSelected" class="pack-shipment-selected ${isActive ? 'active' : ''}"
+         onclick="togglePackShipmentList()">
+      <span id="packShipmentLabel">${label}</span>
+      <span style="font-size:10px;color:var(--muted)">▼</span>
+    </div>
+    <div id="packShipmentList" class="pack-shipment-list">
+      ${activeShipments.length ? activeShipments.map(s => `
+        <div class="pack-ship-item" onclick="selectPackShipment('${s.id}', true)">
+          ${s.is_ready ? '<div class="pack-ready-dot"></div>' : '<div style="width:8px"></div>'}
+          <div>
+            <div class="pack-ship-name">${s.shipment_no} · ${s.dispatch_channels?.name || '—'}</div>
+            <div class="pack-ship-meta">
+              ${s.expected_units ? `${s.pool_count || 0}/${s.expected_units} units` : `${s.pool_count || 0} in pool`}
+              ${s.scheduled_date ? ` · ${new Date(s.scheduled_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short'})}` : ''}
+              ${s.is_ready ? ' · ✓ READY' : ''}
+            </div>
+          </div>
+        </div>`).join('') : '<div style="padding:14px;font-size:11px;color:var(--muted)">No active shipments</div>'}
+    </div>`;
+
+  const camWrap = document.querySelector('.camera-wrap');
+  if (camWrap) camWrap.parentNode.insertBefore(bar, camWrap);
+}
+
+function togglePackShipmentList() {
+  const list = document.getElementById('packShipmentList');
+  if (list) list.classList.toggle('show');
+}
+
+async function selectPackShipment(id, fromUI = true) {
+  packShipment = activeShipments.find(s => s.id === id);
+  localStorage.setItem('pack_shipment_id', id);
+
+  if (fromUI) togglePackShipmentList();
+
+  const label = document.getElementById('packShipmentLabel');
+  const sel   = document.getElementById('packShipmentSelected');
+  if (label) label.textContent = `${packShipment?.shipment_no} · ${packShipment?.dispatch_channels?.name || ''}`;
+  if (sel)   sel.classList.add('active');
+
+  // Check for open box
+  const res = await workerPost('getOpenBox', { shipment_id: id });
+  packBox = (res.ok && res.data) ? res.data : null;
+  renderPackBoxBar();
+  updateScanHint();
+}
+
+function renderPackBoxBar() {
+  const existing = document.getElementById('packBoxBar');
+  if (existing) existing.remove();
+  if (!packShipment) return;
+
+  const bar = document.createElement('div');
+  bar.id        = 'packBoxBar';
+  bar.className = 'pack-box-bar';
+
+  if (!packBox) {
+    // No open box
+    if (packShipment.dispatch_channels?.fulfillment_model === 'unit') {
+      bar.innerHTML = `<div class="pack-box-info"><div class="pack-box-ref">UNIT MODE</div><div class="pack-box-count">Box opens automatically on scan</div></div>`;
+    } else {
+      bar.innerHTML = `
+        <div class="pack-box-info"><div class="pack-box-ref" style="color:var(--muted)">No open box</div><div class="pack-box-count">Tap to open a new box</div></div>
+        <button class="pack-box-btn open" onclick="openNewBox()">OPEN BOX</button>`;
+    }
+  } else {
+    const isPacked = packBox.status === 'packed';
+    bar.innerHTML = `
+      <div class="pack-box-info">
+        <div class="pack-box-ref">${packBox.box_ref}</div>
+        <div class="pack-box-count">${packBox.unit_count || 0} units · ${isPacked ? '📦 PACKED' : '🟢 OPEN'}</div>
+      </div>
+      ${isPacked
+        ? `<button class="pack-box-btn reopen" onclick="doReopenBox()">REOPEN</button>`
+        : `<button class="pack-box-btn close" onclick="doCloseBox()" ${(packBox.unit_count || 0) === 0 ? 'disabled' : ''}>CLOSE BOX</button>`
+      }`;
+  }
+
+  const camWrap = document.querySelector('.camera-wrap');
+  if (camWrap) camWrap.parentNode.insertBefore(bar, camWrap);
+}
+
+async function openNewBox() {
+  if (!packShipment) return;
+  showToast('Creating box...', 'ok');
+  const res = await workerPost('createBox', { shipment_id: packShipment.id });
+  if (!res.ok) { showToast(res.error || 'Failed to create box', 'err'); return; }
+  packBox = { ...res.data, units: [] };
+  renderPackBoxBar();
+  showToast(`✓ ${packBox.box_ref} opened`, 'ok');
+}
+
+async function doCloseBox() {
+  if (!packBox) return;
+  const res = await workerPost('closeBox', { box_id: packBox.id });
+  if (!res.ok) { showToast(res.error || 'Close failed', 'err'); return; }
+  packBox = { ...packBox, status: 'packed' };
+  renderPackBoxBar();
+  showToast(`✓ ${packBox.box_ref} closed — label printing`, 'ok');
+}
+
+async function doReopenBox() {
+  if (!packBox) return;
+  const res = await workerPost('reopenBox', { box_id: packBox.id });
+  if (!res.ok) { showToast(res.error || 'Reopen failed', 'err'); return; }
+  packBox = { ...res.data };
+  renderPackBoxBar();
+  showToast(`${packBox.box_ref} reopened`, 'ok');
+}
+
+// Called after unit scan auto-close or manual close
+function showPackResult(data) {
+  const overlay = document.getElementById('packResult');
+  if (!overlay) return;
+
+  document.getElementById('packResultBox').textContent    = data.box_ref;
+  document.getElementById('packResultDetail').textContent =
+    [data.product, data.model, data.color].filter(Boolean).join(' · ');
+  document.getElementById('packResultSub').textContent    =
+    data.fulfillment_model === 'unit'
+      ? '🖨 PKG label queued for dispatch printer'
+      : `🖨 Box label queued — ${data.unit_count} units`;
+
+  packResultShowing = true;
+  overlay.classList.add('show');
+}
+
+function clearPackResult() {
+  packResultShowing = false;
+  document.getElementById('packResult').classList.remove('show');
+  // For unit mode: box is gone, clear packBox so next scan auto-creates
+  if (packBox?.fulfillment_model === 'unit' || packBox?.status === 'packed') {
+    packBox = null;
+    renderPackBoxBar();
+  }
+  lastBarcode = '';
+  lastScanTs  = 0;
+}
+
+async function doPackScan(barcode) {
+  if (!isOnline) {
+    showReject('OFFLINE', 'Packing requires connection');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+  if (!packShipment) {
+    showReject('NO SHIPMENT', 'Select a shipment above before scanning');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  const isBulk = packShipment.dispatch_channels?.fulfillment_model !== 'unit';
+
+  // Bulk: require open box
+  if (isBulk && (!packBox || packBox.status !== 'open')) {
+    showReject('NO OPEN BOX', 'Tap OPEN BOX before scanning units');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  // Unit mode: auto-create box if needed
+  let currentBoxId = packBox?.id;
+  if (!isBulk && !packBox) {
+    const res = await workerPost('createBox', { shipment_id: packShipment.id });
+    if (!res.ok) {
+      showReject('BOX ERROR', res.error || 'Failed to create box');
+      playErrBeep(); vibrate([100,50,100]);
+      return;
+    }
+    packBox = { ...res.data, units: [] };
+    currentBoxId = packBox.id;
+    renderPackBoxBar();
+  }
+
+  flash('ok'); vibrate([50]);
+
+  const result = await workerPost('postPack', {
+    batch_label:  barcode,
+    box_id:       currentBoxId,
+    shipment_id:  packShipment.id,
+    device_id:    cfg.deviceId || null,
+    operator_id:  operatorUUID || currentOperator?.id || null,
+  });
+
+  if (!result.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('PACK FAILED', result.error || 'Unknown error');
+    addLog({ barcode, status:'err', tag:'PACK', label:'PACK ERR' });
+    return;
+  }
+
+  const d = result.data;
+  playSuccessBeep();
+  addLog({ barcode, status:'ok', tag:'PACK', label: d.auto_closed ? `PACK ✓ AUTO-CLOSE` : `PACK ✓ (${d.unit_count})` });
+
+  if (d.auto_closed) {
+    // Unit fulfillment — show result and clear box
+    packBox = null;
+    showPackResult(d);
+  } else {
+    // Bulk — update box count in UI
+    if (packBox) {
+      packBox.unit_count = d.unit_count;
+      renderPackBoxBar();
+    }
+    showToast(`✓ ${d.unit_count} units in box`, 'ok');
+  }
 }
 
 // ── ALLOC station setup ──────────────────────────────────────────
@@ -1543,6 +1862,19 @@ async function processBarcode(barcode, act) {
   const isBatchLabel = /^LOT-\d+-[ER]$/.test(barcode);
   const isEan        = /^\d{13}$/.test(barcode);
 
+  // ── PACK — dispatch packing station ──
+  if (act === 'PACK') {
+    if (packResultShowing) return;
+    if (!isBatchLabel) {
+      showReject('WRONG BARCODE', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R)');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'PACK', label:'WRONG FORMAT' });
+      return;
+    }
+    await doPackScan(barcode);
+    return;
+  }
+
   // ── PKG_OUT — scans batch label, not UPC ──
   if (act === 'PKG_OUT') {
     if (!isBatchLabel) {
@@ -1622,8 +1954,9 @@ async function processBarcode(barcode, act) {
 
   // ── DOUT — dispatch out, physical exit scan ──
   if (act === 'DOUT') {
-    if (!isBatchLabel) {
-      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R)');
+    const isBoxLabel = /^BOX-\d+$/.test(barcode);
+    if (!isBatchLabel && !isBoxLabel) {
+      showReject('INVALID LABEL', 'Scan a BOX label (BOX-XXXXX) or batch label (LOT-XXXXXXXX-E/R)');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'DOUT', label:'WRONG FORMAT' });
       return;
@@ -1638,8 +1971,11 @@ async function processBarcode(barcode, act) {
       const d = res.data;
       playSuccessBeep();
       const sub = d.channel ? `→ ${d.channel}` : '';
-      showToast(`✓ Dispatched Out ${sub}`, 'ok');
-      addLog({ barcode, status:'ok', tag:'DOUT', label:`DOUT ✓ ${d.product || ''} ${sub}` });
+      const label = d.is_box
+        ? `BOX ✓ ${d.unit_count} units ${sub}`
+        : `DOUT ✓ ${d.product || ''} ${sub}`;
+      showToast(d.is_box ? `✓ Box out — ${d.unit_count} units ${sub}` : `✓ Dispatched Out ${sub}`, 'ok');
+      addLog({ barcode, status:'ok', tag:'DOUT', label });
     } else {
       playErrBeep(); vibrate([100,50,100]);
       showReject('DISPATCH OUT FAILED', res.error || 'Unknown error');
