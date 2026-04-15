@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 3.1 | **Last Updated:** April 2026 (Session: 15 Apr 2026 — Part 2)
+**Version:** 3.2 | **Last Updated:** April 2026 (Session: 16 Apr 2026)
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
