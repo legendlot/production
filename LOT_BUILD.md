@@ -383,6 +383,14 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 
 ---
 
+## 10a. Key Technical Learnings
+
+- Scanner Claude Code instructions: use `WORKER_URL` not `API`, use `document.getElementById('scanHint').textContent` not `setScanPrompt()`, use `operatorUUID || currentOperator?.id || null` not `cfg.operatorId`, station setup functions are `function` not `async function`
+- Legacy car QR format: purely numeric, 14+ digits, first 13 = EAN, remainder = unit suffix. Never has a `LOT-` prefix.
+- `registerLegacyUnit` dedup key: `legacy_car_upc` — always check before creating. Dispatch mode (EAN only, no car QR accessible) intentionally allows multiple registrations of same EAN.
+
+---
+
 ## 11. Build Phases & Status
 
 | Phase | Module | Status |
