@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 3.1 | **Last Updated:** April 2026 (Session: 15 Apr 2026 — Part 2)
+**Version:** 3.2 | **Last Updated:** April 2026 (Session: 16 Apr 2026)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -89,6 +89,21 @@ Parts (Store) → Assembly → QC → Packaging → RTD → Dispatch
 
 ### Activity type enum rule
 `PKG_OUT` is **NEVER** an activity value in the `scans` table. The PKG_OUT scan writes `RTE` (ecom, -E label) or `RTR` (retail, -R label). Always filter by RTE/RTR, never PKG_OUT.
+
+### Legacy Unit Entry Points ← April 16 2026
+
+Three modes via LEGACY_REG scanner station + `registerLegacyUnit` worker action:
+
+| Mode | When | Scan | Starting status | Car QR stored? |
+|---|---|---|---|---|
+| DISPATCH | Batch session for ~1,500 dispatch units | EAN from box exterior | `handed_over` | No (inaccessible under shrink wrap) |
+| STORE | On-touch as store units are handled | Legacy car QR from car base | `inwarded` | Yes |
+| RETURN | At RTO_IN for legacy returns (ongoing) | EAN or legacy car QR | `rto_in` | Yes (if QR accessible) |
+
+**Detection:** purely numeric scan at RTO_IN → auto-routes to legacy return flow. LOT- prefixed scans always go to existing flow.
+**Dedup key:** `legacy_car_upc` — checked before creating any new unit in store/return modes.
+**Remote pairing:** always synthetic (new LOT UPC), looked up via `linked_product_code` on product_master.
+**`is_legacy = true`** on all three pillars — for dashboard filtering and flush-progress tracking.
 
 ---
 
