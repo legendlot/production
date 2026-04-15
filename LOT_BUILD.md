@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 2.9 | **Last Updated:** April 2026 (Session: 14 Apr 2026)
+**Version:** 3.0 | **Last Updated:** April 2026 (Session: 15 Apr 2026)
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -394,6 +394,8 @@ Managed via `store.settings` table, key `po_approval_threshold`. Null = self-app
 | `public.product_master` | INSERT 2 rows (FERK car + FEXXR remote) | Flare LE product added ← April 13 2026 |
 | `store.next_seq_batch` | CREATE FUNCTION | Batch sequence reservation — returns first value of N reserved | ← April 14 2026 |
 | `store.recompute_line_counts` | CREATE FUNCTION | Batch recompute qty_counted on receiving_lines | ← April 14 2026 |
+| `store.update_fbu_stock_issued` | CREATE OR REPLACE FUNCTION | Rebuilt as upsert — INSERT at -qty if no row exists | ← April 15 2026 |
+| `store.fbu_issue_register` | GRANT ALL TO service_role | Permission fix — table existed but service_role had no access | ← April 15 2026 |
 | `store.grn_summary` | CREATE OR REPLACE VIEW | Product column now shows single product / "N products" / "—" | ← April 14 2026 |
 | All prior schema changes | — | See v2.8 for full history |
 
@@ -418,6 +420,7 @@ Managed via `store.settings` table, key `po_approval_threshold`. Null = self-app
 | 3ak | Cloudflare subrequest fixes | ✅ Complete — batchNextSeq, recompute_line_counts, batch IN filter ← April 14 2026 |
 | 3al | Bag system | ✅ Complete — append-only generation, material_master bag_size defaults, per-line controls, labels with QR ← April 14 2026 |
 | 3am | GRN improvements | ✅ Complete — grn_summary view rebuilt, detail modal, product derivation from bom_current ← April 14 2026 |
+| 3an | FBU issue flow fixes | ✅ Complete — pick list, validation, stock RPC, permissions all fixed ← April 15 2026 |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
@@ -425,6 +428,15 @@ Managed via `store.settings` table, key `po_approval_threshold`. Null = self-app
 ### 🚨 Open Issues — fix FIRST next session
 
 None currently. All known bugs fixed this session.
+
+### ✅ Fixed This Session (15 Apr 2026)
+
+| Fix | Root cause | Resolution |
+|---|---|---|
+| FBU production run pick list empty | `getProductionRun` WO loop had `if (!woBom.length) continue` before the `isFBU` block — pure FBU products with no BOM never accumulated into `fbuMap` | Moved FBU unit accumulation above the BOM guard so it runs regardless of BOM existence |
+| `issueAgainstRun` rejected FBU-only runs | Hard `if (!d.lines.length) return err('lines required')` blocked runs with no CKD parts | Changed to check `hasParts \|\| hasFbu` — either CKD lines or FBU lines satisfies the guard |
+| `update_fbu_stock_issued` silent no-op on missing row | RPC used plain `UPDATE` — if no `fbu_stock` row existed (no GRN done), update matched nothing | Rebuilt as upsert: INSERT at negative qty if no row exists, matching pattern of `update_fbu_stock_received` |
+| `fbu_issue_register` permission denied | Table existed but `service_role` had no grants | `GRANT ALL ON store.fbu_issue_register TO service_role` |
 
 ### Pending Test — built but not yet verified on floor
 
@@ -442,7 +454,8 @@ None currently. All known bugs fixed this session.
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **Full receiving → stock flow verification** — end-to-end with real CKD PO on live data
+1. **FBU GRN for Flare LE** — 200 units received, do GRN so fbu_stock is positive before production scans
+2. **Full receiving → stock flow verification** — end-to-end with real CKD PO on live data
 2. **Scanner setup screen: show active run** — when operator picks a line, show current product + run before LAUNCH
 3. **Reorder requests — stock page integration** — raise request directly from stock/inventory page
 4. **Procurement approval gate** — wire `po_approval_threshold` to actual PO status enforcement
@@ -508,6 +521,9 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 | **buildProductList FBU products** | Merge PRODUCT_VARIANTS keys into product list | FBU products have no BOM entries → never appeared in `materialCache` → missing from all dropdowns ← April 13 2026 |
 | **Cloudflare 50-subrequest limit** | Never loop `await` calls per-line in a Worker handler. Always batch: use `batchNextSeq` for sequences, single INSERT for row arrays, `IN` filter for batch updates, RPCs for aggregate operations. N lines = must stay under ~40 total subrequests including auth + logging. ← April 14 2026 |
 | **`closing_stock` is generated** | `stock_ledger.closing_stock` is a Postgres generated column (`opening_stock + total_received - total_issued + returned`). Cannot UPDATE directly. Reverse stock by subtracting from `total_received`. ← April 14 2026 |
+| **FBU WO loop guard order** | `if (!woBom.length) continue` in `getProductionRun` must come AFTER the `isFBU` fbuMap accumulation block, not before. Pure FBU products have no BOM — the continue fires before fbu_lines can be built. ← April 15 2026 |
+| **`update_fbu_stock_issued` must upsert** | Plain UPDATE silently matches 0 rows if no fbu_stock row exists yet (no GRN done). Always use upsert pattern (same as `update_fbu_stock_received`) so negative stock is visible rather than lost. ← April 15 2026 |
+| **New store tables need explicit GRANT** | `fbu_issue_register` existed but service_role had no grants → 400 permission denied. Pattern: every new store table needs `GRANT ALL ON store.{table} TO service_role`. ← April 15 2026 |
 | **`grn_register.product` blank for CKD** | `receiving_lines.product` is null for hardware/universal parts. Fix: derive from `bom_current` by part_code at GRN creation time. ← April 14 2026 |
 | **Fixed-position modals must be at app root** | A `position:fixed` element inside a `display:none` parent is hidden regardless. GRN detail modal (and any future modals) must live outside all view sections, directly inside `#app`. ← April 14 2026 |
 | All prior decisions | — | See v2.8 for full history |

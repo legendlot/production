@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 2.9 | **Last Updated:** April 2026 (Session: 14 Apr 2026)
+**Version:** 3.0 | **Last Updated:** April 2026 (Session: 15 Apr 2026)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -227,7 +227,9 @@ Bags are physical bags that parts are sorted into during receiving. Each bag get
 - **RLS on new store tables** — when RLS is disabled (`relrowsecurity = false`), policies don't matter. Issue is grants. `GRANT ALL ON table TO service_role` is the fix. ← April 13 2026
 - **`buildProductList` misses FBU products** — FBU-only products (no BOM entries) never appear in `materialCache` → not in PRODUCTS list → missing from all dropdowns. Fix: merge `PRODUCT_VARIANTS` keys into PRODUCTS after materialCache scan. ← April 13 2026
 - **Fixed-position modals must live at app root** — `position:fixed` inside `display:none` parent = invisible. All modals go directly inside `#app`, outside all view sections. ← April 14 2026
-- **`closing_stock` is a generated column** — `stock_ledger.closing_stock` cannot be updated directly. Reverse received stock by subtracting from `total_received`. Formula: `opening_stock + total_received - total_issued + returned`. ← April 14 2026
+- **`update_fbu_stock_issued` must upsert** — plain UPDATE silently no-ops if no fbu_stock row exists (no GRN done yet). Always upsert; insert at −qty so shortfall is visible. ← April 15 2026
+- **FBU WO loop: accumulate before BOM guard** — `if (!woBom.length) continue` must come after the `isFBU` fbuMap block. Pure FBU products have no BOM rows; continue fires before fbu_lines is built. ← April 15 2026
+- **Every new store table needs explicit GRANT** — `fbu_issue_register` had no service_role grants despite existing. Pattern: `GRANT ALL ON store.{table} TO service_role` for every new table. ← April 15 2026
 - **Cloudflare Workers: 50 subrequest limit** — never loop `await` per line inside a handler. Use `batchNextSeq`, single-array INSERT, `IN` filter for batch updates, RPCs for aggregates. Always count subrequests before deploying a new handler that iterates over PO/shipment lines. ← April 14 2026
 - **`grn_register.product` is blank for HW/UNV parts** — these parts have no product linkage in `receiving_lines`. Must derive from `bom_current` at GRN creation time by looking up each part_code. ← April 14 2026
 
@@ -257,6 +259,7 @@ Bags are physical bags that parts are sorted into during receiving. Each bag get
 - FBU/CKD/SKD schema + FBU remote tracking
 - Flare LE product added
 - GRN system — raises stock correctly, detail modal, product shown correctly
+- FBU issue flow — pick list, validation, upsert RPC, permissions all fixed ← April 15 2026
 
 ### Pending Test 🧪
 - **CKD PO full flow** — create → explode → submit → PO lines correct
@@ -269,6 +272,12 @@ Bags are physical bags that parts are sorted into during receiving. Each bag get
 
 ### Open Issues 🔶
 None currently.
+
+### Fixed This Session 🔧 (15 Apr 2026)
+- **FBU pick list empty** — `getProductionRun` WO loop guard fired before FBU accumulation; pure FBU products (no BOM) never built `fbu_lines`. Fixed by moving FBU block above BOM guard.
+- **FBU-only runs rejected** — `issueAgainstRun` required `lines.length > 0`; FBU runs have no CKD lines. Fixed to accept either `lines` or `fbu_lines`.
+- **`update_fbu_stock_issued` silent no-op** — plain UPDATE matched nothing when no `fbu_stock` row existed. Rebuilt as upsert (insert at −qty if missing).
+- **`fbu_issue_register` permission denied** — table had no service_role grants. Fixed with `GRANT ALL`.
 
 ### Pending Build 🔲
 - **Scanner setup: show active run per line**
