@@ -924,6 +924,9 @@ let activeShipments   = [];
 let packShipment      = null;
 let packBox           = null;
 let packResultShowing = false;
+let packMode          = 'shipment'; // 'shipment' | 'direct'
+let packDirectChannel = null;       // { id, name, type, fulfillment_model }
+let unitChannels      = [];         // unit fulfillment channels for direct mode
 
 // WKS / Defect state
 let pendingDefectUpc       = null;
@@ -1383,13 +1386,135 @@ function setupDtkStation() {
 // ── PACK station setup ──────────────────────────────────────────
 async function setupPackStation() {
   await loadActiveShipments();
-  renderPackShipmentSelector();
+  // Load unit channels for direct mode
+  const chRes = await workerPost('getDispatchChannels', {});
+  unitChannels = (chRes.ok ? chRes.data : []).filter(c => c.fulfillment_model === 'unit');
 
-  // Recover session — last selected shipment
-  const savedId = localStorage.getItem('pack_shipment_id');
-  if (savedId && activeShipments.find(s => s.id === savedId)) {
-    await selectPackShipment(savedId, false);
+  // Recover mode
+  packMode = localStorage.getItem('pack_mode') || 'shipment';
+
+  renderPackModeToggle();
+
+  if (packMode === 'shipment') {
+    renderPackShipmentSelector();
+    const savedId = localStorage.getItem('pack_shipment_id');
+    if (savedId && activeShipments.find(s => s.id === savedId)) {
+      await selectPackShipment(savedId, false);
+    }
+  } else {
+    renderPackDirectSelector();
+    const savedChId = localStorage.getItem('pack_direct_channel_id');
+    if (savedChId) {
+      const ch = unitChannels.find(c => c.id === savedChId);
+      if (ch) selectPackDirectChannel(ch.id, false);
+    }
   }
+}
+
+function renderPackModeToggle() {
+  const existing = document.getElementById('packModeToggle');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id = 'packModeToggle';
+  bar.style.cssText = 'display:flex;gap:0;padding:8px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0';
+  bar.innerHTML = `
+    <button onclick="switchPackMode('shipment')"
+      style="flex:1;padding:8px;font-size:11px;font-weight:700;letter-spacing:0.08em;
+             border:1px solid var(--border2);border-radius:6px 0 0 6px;cursor:pointer;
+             font-family:'JetBrains Mono',monospace;
+             background:${packMode==='shipment'?'var(--yellow)':'var(--surface2)'};
+             color:${packMode==='shipment'?'#000':'var(--text2)'}">
+      📦 SHIPMENT
+    </button>
+    <button onclick="switchPackMode('direct')"
+      style="flex:1;padding:8px;font-size:11px;font-weight:700;letter-spacing:0.08em;
+             border:1px solid var(--border2);border-left:none;border-radius:0 6px 6px 0;cursor:pointer;
+             font-family:'JetBrains Mono',monospace;
+             background:${packMode==='direct'?'var(--sky)':'var(--surface2)'};
+             color:${packMode==='direct'?'#fff':'var(--text2)'}">
+      ⚡ DIRECT
+    </button>`;
+
+  // Insert after op-strip
+  const opStrip = document.querySelector('.op-strip');
+  if (opStrip) opStrip.parentNode.insertBefore(bar, opStrip.nextSibling);
+}
+
+async function switchPackMode(mode) {
+  packMode = mode;
+  localStorage.setItem('pack_mode', mode);
+  packShipment = null;
+  packBox      = null;
+  packDirectChannel = null;
+
+  // Remove existing selector and box bars
+  ['packShipmentBar','packBoxBar','packDirectBar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+
+  renderPackModeToggle();
+
+  if (mode === 'shipment') {
+    renderPackShipmentSelector();
+  } else {
+    renderPackDirectSelector();
+  }
+  updateScanHint();
+}
+
+function renderPackDirectSelector() {
+  const existing = document.getElementById('packDirectBar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id        = 'packDirectBar';
+  bar.className = 'pack-shipment-bar';
+  bar.style.position = 'relative';
+
+  const label    = packDirectChannel ? packDirectChannel.name : 'Select Channel';
+  const isActive = !!packDirectChannel;
+
+  bar.innerHTML = `
+    <div id="packDirectSelected" class="pack-shipment-selected ${isActive ? 'active' : ''}"
+         onclick="togglePackDirectList()">
+      <span id="packDirectLabel">${label}</span>
+      <span style="font-size:10px;color:var(--muted)">▼</span>
+    </div>
+    <div id="packDirectList" class="pack-shipment-list">
+      ${unitChannels.length ? unitChannels.map(c => `
+        <div class="pack-ship-item" onclick="selectPackDirectChannel('${c.id}', true)">
+          <div>
+            <div class="pack-ship-name">${c.name}</div>
+            <div class="pack-ship-meta">unit fulfillment</div>
+          </div>
+        </div>`).join('')
+      : '<div style="padding:14px;font-size:11px;color:var(--muted)">No unit channels found</div>'}
+    </div>`;
+
+  const camWrap = document.querySelector('.camera-wrap');
+  if (camWrap) camWrap.parentNode.insertBefore(bar, camWrap);
+}
+
+function togglePackDirectList() {
+  const list = document.getElementById('packDirectList');
+  if (list) list.classList.toggle('show');
+}
+
+function selectPackDirectChannel(id, fromUI = true) {
+  packDirectChannel = unitChannels.find(c => c.id === id);
+  localStorage.setItem('pack_direct_channel_id', id);
+  if (fromUI) togglePackDirectList();
+  const label = document.getElementById('packDirectLabel');
+  const sel   = document.getElementById('packDirectSelected');
+  if (label) label.textContent = packDirectChannel?.name || '';
+  if (sel)   sel.classList.add('active');
+  // Remove any open box bar — direct mode is always auto
+  const boxBar = document.getElementById('packBoxBar');
+  if (boxBar) boxBar.remove();
+  packBox = null;
+  updateScanHint();
 }
 
 async function loadActiveShipments() {
@@ -1560,6 +1685,40 @@ async function doPackScan(barcode) {
   if (!packShipment) {
     showReject('NO SHIPMENT', 'Select a shipment above before scanning');
     playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  // ── Direct mode (no shipment) ──
+  if (packMode === 'direct') {
+    if (!packDirectChannel) {
+      showReject('NO CHANNEL', 'Select a channel above before scanning');
+      playErrBeep(); vibrate([100,50,100]);
+      return;
+    }
+    // Auto-create box, pack, auto-close — no manifest check
+    const res = await workerPost('createBox', { channel_id: packDirectChannel.id });
+    if (!res.ok) {
+      showReject('BOX ERROR', res.error || 'Failed to create box');
+      playErrBeep(); vibrate([100,50,100]);
+      return;
+    }
+    const directBox = res.data;
+    const packRes = await workerPost('postPack', {
+      batch_label: barcode,
+      box_id:      directBox.id,
+      shipment_id: null,
+      device_id:   cfg.deviceId || null,
+      operator_id: operatorUUID || currentOperator?.id || null,
+    });
+    if (!packRes.ok) {
+      flash('err'); vibrate([100,50,100]); playErrBeep();
+      showReject('PACK FAILED', packRes.error || 'Unknown error');
+      addLog({ barcode, status:'err', tag:'PACK', label:'PACK ERR' });
+      return;
+    }
+    playSuccessBeep();
+    addLog({ barcode, status:'ok', tag:'PACK', label:`DIRECT ✓ ${packDirectChannel.name}` });
+    showPackResult({ ...packRes.data, box_ref: directBox.box_ref, auto_closed: true, fulfillment_model: 'unit' });
     return;
   }
 
