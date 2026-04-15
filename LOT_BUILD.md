@@ -55,6 +55,9 @@ updated_at      TIMESTAMPTZ
 component_type  TEXT                  -- 'car' | 'remote'
 paired_with     TEXT
 production_run_id UUID
+legacy_ean      TEXT                  -- EAN of the legacy unit's SKU
+legacy_car_upc  TEXT                  -- Full legacy car QR value (EAN + suffix)
+is_legacy       BOOLEAN DEFAULT false -- True for all legacy-registered units
 ```
 
 **unit_status enum values (confirmed + updated):**
@@ -236,6 +239,7 @@ Same as v3.0. No new RPCs this session.
 | `removeBoxUnit` | JWT — dashboard use only. Remove unit from box, revert to allocated ← April 15 2026 |
 | `cancelShipment` | JWT — draft/packing → cancelled ← April 15 2026 |
 | `deleteShipment` | JWT — draft only, no boxes → hard delete lines + shipment ← April 15 2026 |
+| `registerLegacyUnit` | Legacy unit integration — three modes: dispatch (EAN scan → handed_over), store (legacy car QR → inwarded), return (EAN or legacy QR → rto_in). Auto-generates LOT UPC pair, deduplicates via legacy_car_upc ← April 16 2026 |
 
 ---
 
@@ -393,6 +397,7 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | 3ar | Shipment manifest + product picker | ✅ Complete ← April 15 2026 |
 | 3as | Scans tab date filter | ✅ Complete ← April 15 2026 |
 | 3at | Store history issue detail | ✅ Complete ← April 15 2026 |
+| 3au | Legacy unit integration | ✅ Complete ← April 16 2026 |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
@@ -401,8 +406,9 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 
 | Issue | Detail |
 |---|---|
-| **Dispatch print server not deployed** | `dispatch-printserver.js` built but needs laptop + printer setup at dispatch table |
-| **LOT-00007572 pending decision** | Flare Race Black, `qc_fail` status — team was checking whether to scrap with the 75 or handle separately |
+| Dispatch print server not deployed | dispatch-printserver.js built, needs laptop + printer setup at dispatch table |
+| LOT-00007572 | Flare Race Black qc_fail — team checking whether to scrap |
+| Worker: registerLegacyUnit not yet deployed | Built, needs wrangler deploy |
 
 ### ✅ Fixed This Session (15 Apr 2026 Part 2)
 
@@ -413,6 +419,14 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | Flare Burnout Green wrong labels | 22 units PKG'd as ecom, should be retail | `pkg_scans` channel+label corrected, RTE scans voided, units reverted to `pending_rtd`, new retail print jobs queued |
 | Flare Race Black variant error | 75 units INW'd (+ 1 qc_fail), wrong variant produced | INW scans voided, units set to `scrapped` — chassis to be restickered |
 | `packed_dispatch` enum missing | `ALTER TYPE unit_status ADD VALUE` not yet run | Run: `ALTER TYPE unit_status ADD VALUE IF NOT EXISTS 'packed_dispatch'` |
+
+### ✅ Fixed This Session (16 Apr 2026)
+
+| Fix | Root cause | Resolution |
+|---|---|---|
+| Store issue detail modal transparent | `--surface` / `--surface2` not defined in `:root` | Replace with `--bg2` / `--bg3` in modal HTML (stores index) |
+| Activity tab scans not loading | `+05:30` in raw URL string decoded as space by Postgres | Wrap timestamp values in `encodeURIComponent()` in `getAllScans` worker handler (line ~647) |
+| Legacy unit integration | Old units have no LOT UPC, cannot enter new system | New `registerLegacyUnit` worker action + LEGACY_REG scanner station — 3 modes: dispatch/store/return |
 
 ### Pending Test
 
@@ -431,41 +445,43 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **Dispatch print server setup** — deploy on dispatch laptop, confirm both label types print
-2. **LOT-00007572 resolution** — scrap or keep pending team decision
-3. **FBU GRN for Flare LE** — 200 units received, need GRN before production scans
-4. **Scanner setup screen: show active run** — show current product + run before LAUNCH
-5. **Reorder requests — stock page entry** — raise from stock/inventory page
-6. **Repair run design session** — design only, no code
+1. **Deploy worker** — `registerLegacyUnit` is built, not deployed
+2. **Test LEGACY_REG station end-to-end** — dispatch mode first (batch session)
+3. **Dispatch print server setup** — deploy on dispatch laptop, confirm both label types print
+4. **LOT-00007572 resolution** — scrap or keep pending team decision
+5. **FBU GRN for Flare LE** — 200 units received, need GRN before production scans
+6. **Scanner setup screen: show active run** — show current product + run before LAUNCH
+7. **Reorder requests — stock page entry** — raise from stock/inventory page
+8. **Repair run design session** — design only, no code
 
 **Store backlog:**
-7. **Print PO** — PDF for emailing to vendor
-8. **Price master module**
-9. **Parts receiving reconciliation edge cases** — Short/Over/Damage in GRN raise flow
-10. **Procurement approval gate** — wire threshold to PO status
+9. **Print PO** — PDF for emailing to vendor
+10. **Price master module**
+11. **Parts receiving reconciliation edge cases** — Short/Over/Damage in GRN raise flow
+12. **Procurement approval gate** — wire threshold to PO status
 
 **Dashboard backlog:**
-11. **EAN sticker** — separate sticker at PKG station
-12. **Info scan / test scanner mode**
-13. **Dashboard day view for production**
-14. **Consolidated dispatch view**
+13. **EAN sticker** — separate sticker at PKG station
+14. **Info scan / test scanner mode**
+15. **Dashboard day view for production**
+16. **Consolidated dispatch view**
 
 **General backlog:**
-15. **Product entry frontend**
-16. **Unicommerce integration**
-17. **Legacy UPC manual entry**
-18. **Reconciliation module** — Phase 4
-19. **Audit module** — Phase 5
-20. **Assembly stations** — Phase 6
-21. **Dashboard tab RBAC**
-22. **Google sign-in** — Supabase OAuth
-23. **Biometric integration**
-24. **APK rollout to all 15 devices**
-25. **Dash/Nitro QR code problem**
-26. **material_master name inconsistencies**
-27. **Old para items with `(old)` suffix**
-28. **PRODUCT_SUBVARIANTS for Nitro/Dash/Fang/Atlas**
-29. **Dispatch calendar in system** — currently Google Sheets, deferred
+17. **Product entry frontend**
+18. **Unicommerce integration**
+19. **Legacy UPC manual entry**
+20. **Reconciliation module** — Phase 4
+21. **Audit module** — Phase 5
+22. **Assembly stations** — Phase 6
+23. **Dashboard tab RBAC**
+24. **Google sign-in** — Supabase OAuth
+25. **Biometric integration**
+26. **APK rollout to all 15 devices**
+27. **Dash/Nitro QR code problem**
+28. **material_master name inconsistencies**
+29. **Old para items with `(old)` suffix**
+30. **PRODUCT_SUBVARIANTS for Nitro/Dash/Fang/Atlas**
+31. **Dispatch calendar in system** — currently Google Sheets, deferred
 
 ---
 
@@ -492,6 +508,10 @@ Same as v3.0. No changes this session.
 | **`dispatch_boxes.shipment_id` nullable** | DROP NOT NULL ← April 15 2026 | Direct mode boxes have no shipment. Made nullable to support both modes with one table. |
 | **Store history detail: cache rows in `window._shIssueRows`** | No extra API call — reuse already-fetched data | `getIssues` returns all line data; aggregate to header for table, cache raw for detail modal. ← April 15 2026 |
 | **Scans tab: own date inputs** | `scanDateFrom`/`scanDateTo` replace global datebar | Global datebar is production-day-only; scans tab needs multi-day range for investigations. ← April 15 2026 |
+| **Legacy unit identity** | EAN (13 digits) = SKU-level; legacy car QR (14+ digits) = EAN + unit suffix = unit-level | EAN detectable from box exterior; car QR only accessible when box open. Detection regex: `/^\d{13}$/` for EAN, `/^\d{14,}$/` for legacy car QR ← April 16 2026 |
+| **Legacy starting statuses** | dispatch=`handed_over`, store=`inwarded`, return=`rto_in` | Reflects physical reality — dispatch units already handed over, store units re-enter at INW, returns enter at RTO_IN ← April 16 2026 |
+| **Legacy UPC generation** | Max of `upc_pool.upc_id` and `units.upc`, increment | Legacy units bypass upc_pool entirely; checking both tables ensures no collisions ← April 16 2026 |
+| **Remote lookup for legacy** | `component_type=remote AND linked_product_code=car.product_code` | Car rows have `linked_product_code=null`; remote rows point back to their car's product_code ← April 16 2026 |
 
 ---
 
