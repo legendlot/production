@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 3.0 | **Last Updated:** April 2026 (Session: 15 Apr 2026)
+**Version:** 3.1 | **Last Updated:** April 2026 (Session: 15 Apr 2026 — Part 2)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -12,7 +12,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Full production operations system live on floor. Procurement system live with FBU and CKD PO flows fully rebuilt. CKD PO now uses multi-product queue with live BOM explosion, grouped editable results, and correct car/remote separation. Receiving system live with full box-first flow, bag generation (append-only, QR labels), and GRN raise updating stock. Cloudflare subrequest limit issues resolved across postShipment, postBoxIntake, and raiseGRNFromReceiving. GRN detail modal built and accessible from any page.
+**Current state:** Full production operations system live on floor. Dispatch expansion complete — full PACK stage added with shipment manifests, box management, and label printing. Dashboard dispatch restructured into three separate tabs. Store history now has issue detail view.
 
 ---
 
@@ -35,23 +35,18 @@ Afshaan (Co-founder)
 
 ## 3. Products
 
-LOT currently makes RC cars. A finished RC car unit consists of: car body (UPC sticker on bottom), remote control (UPC sticker — independent), accessories, packaging tray + box, shrink wrap.
+LOT currently makes RC cars. A finished RC car unit consists of: car body, remote control, accessories, packaging tray + box, shrink wrap.
 
 **SKUs:** 86+ active SKUs across ~28 products with multiple model/color variants.
 
-**`has_remote` flag:** RC cars = true. Die cast, DIY sets = false.
-
-**Receive format:**
-- `FBU` (Fully Built Unit) — received as complete assembled product. Stock tracked at unit level in `fbu_stock`. Cars and remotes tracked separately via `component_type`.
-- `CKD` (Completely Knocked Down) — received as individual parts. GRN records component-level receipts.
-- `SKD` (Semi Knocked Down) — partial BOM. Deferred.
-- **Current data:** Dash + Nitro = FBU. Flare LE = FBU. All other cars = CKD. All remotes = CKD.
-
-**FBU remote tracking:** For `has_remote` FBU products, PO has one collapsed remote line per product (not per variant/color). Remotes arrive as product SKU, not variant-specific. Box intake shows separate Car and Remote rows with type badge.
+**Receive formats:**
+- `FBU` — received as complete assembled product. Stock at unit level in `fbu_stock`.
+- `CKD` — received as individual parts. GRN records component-level receipts.
+- `SKD` — deferred.
+- **Current data:** Dash + Nitro + Flare LE = FBU. All other cars + all remotes = CKD.
 
 ### Products in system (April 2026)
-- Flare, Ghost, Knox, Shadow, Nitro, Dash, Fang, Atlas, Bumble, Gazer, Alex (test)
-- **Flare LE** ← new April 13 2026: product code `FE`, car SKU `FERK` (Race Black), remote `FEXXR`. FBU. UPC batch of 200 to be generated.
+Flare, Ghost, Knox, Shadow, Nitro, Dash, Fang, Atlas, Bumble, Gazer, Alex (test), **Flare LE** (FBU, Race Black only)
 
 ---
 
@@ -61,7 +56,7 @@ LOT currently makes RC cars. A finished RC car unit consists of: car body (UPC s
 **Display Code:** `KNAK00000007` (product_code + raw 8-digit LOT sequence, no hyphens).
 **QR encodes:** `LOT-` number (permanent, immutable).
 
-**component_type at INW:** Derived from `product_master.component_type`. Fallback: product name contains "remote" → 'remote'. Never derived from product_code suffix (GHBR ends in R = Red color, not remote).
+**component_type at INW:** Derived from `product_master.component_type`. Fallback: product name contains "remote". Never from product_code suffix.
 
 ---
 
@@ -79,159 +74,117 @@ Parts (Store) → Assembly → QC → Packaging → RTD → Dispatch
 | QC_FAIL | End of QC | Single scan |
 | WKS | Workshop | System-inferred direction |
 | PKG | Packaging station | Two-scan (car + remote), prints batch label |
-| PKG_OUT | Dispatch Out | Scans batch label — auto-routes RTE/RTR or RTD_RETURN |
+| PKG_OUT | Dispatch Out (prod) | Scans batch label — writes RTE or RTR to scans (never PKG_OUT) |
 | RTO_IN | Returns | Two paths: intact → direct RTD, damaged → full production flow |
-| DTK | Dispatch Intake | Sets handed_over. Fast intake, no channel selection. |
-| ALLOC | Dispatch Allocate | Channel dropdown (filtered by box type). Sets allocated. |
-| DOUT | Dispatch Out | Hard rejects if not allocated. Sets shipped. |
+| DTK | Dispatch Intake | Sets handed_over |
+| ALLOC | Dispatch Allocate | Channel dropdown. Sets allocated. |
+| PACK | Dispatch Packing | Scans batch label into box. Sets packed_dispatch. ← new April 15 2026 |
+| DOUT | Dispatch Out | Scans BOX label (bulk) or batch label (unit). Sets shipped. ← updated April 15 2026 |
 
 ### Batch Label Format — LOCKED
 `LOT-XXXXXXXX-E` (ecom) or `LOT-XXXXXXXX-R` (retail).
 
-### Line attribution
-`pkg_scans.line` is the source of truth for dispatch attribution. PKG_OUT device is SHARED — `scans.line` for RTE/RTR is always 'SHARED' and unreliable.
+### Box Label Format — new April 15 2026
+`BOX-XXXXX` — sequential, globally unique. Used for bulk outer cartons. QR-encoded on label. DOUT scans this to ship all units inside atomically.
+
+### Activity type enum rule
+`PKG_OUT` is **NEVER** an activity value in the `scans` table. The PKG_OUT scan writes `RTE` (ecom, -E label) or `RTR` (retail, -R label). Always filter by RTE/RTR, never PKG_OUT.
 
 ---
 
-## 6. Store Receiving System
+## 6. Dispatch System ← expanded April 15 2026
 
-### Mental model
-**Box-first.** Staff open boxes one by one and record what's inside.
-
-### Flow
-1. Create shipment (linked to PO) → SKU lines auto-populated from PO
-2. Add shipping marks via RANGE or SINGLE entry
-3. OPEN BOX on a mark → Box Intake form
-4. Box Intake: grid of expected SKUs with OK + Damaged inputs
-   - FBU+has_remote products: separate Car (green badge) and Remote (blue badge) rows
-   - Remote rows are product-level, not variant/color level (e.g. "Flare Remote ×240" not "Flare Track Pink Remote ×10")
-5. Submit box → entries recorded, qty_counted aggregated per SKU
-6. Reconciliation panel: Matched / Short / Over / Has Damage / Pending
-7. Raise GRN → FBU path (fbu_grn_register + fbu_stock) or Parts path
-
----
-
-## 7. Dispatch System
-
-### Flow
+### Full flow
 ```
-PKG → pending_rtd → PKG_OUT → rtd → DTK → handed_over → ALLOC → allocated → DOUT → shipped
+PKG → pending_rtd → PKG_OUT → rtd → DTK → handed_over → ALLOC → allocated → PACK → packed_dispatch → DOUT → shipped
 ```
 
-### Scanner fix ← April 13 2026
-`cfg.deviceId` was never being stored. DTK/ALLOC/DOUT all read `cfg.deviceId` → always null → "Missing batch_label or device_id" error. Fixed: `saveSetup()` now stores `deviceId: device.id` in cfg. Operators must redo device setup once.
+### Shipment planning
+Shipments are created on the dashboard before packing begins. Each shipment has a manifest — product/variant/color level line items with target quantities. The PACK scanner enforces the manifest: blocks units not in manifest, blocks lines that are already full.
+
+**Shipment statuses:** `draft → packing → shipped` (or `cancelled`)
+
+**Ready-to-pack flag:** System automatically flags a shipment as ready when `pool_count (allocated units) >= expected_units`. Visible in dashboard and scanner dropdown.
+
+**Shipment ID format:** `DSO-XXXX` — separate from procurement shipments (`SHP-XXXX`). Reset to DSO-0001.
+
+### Two dispatch channels
+- **Bulk** (`fulfillment_model = 'bulk'`): N units packed into big outer carton. PACK station: open box → scan units → close box → BOX label prints. DOUT scans BOX label → all units shipped.
+- **Unit** (`fulfillment_model = 'unit'`): One unit per outer carton. PACK station auto-closes box after each scan and reprints PKG label for outer carton. DOUT scans batch label.
+
+### PACK station modes
+- **Shipment mode** — planned shipments with manifest enforcement. Works for bulk and planned unit shipments.
+- **Direct mode** — unit channels only, no shipment required. Operator picks channel, scans units, each auto-creates/closes a box. For ad-hoc unit orders.
+
+### Box management (dashboard)
+- Click shipment → detail modal → see boxes + unit manifest
+- Remove unit from box (dashboard only) — unit reverts to allocated
+- Reopen packed box (dashboard)
+
+### Dispatch print server
+`dispatch-printserver.js` — not yet deployed. Polls `print_jobs WHERE line = 'DISPATCH'`. Handles:
+- `PKG_LABEL` — reprint of original PKG label for unit outer carton
+- `BOX_LABEL` — combined bulk outer carton label (channel, products, unit count, QR, shipment ref)
 
 ---
 
-## 8. Returns System
+## 7. Store Receiving System
 
-### Return Categories
-| Code | Name |
-|---|---|
-| UDR | Undamaged Return |
-| CXR | Customer Return |
-| BRV | Bulk Return — Vendor |
+No changes from v3.0. See v3.0 for full details.
 
 ---
 
-## 9. Procurement System ← rebuilt April 13 2026
+## 8. Procurement System
 
-### Page structure
-```
-Procurement
-├── Dashboard        ← cards: pending requests, open POs, pending approval, arriving soon
-├── Purchase Orders  ← category-first creation, redesigned order details header
-├── Reorder Requests ← anyone raises, procurement guy reviews/converts/rejects
-├── Vendors          ← supplied items: product/part/category (3 types, not 5 fields)
-└── Forwarders
-```
-
-### PO creation flow — FBU
-1. **Category** (8 cards) — FBU sets Product type, China, RMB, FOB automatically
-2. **SELECT PRODUCT** panel (first) — product dropdown + format badge
-3. **Order Details** — Vendor + Payment Terms (Expected Delivery removed; calculated from Shipping Timeline)
-4. **Line Items** — variant qty grid with Car + Remote columns; ADD TO ORDER queues lines; remote collapses to product-level
-5. **Shipping Timeline** — calculates expected arrival; auto-sets hidden `po-delivery` field
-
-### PO creation flow — CKD
-1. **Category** — CKD sets Component type, China, RMB, FOB
-2. **SELECT PRODUCTS** panel (first) — multi-product queue; each product expands into variant grid
-   - Car qty + Remote qty per variant; Remote defaults to mirror Car
-   - Remote qty is product-level in explosion (sum across all variants)
-   - FBU-only products excluded: Dash, Nitro, Flare LE
-3. **EXPLODE BOM** — calls `calcKit` per variant (car parts) + per product (remote parts); merges by part_code
-4. **Order Details** — Vendor + Payment Terms
-5. **LINE ITEMS** — explosion result grouped by category; Packaging + Para off by default; editable qtys; RE-SELECT resets
-6. **Shipping Timeline**
-
-### Vendor supplied items (3 types)
-- **Product** — "Kai supplies Flare" — product dropdown
-- **Part** — "Deng supplies Knox PCB" — searchable part code/name with current stock display
-- **Category** — "Manvik supplies all Para" — fixed 8-category list
-
-Auto-fill on PO: product-level match → category-level match → no auto-fill.
-
-### Reorder requests
-- **Anyone** can raise (all roles have `reorder_raise` permission)
-- Two paths: By Part Code (shows current stock) or By Product (product/variant/color)
-- Urgency: Normal / Urgent / Critical
-- Procurement guy: reviews list, CONVERT → opens PO form pre-filled, REJECT → requires note
-- Convert links RR to created PO (`converted_po_id` stamped on submit)
-
-### Approval threshold
-`store.settings` table, key `po_approval_threshold`. Null = self-approve always. Set by super_admin. UI indicator exists but approval gate not yet enforced.
+No changes from v3.0. See v3.0 for full details.
 
 ---
 
-## 10. Bag System ← new April 14 2026
+## 9. Dashboard ← updated April 15 2026
 
-Bags are physical bags that parts are sorted into during receiving. Each bag gets a unique label scanned at store-to-production issue time.
+### Dispatch tabs (restructured)
+Dispatch nav is now a dropdown with three separate full-content tabs:
+- **Overview** — live status cards, allocated pool, sent-out chart, units table
+- **Shipments** — shipments with manifest progress, ready badge, edit/cancel/delete
+- **Channel Master** — channel CRUD
 
-**Flow:** Count parts into box → submit box → reconciliation shows qty_counted → GEN bags (per line or all) → print labels → seal bags.
+### Scans tab
+Now has its own date range filter (From/To + presets: Today / This Week / This Month). No longer tied to global production datebar.
 
-**Bag size:** Default from `material_current.bag_size` per part. Editable per receiving line before generation. New size applies to future bags only; existing sealed bags unchanged.
-
-**Append logic:** Generation is append-only. Day 2 more qty arrives → GEN creates only new bags starting from next seq; updates `total_bags` on all prior bags for that line.
-
-**Multiple bag sizes per part across shipments:** Fully supported. Each bag carries its own qty. No conflict between a bag of 25 from shipment A and bag of 50 from shipment B.
-
-**Label:** LOT logo + part code + shipment ID | part name + qty (large) + bag X of Y | QR code (encodes `bag_id`) | unique bag ID + date footer.
-
-**Bag ID format:** `BAG-{part_code}-{line_id_last6}-{seq}` — globally unique.
-
-**Issue flow (future):** Store team scans `bag_id` QR at issue time to consume the bag against a work order.
+### Store history
+Issue rows are now clickable — opens detail modal showing all part lines with BOM qty, actual issued, and variance per line.
 
 ---
 
-## 11. Key Technical Learnings (don't repeat these mistakes)
-
-## 12. Print System
-
-`print_jobs` table → Node.js print server (v2.2) on each PKG laptop → TSC TE244 thermal printer. Atomic claiming prevents duplicate prints. v2.2 deployed to L1 and L2. L3 not yet set up.
-
----
-
-## 11. Key Technical Learnings (don't repeat these mistakes)
+## 10. Key Technical Learnings (don't repeat these mistakes)
 
 - `unit_status` enum = lowercase; `activity_type` enum = uppercase
-- Supabase row limit 5000 (changed from 1000)
+- `PKG_OUT` is NEVER an activity value — scanner writes `RTE` or `RTR`
+- `packed_dispatch` must be added via `ALTER TYPE unit_status ADD VALUE` before first PACK scan
+- Always add enum values via SQL BEFORE deploying code that writes them — PostgREST 400 otherwise
+- `sbPublic` 204 responses: `JSON.parse("")` throws but operation succeeded. Catch block must use `ok: res.ok` not `ok: false`
+- Supabase row limit 5000
 - PKG_OUT scans always have `scans.line = 'SHARED'` — use pkg_scans.car_upc for line attribution
-- `product_master` lookup must use `product_code` not product name
 - Worker GET vs POST routing — dashboard sends GET; scanner sends POST
 - `body.data || body` pattern for all scanner POST actions
-- GitHub Pages caches aggressively — dummy commit forces CDN invalidation. No Cloudflare proxy on store site.
-- **`component_type` at INW must come from `product_master.component_type`** — never from product_code suffix. GHBR ends in R = Red (color), not Remote. GHUKR is a remote whose product_code doesn't match PM (GHXXR). Always use `pm?.component_type` with fallback to product name containing "remote". ← April 13 2026
-- **`cfg.deviceId` must be stored at `saveSetup` time** — not just `cfg.deviceCode`. DTK/ALLOC/DOUT read `cfg.deviceId`. Fixed April 13 2026.
-- **FBU category must lock format** — `poCurrentCategory === 'fbu'` overrides `receiveFormatCache[product]` in grid display, format badge, and submission logic. CKD product defaults must not bleed through. ← April 13 2026
-- **FBU remote lines are product-level** — one remote line per product (total qty), not per variant/color. Remotes arrive as product SKU. ← April 13 2026
-- **RLS on new store tables** — when RLS is disabled (`relrowsecurity = false`), policies don't matter. Issue is grants. `GRANT ALL ON table TO service_role` is the fix. ← April 13 2026
-- **`buildProductList` misses FBU products** — FBU-only products (no BOM entries) never appear in `materialCache` → not in PRODUCTS list → missing from all dropdowns. Fix: merge `PRODUCT_VARIANTS` keys into PRODUCTS after materialCache scan. ← April 13 2026
-- **Fixed-position modals must live at app root** — `position:fixed` inside `display:none` parent = invisible. All modals go directly inside `#app`, outside all view sections. ← April 14 2026
-- **`update_fbu_stock_issued` must upsert** — plain UPDATE silently no-ops if no fbu_stock row exists (no GRN done yet). Always upsert; insert at −qty so shortfall is visible. ← April 15 2026
-- **FBU WO loop: accumulate before BOM guard** — `if (!woBom.length) continue` must come after the `isFBU` fbuMap block. Pure FBU products have no BOM rows; continue fires before fbu_lines is built. ← April 15 2026
-- **Every new store table needs explicit GRANT** — `fbu_issue_register` had no service_role grants despite existing. Pattern: `GRANT ALL ON store.{table} TO service_role` for every new table. ← April 15 2026
-- **Cloudflare Workers: 50 subrequest limit** — never loop `await` per line inside a handler. Use `batchNextSeq`, single-array INSERT, `IN` filter for batch updates, RPCs for aggregates. Always count subrequests before deploying a new handler that iterates over PO/shipment lines. ← April 14 2026
-- **`grn_register.product` is blank for HW/UNV parts** — these parts have no product linkage in `receiving_lines`. Must derive from `bom_current` at GRN creation time by looking up each part_code. ← April 14 2026
+- GitHub Pages caches aggressively — dummy commit forces CDN invalidation
+- `component_type` at INW must come from `product_master.component_type` — never from product_code suffix
+- `cfg.deviceId` must be stored at `saveSetup` time
+- Every new store/public table needs explicit `GRANT ALL ON {table} TO service_role`
+- Cloudflare Workers: 50 subrequest limit — never loop `await` per line
+- Fixed-position modals must live at app root
+- `dispatch_shipments.shipment_no` prefix: SHP- = procurement (old), DSO- = dispatch outward (new)
+- PACK direct mode: gate `!packShipment` check with `packMode === 'shipment' &&` to avoid blocking direct mode
+- `dispatch_boxes.shipment_id` is nullable — direct mode boxes have no shipment
+- All prior learnings — see v3.0
+
+---
+
+## 11. Print System
+
+**Production:** `print_jobs` table → Node.js print server (v2.2) on each PKG laptop → TSC TE244. Deployed on L1 and L2. L3 not yet set up.
+
+**Dispatch:** `dispatch-printserver.js` (v1.0) — same polling architecture, `line = 'DISPATCH'`. **Not yet deployed.** Handles `PKG_LABEL` + `BOX_LABEL` job types. `payload` JSONB column carries box label data.
 
 ---
 
@@ -250,49 +203,40 @@ Bags are physical bags that parts are sorted into during receiving. Each bag get
 ## 13. Build Status
 
 ### Live & Confirmed ✅
-- All scanner flows: INW (component_type fix), QC_PASS, QC_FAIL, WKS, PKG, PKG_OUT, RTO_IN
+- All scanner flows: INW, QC_PASS, QC_FAIL, WKS, PKG, PKG_OUT, RTO_IN, DTK, ALLOC, DOUT
+- PACK station: shipment mode + direct mode
 - PKG label printing — TSC TE244 via Supabase polling v2.2
-- Full Dispatch system — DTK/ALLOC/DOUT (deviceId fix deployed), 17 channels, dispatch dashboard
-- Store receiving — box-first flow, FBU Car/Remote badges, CKD parts flow, bag generation + labels
-- Procurement system — FBU PO (product-first layout), CKD PO (multi-product queue + BOM explosion), reorder requests, vendor supplied items, procurement dashboard
-- Reporting tab v2, Takt time / throughput, all dashboard tabs
-- FBU/CKD/SKD schema + FBU remote tracking
-- Flare LE product added
-- GRN system — raises stock correctly, detail modal, product shown correctly
-- FBU issue flow — pick list, validation, upsert RPC, permissions all fixed ← April 15 2026
+- Full Dispatch system — DTK/ALLOC/PACK/DOUT, 17 channels + Website
+- Shipment manifests — product picker, manifest enforcement at PACK
+- Dashboard: Overview/Shipments/Channel Master tabs, shipment detail modal, issue detail modal
+- Scans tab date range filter
+- Store receiving, procurement, GRN, bag system, FBU issue flow all live
+
+### Pending Deployment ⚠️
+- **Dispatch print server** — `dispatch-printserver.js` needs laptop + printer at dispatch table
+- **`packed_dispatch` enum** — run `ALTER TYPE unit_status ADD VALUE IF NOT EXISTS 'packed_dispatch'` if not yet applied
 
 ### Pending Test 🧪
-- **CKD PO full flow** — create → explode → submit → PO lines correct
-- **Receiving against CKD PO** — shipment → boxes → reconciliation → GRN → stock updated
-- **Bag generation** — GEN per line + GEN ALL + PRINT; append on day 2
-- **GRN detail modal** — click row → opens with correct lines
-- **FBU PO form** — product-first, no expected delivery, shipping timeline auto-calc
-- **Dispatch DTK fix** — operator redoes setup → DTK scan succeeds
-- **INW component_type** — Ghost Burnout Red + remote inward correctly
+- PACK bulk flow end-to-end (open box → scan → close → BOX label)
+- PACK direct mode (unit channel, no shipment)
+- DOUT with BOX label
+- Manifest enforcement (wrong product hard block, line full hard block)
+- Shipment ready flag
+- Shipment edit flow
+- Cancel/delete shipment
 
 ### Open Issues 🔶
-None currently.
+- LOT-00007572 (Flare Race Black, qc_fail) — team checking whether to scrap with the 75
+- Dispatch print server not yet deployed
 
-### Fixed This Session 🔧 (15 Apr 2026)
-- **FBU pick list empty** — `getProductionRun` WO loop guard fired before FBU accumulation; pure FBU products (no BOM) never built `fbu_lines`. Fixed by moving FBU block above BOM guard.
-- **FBU-only runs rejected** — `issueAgainstRun` required `lines.length > 0`; FBU runs have no CKD lines. Fixed to accept either `lines` or `fbu_lines`.
-- **`update_fbu_stock_issued` silent no-op** — plain UPDATE matched nothing when no `fbu_stock` row existed. Rebuilt as upsert (insert at −qty if missing).
-- **`fbu_issue_register` permission denied** — table had no service_role grants. Fixed with `GRANT ALL`.
+### Fixed This Session 🔧
+- `sbPublic` 204 false error → catch block fix
+- Flare Burnout Green ecom→retail label correction (22 units)
+- Flare Burnout Green RTE scans voided, units reverted to pending_rtd
+- Flare Race Black 75 units INW voided, scrapped
 
 ### Pending Build 🔲
-- **Scanner setup: show active run per line**
-- **Reorder requests: stock page entry point**
-- **Procurement approval gate**
-- **Repair run design + build**
-- **Google sign-in** — Supabase OAuth
-- **EAN sticker at PKG**
-- **Info scan / test scanner mode**
-- **Price master module**
-- **Product entry frontend**
-- Reconciliation (Phase 4), Audit (Phase 5), Assembly stations (Phase 6)
-- Dashboard day view, Consolidated dispatch view
-- Unicommerce integration, Biometric integration
-- Dashboard RBAC, APK rollout, Dash/Nitro QR code problem
+See LOT_BUILD.md §11 Pending Build Items for full prioritised list.
 
 ---
 

@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 3.0 | **Last Updated:** April 2026 (Session: 15 Apr 2026)
+**Version:** 3.1 | **Last Updated:** April 2026 (Session: 15 Apr 2026 — Part 2)
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -15,7 +15,8 @@
 | Dashboard | Vanilla JS | `dashboard.legendoftoys.com` — GitHub Pages, repo `legendlot/dashboard` |
 | Store system | Vanilla JS | `store.legendoftoys.com` — GitHub Pages, repo `legendlot/Stores` |
 | Camera/scanning | Native `getUserMedia` + ZXing | Replaced html5-qrcode (MIUI incompatibility) |
-| Print server | Node.js v2.2 | `printserver.js` on each line's PKG station laptop — polls Supabase filtered by line. Atomic job claiming prevents cross-line duplicate prints. No HTTP server, no firewall rules needed. |
+| Print server (production) | Node.js v2.2 | `printserver.js` on each line's PKG station laptop — polls Supabase filtered by line. Atomic job claiming prevents cross-line duplicate prints. |
+| Print server (dispatch) | Node.js v1.0 | `dispatch-printserver.js` on dispatch laptop — polls `line = 'DISPATCH'`. Handles `PKG_LABEL` + `BOX_LABEL` job types. **Not yet deployed — needs setup on dispatch laptop.** |
 | Thermal printer | TSC TE244 | TSPL, USB, 50×25mm labels, `@thiagoelg/node-printer` |
 | Fonts | Tomorrow + JetBrains Mono | Google Fonts |
 | QR generation (dashboard) | QRCode.js from cdnjs | Used in UPC Generator print flow and Operators tab QR card print |
@@ -27,12 +28,12 @@
 
 ### Schema Separation
 - **`store` schema** — inventory, procurement, GRN, issues, work orders, production runs, returns
-- **`public` schema** — scan tables, units, devices, operators, views, RPCs
+- **`public` schema** — scan tables, units, devices, operators, dispatch, views, RPCs
 
 Store schema API calls include `Accept-Profile: store` / `Content-Profile: store` headers.
 Public schema RPC calls use `sbPublic()` helper — no profile headers.
 
-**Supabase max rows setting:** 5000 (changed from default 1000 — required for scan display table).
+**Supabase max rows setting:** 5000 (changed from default 1000).
 
 ---
 
@@ -41,25 +42,29 @@ Public schema RPC calls use `sbPublic()` helper — no profile headers.
 #### `units` — One row per physical unit
 ```
 upc             TEXT PRIMARY KEY
-ean             TEXT                  -- nullable (remotes have no EAN)
-sku             TEXT                  -- nullable
+ean             TEXT
+sku             TEXT
 product         TEXT
-model           TEXT                  -- nullable
-color           TEXT                  -- nullable
-current_status  TEXT (enum)           -- inwarded | qc_pass | qc_fail | in_repair | repaired
-                                      -- pending_rtd | rtd | scrapped | rto_in
+model           TEXT
+color           TEXT
+current_status  TEXT (enum unit_status)
 loop_count      INT
 is_fresh        BOOLEAN
 created_at      TIMESTAMPTZ
 updated_at      TIMESTAMPTZ
 component_type  TEXT                  -- 'car' | 'remote'
-paired_with     TEXT                  -- references units(upc)
+paired_with     TEXT
 production_run_id UUID
 ```
 
-**unit_status enum values (confirmed):** `inwarded | qc_pass | qc_fail | in_repair | repaired | pending_rtd | packed | rtd | scrapped | rto_in`
-- `pending_rtd` — added April 2026. Set after PKG scan. Required for PKG_OUT validation.
-- `packed` — legacy value, no longer written by system. Both coexist in enum.
+**unit_status enum values (confirmed + updated):**
+`inwarded | qc_pass | qc_fail | in_repair | repaired | pending_rtd | packed | rtd | scrapped | rto_in | handed_over | allocated | packed_dispatch | shipped`
+- `pending_rtd` — set after PKG scan
+- `packed` — legacy, no longer written
+- `packed_dispatch` — set at PACK station ← added April 15 2026 (`ALTER TYPE unit_status ADD VALUE IF NOT EXISTS 'packed_dispatch'`)
+- `handed_over` — set at DTK
+- `allocated` — set at ALLOC
+- `shipped` — set at DOUT
 
 #### `scans` — All scan activity (immutable ledger)
 ```
@@ -67,13 +72,15 @@ id              UUID PRIMARY KEY
 timestamp       TIMESTAMPTZ
 upc             TEXT
 ean             TEXT
-activity        TEXT    -- INW | QC_PASS | QC_FAIL | WKS_IN | WKS_OUT | PKG | RTE | RTR | RTO_IN | RTD_RETURN
+activity        TEXT (enum activity_type)
+                -- INW | QC_PASS | QC_FAIL | WKS_IN | WKS_OUT | PKG | RTE | RTR
+                -- RTO_IN | RTD_RETURN | DTK | ALLOC | DOUT | PACK
 line            TEXT
 station         TEXT
 device_id       UUID
 operator_id     UUID
 shift           TEXT
-plan_id         TEXT    -- UUID of production run (store schema) — nullable
+plan_id         TEXT
 batch_label     TEXT
 notes           TEXT
 raw_input       TEXT
@@ -84,121 +91,119 @@ voided_at       TIMESTAMPTZ
 void_reason     TEXT
 superseded_by   UUID REFERENCES scans(id)
 ```
+**Critical:** `activity_type` is a Postgres enum. `PKG_OUT` is NEVER written to scans — PKG_OUT scan writes `RTE` (ecom) or `RTR` (retail). Never filter scans by `PKG_OUT`.
 
-#### `devices` — confirmed columns
+#### `dispatch_channels`
 ```
-id           UUID PRIMARY KEY
-device_code  TEXT                -- e.g. INW-L1, PKG-L2, WKS-L1
-label        TEXT
-line         TEXT                -- L1 | L2 | L3 | SHARED
-station      TEXT
-is_active    BOOLEAN
-created_at   TIMESTAMPTZ
-last_seen    TIMESTAMPTZ
-notes        TEXT
+id                UUID PRIMARY KEY
+name              TEXT
+type              TEXT              -- 'ecom' | 'retail' | 'other'
+fulfillment_model TEXT              -- 'unit' | 'bulk'
+is_sale           BOOLEAN
+is_active         BOOLEAN
 ```
-**Note:** `deviceId` (UUID) is now stored in `cfg.deviceId` in scanner — fixed April 13 2026.
+17 seeded channels including Website (ecom, unit, is_sale=true) ← added April 15 2026.
 
-#### `operators` — confirmed columns
+#### `dispatch_allocations`
 ```
-id              UUID PRIMARY KEY
-name            TEXT
-qr_code         TEXT
-role            TEXT (enum)
-reports_to      UUID
-is_active       BOOLEAN
-created_at      TIMESTAMPTZ
-line            TEXT
-qr_generated_at TIMESTAMPTZ
+car_upc       TEXT PRIMARY KEY
+batch_label   TEXT
+channel_id    UUID FK → dispatch_channels
+allocated_by  UUID
+allocated_at  TIMESTAMPTZ
+shipped_at    TIMESTAMPTZ
+shipment_id   UUID FK → dispatch_shipments  -- nullable
+box_id        UUID FK → dispatch_boxes      -- nullable ← April 15 2026
+packed_at     TIMESTAMPTZ                   -- nullable ← April 15 2026
 ```
 
-#### `operator_sessions` — Scanner login sessions
+#### `dispatch_shipments` ← extended April 15 2026
 ```
-id                UUID PRIMARY KEY DEFAULT gen_random_uuid()
-operator_id       UUID NOT NULL REFERENCES public.operators(id)
-device_id         UUID NOT NULL REFERENCES public.devices(id)
-station           TEXT NOT NULL
-line              TEXT NOT NULL
-production_run_id UUID
-shift             TEXT
-login_at          TIMESTAMPTZ NOT NULL DEFAULT now()
-logout_at         TIMESTAMPTZ
+id                    UUID PRIMARY KEY
+shipment_no           TEXT    -- DSO-XXXX (dso_seq, reset to 1) ← renamed from SHP- April 15 2026
+channel_id            UUID FK → dispatch_channels
+status                TEXT    -- draft | packing | ready | shipped | cancelled
+expected_units        INT     -- auto-computed from SUM(shipment_lines.target_qty) ← April 15 2026
+packed_count          INT DEFAULT 0                                                 ← April 15 2026
+destination_warehouse TEXT
+scheduled_date        DATE
+notes                 TEXT
+created_by            TEXT
+shipped_at            TIMESTAMPTZ
+created_at            TIMESTAMPTZ
+```
+**Sequence:** `dso_seq` (reset to 1 April 15 2026). Old `shp_seq` still exists for procurement shipments — completely separate.
+
+#### `dispatch_shipment_lines` ← new April 15 2026
+```
+id          UUID PRIMARY KEY
+shipment_id UUID NOT NULL FK → dispatch_shipments
+product     TEXT NOT NULL
+model       TEXT
+color       TEXT
+target_qty  INT NOT NULL DEFAULT 0
+packed_qty  INT NOT NULL DEFAULT 0
+created_at  TIMESTAMPTZ DEFAULT now()
+```
+GRANT ALL to service_role applied.
+
+#### `dispatch_boxes` ← new April 15 2026
+```
+id                UUID PRIMARY KEY
+box_ref           TEXT UNIQUE NOT NULL    -- BOX-XXXXX (box sequence)
+shipment_id       UUID FK → dispatch_shipments  -- nullable (direct mode)
+channel_id        UUID FK → dispatch_channels
+fulfillment_model TEXT                    -- 'unit' | 'bulk'
+status            TEXT DEFAULT 'open'    -- open | packed | shipped
+unit_count        INT NOT NULL DEFAULT 0
+packed_at         TIMESTAMPTZ
+shipped_at        TIMESTAMPTZ
 created_at        TIMESTAMPTZ DEFAULT now()
 ```
+GRANT ALL to service_role applied. `shipment_id` is nullable — direct mode boxes have no shipment.
 
-#### `store.settings` — System-wide config ← new April 13 2026
+#### `dispatch_box_units` ← new April 15 2026
 ```
-key         TEXT PRIMARY KEY
-value       TEXT                  -- nullable (null = no threshold set)
-label       TEXT
-description TEXT
-updated_by  TEXT
-updated_at  TIMESTAMPTZ DEFAULT now()
+id          UUID PRIMARY KEY
+box_id      UUID NOT NULL FK → dispatch_boxes
+car_upc     TEXT NOT NULL
+batch_label TEXT NOT NULL
+product     TEXT
+model       TEXT
+color       TEXT
+added_at    TIMESTAMPTZ DEFAULT now()
+removed_at  TIMESTAMPTZ
+removed_by  TEXT
+is_active   BOOLEAN NOT NULL DEFAULT true
 ```
-Seeded: `po_approval_threshold` — null = all roles self-approve. Managed by super_admin.
-RLS: disabled on this table. GRANT ALL to service_role applied.
+GRANT ALL to service_role applied.
 
-#### `store.reorder_requests` — Stock reorder pipeline ← new April 13 2026
+#### `print_jobs` ← extended April 15 2026
 ```
-request_id        TEXT PRIMARY KEY    -- RR-XXXX via 'rr' sequence
-request_type      TEXT                -- 'part' | 'product'
-part_code         TEXT
-product           TEXT
-variant           TEXT
-color             TEXT
-part_name         TEXT
-requested_qty     NUMERIC NOT NULL
-unit              TEXT
-urgency           TEXT DEFAULT 'Normal'  -- Normal | Urgent | Critical
-notes             TEXT
-requested_by      TEXT NOT NULL
-requested_by_name TEXT
-status            TEXT DEFAULT 'Pending'  -- Pending | Converted | Rejected
-rejection_note    TEXT
-converted_po_id   TEXT
-created_at        TIMESTAMPTZ DEFAULT now()
-updated_at        TIMESTAMPTZ DEFAULT now()
+id          UUID PRIMARY KEY
+batch_label TEXT
+product     TEXT
+model       TEXT
+color       TEXT
+channel     TEXT
+line        TEXT        -- L1 | L2 | L3 | DISPATCH
+packed_at   TIMESTAMPTZ
+status      TEXT        -- pending | printing | done | failed
+job_type    TEXT DEFAULT 'PKG_LABEL'   -- PKG_LABEL | BOX_LABEL ← April 15 2026
+payload     JSONB                      -- box label data for BOX_LABEL ← April 15 2026
 ```
-RLS: disabled. GRANT ALL to service_role applied.
 
-#### `store.vendor_supplied_items` — Vendor-product associations ← redesigned April 13 2026
-New columns added to existing table:
-```
-supply_type   TEXT    -- 'product' | 'part' | 'category'
-reference     TEXT    -- product name, part_code, or category key (e.g. 'para')
-display_label TEXT    -- human-readable label for display
-po_category   TEXT    -- nullable (only set for category type)
-```
-Old columns (po_category was NOT NULL — dropped constraint April 13 2026). Existing rows wiped; re-enter fresh.
-RLS policy `service_role_all` exists. `vendor_supplied_items_id_seq` granted to service_role.
+#### `devices` (relevant new entry)
+`PACK-SHARED` — station=PACK, line=SHARED ← added April 15 2026.
+
+#### Other tables (unchanged from v3.0)
+`operators`, `operator_sessions`, `store.settings`, `store.reorder_requests`, `store.vendor_supplied_items` — see v3.0 for details.
 
 ---
 
 ## 3. RPCs (public schema)
 
-| RPC | Purpose | Parameters |
-|---|---|---|
-| `get_executive_dashboard` | KPI summary cards | `p_date` |
-| `get_open_runs` | Active + upcoming production runs | none |
-| `get_line_view` | Per-line scan counts + run info + first_scan_at | `p_date`, `p_line` |
-| `get_defect_heatmap` | Top defects by code | `p_date_from`, `p_date_to`, `p_line` |
-| `v_first_pass_yield` | FPY by line/date (view) | — |
-| `v_repeat_defects` | Units with multiple failures (view) | — |
-| `get_plan_vs_actual` | Run targets vs actuals | `p_date_from`, `p_date_to`, `p_line` |
-| `get_scan_summary` | Accurate scan counts bypassing row limits | `p_date` |
-| `get_qc_cycle_time` | Avg time INW → QC_PASS/QC_FAIL with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
-| `get_pkg_cycle_time` | Avg time QC_PASS → PKG with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
-| `get_rtd_cycle_time` | Avg time PKG → RTE/RTR with IQR outlier detection | `p_date_from`, `p_date_to`, `p_line` |
-| `next_seq` | Auto-increment named sequences | `seq_name` |
-| `next_seq_batch` | Reserve N sequential values atomically, returns first value | `seq_name`, `batch_count` | ← April 14 2026 |
-| `recompute_line_counts` | Batch-update qty_counted + status on receiving_lines from entries sum | `p_line_ids TEXT[]` | ← April 14 2026 |
-| `get_line_car_remote_split` | Per-line car/remote counts for INW and QC_PASS | `p_date` |
-| `get_dispatch_by_pkg_line` | RTE/RTR counts attributed via pkg_scans.line | `p_date` |
-| `get_hourly_dispatch_by_line` | Dispatched units per hour per line via pkg_scans join | `p_date` |
-| `get_defect_breakdown` | Per-product/component/severity/defect counts | `p_date_from`, `p_date_to`, `p_line` |
-| `get_takt_time` | Inter-scan gap IQR analysis per station per line | `p_date_from`, `p_date_to`, `p_line` |
-| `get_first_unit_timeline` | First scan per station per line per day | `p_date_from`, `p_date_to`, `p_line` |
-| `get_takt_by_run` | Takt grouped by date+line+product joined to production_runs | `p_date_from`, `p_date_to`, `p_line` |
+Same as v3.0. No new RPCs this session.
 
 ---
 
@@ -206,331 +211,291 @@ RLS policy `service_role_all` exists. `vendor_supplied_items_id_seq` granted to 
 
 | Action | Description |
 |---|---|
-| `getProductionDashboard` | Executive tab |
-| `getLineView` | Lines tab |
-| `getQCView` | QC tab |
-| `getCycleTimeSummary` | Reporting tab |
-| `getPlanVsActual` | Runs + Reporting |
-| `getProductCodes` | UPC Generator |
-| `getUpcBatches` | UPC Generator batch history |
-| `getUpcBatch` | UPC Generator single batch |
-| `getAllScans` | Scans + Corrections tabs |
-| `getScanSummary` | Scans tab summary cards via RPC |
-| `getScansByUpc` | Scans tab UPC search |
-| `getViolations` | Alerts tab |
-| `getViolationSummary` | Alerts tab summary cards |
-| `getReturnQueue` | Returns tab |
-| `getOperators` | Operators tab |
-| `getOperatorSessions` | Operators tab |
-| `saveOperator` | Operators tab — create or update |
-| `getPkgScans` | Scans tab — pkg_scans by date range |
-| `getPkgScanLookup` | Print tab |
-| `getSettings` | Store — reads store.settings table ← new April 13 2026 |
-| `getReorderRequests` | Store — list reorder requests with status/urgency filter ← new April 13 2026 |
-| `getGRN` | Store — full grn_register list |
-| `getGRNSummary` | Store — grouped GRN summary view |
-| `getGRNDetail` | Store — summary + all lines for a single GRN | ← April 14 2026 |
+| *(all prior GET actions unchanged)* | See v3.0 |
+| `getDispatchShipments` | Updated ← April 15 2026: now includes `pool_count` + `is_ready` flag per shipment |
+| `getShipmentLines` | Lines for a shipment (`dispatch_shipment_lines`) ← April 15 2026 |
+| `getShipmentBoxes` | Boxes for a shipment ← April 15 2026 |
+| `getBoxDetail` | Single box + all units ← April 15 2026 |
+| `getAllScans` | Updated ← April 15 2026: supports `date_from` + `date_to` params (not just single `date`); limit bumped to 2000 |
 
-## 4b. Worker Endpoints (POST actions)
+## 4b. Worker Endpoints (POST/Scanner actions)
 
 | Action | Description |
 |---|---|
-| `postPkgOut` | PKG_OUT scan |
-| `generateUpcBatch` | UPC batch generation |
-| `postWksScan` | WKS scan |
-| `postWksOut` | WKS outcome |
-| `postReprintJob` | Reprint label |
-| `postPkg` | PKG scan |
-| `postReturnShipment` | Store — creates return shipment |
-| `postReturnUnit` | Store — logs return unit |
-| `postReturnInspection` | Store — records inspection + disposition |
-| `postReturnHandover` | Store — marks shipment handed_over |
-| `getReturnShipments` | Store — list return shipments |
-| `getReturnShipment` | Store — single shipment |
-| `createUser` | Store admin |
-| `resetPassword` | Store admin |
-| `postVendorSuppliedItem` | Store — new schema: supply_type + reference + display_label ← updated April 13 2026 |
-| `deleteVendorSuppliedItem` | Store — delete by id |
-| `postReorderRequest` | Store — creates RR-XXXX reorder request ← new April 13 2026 |
-| `updateReorderRequest` | Store — convert to PO or reject with note ← new April 13 2026 |
-| `postShipment` | Store — creates shipment + auto-populates receiving lines from PO; bag_size from material_current ← updated April 14 2026 |
-| `postBoxIntake` | Store — batch entry insert + recompute_line_counts RPC; subrequest-safe ← updated April 14 2026 |
-| `generateBags` | Store — append-only bag generation per line; updates total_bags on existing bags ← updated April 14 2026 |
-| `generateBagsForShipment` | Store — batch append-only bag generation for all counted lines in a shipment ← new April 14 2026 |
-| `updateLineBagSize` | Store — edit bags_of per receiving line; applies to future bags only ← new April 14 2026 |
+| *(all prior POST actions unchanged)* | See v3.0 |
+| `getActiveShipments` | Scanner — today's draft + any packing shipments, with pool counts + ready flag ← April 15 2026 |
+| `createBox` | Scanner — create box for shipment_id OR channel_id (direct mode) ← April 15 2026 |
+| `getOpenBox` | Scanner — check for open box on a shipment ← April 15 2026 |
+| `postPack` | Scanner — scan unit into box; manifest check; auto-close for unit mode ← April 15 2026 |
+| `closeBox` | Scanner — close bulk box + queue print job ← April 15 2026 |
+| `reopenBox` | Scanner — reopen packed box, reverses packed_count ← April 15 2026 |
+| `createShipment` | Updated ← April 15 2026: accepts `lines[]` array; auto-computes `expected_units` |
+| `updateShipment` | Updated ← April 15 2026: accepts `expected_units` |
+| `updateShipmentLines` | Replace manifest lines for a shipment (used in edit flow) ← April 15 2026 |
+| `postDout` | Updated ← April 15 2026: accepts BOX-XXXXX labels (bulk) + batch labels (unit); accepts `packed_dispatch` status |
+| `removeBoxUnit` | JWT — dashboard use only. Remove unit from box, revert to allocated ← April 15 2026 |
+| `cancelShipment` | JWT — draft/packing → cancelled ← April 15 2026 |
+| `deleteShipment` | JWT — draft only, no boxes → hard delete lines + shipment ← April 15 2026 |
 
 ---
 
 ## 5. Scanner Flows
 
-### INW
-Single scan. `component_type` now derived from `pm.component_type` — **never from product_code suffix** (GHBR ends in R = Red, not Remote — suffix logic caused misclassification). Falls back to product name containing "remote" if pm lookup misses (e.g. GHUKR not in PM). Fixed April 13 2026.
+### Full dispatch flow — updated April 15 2026
+```
+DTK (handed_over) → ALLOC (allocated) → PACK (packed_dispatch) → DOUT (shipped)
+```
 
-### QC_PASS / QC_FAIL / WKS / PKG / PKG_OUT
-Unchanged from prior sessions.
+### PACK station — new April 15 2026
+Two modes selectable via toggle at top of scanner screen:
 
-### DTK / ALLOC / DOUT (Dispatch)
-`cfg.deviceId` (UUID) now correctly stored at setup time — fixed April 13 2026. Operators must redo device setup once after this fix to get fresh `cfg` in localStorage.
+**Shipment mode (bulk + planned unit):**
+- Operator selects active shipment from dropdown
+- Active = `status=packing` (any date) OR `status=draft AND scheduled_date=today`
+- Bulk: tap OPEN BOX → scan units one by one → tap CLOSE BOX → label prints
+- Unit: scan unit → auto-creates box, adds unit, auto-closes, label prints
+- Hard blocks: wrong channel, not in manifest, line already full
+- Box management: close, reopen from scanner
+
+**Direct mode (unit channels only, no shipment):**
+- Operator selects channel from dropdown (unit fulfillment channels only)
+- Each scan: auto-create box → pack → auto-close → PKG label reprint queued
+- No manifest, no planning — purely for operational tracking + label printing
+- Switched via SHIPMENT / DIRECT toggle, persisted in localStorage
+
+### DOUT — updated April 15 2026
+Accepts two scan formats:
+- `BOX-XXXXX` — bulk box label: marks all units in box as shipped, auto-marks shipment shipped if last box
+- `LOT-XXXXXXXX-E/R` — unit batch label: marks single unit shipped (same as before)
+
+### DTK / ALLOC
+Unchanged from v3.0.
+
+### PKG_OUT activity_type rule
+`PKG_OUT` is NEVER an `activity` value in the `scans` table. The PKG_OUT scan writes `RTE` (ecom suffix -E) or `RTR` (retail suffix -R). Always filter by `RTE`/`RTR`, never `PKG_OUT`.
 
 ---
 
 ## 6. Store / Receiving System
 
-### Box-first receiving flow
-1. Create shipment (linked to PO) → receiving_lines auto-populated from po_lines
-2. Add shipping marks (RANGE or SINGLE)
-3. OPEN BOX on a mark → box intake grid
-4. Submit box → entries written with mark_id
-5. Repeat per box
-6. Reconciliation panel: Matched / Short / Over / Has Damage / Pending per SKU
-7. BOX CONTENTS panel: per-mark SKU breakdown
-8. RAISE GRN → FBU path or Parts path
-
-### FBU box intake ← updated April 13 2026
-- Car rows show green "Car" badge, Remote rows show blue "Remote" badge
-- Column header: "Product / Type" (was "Product")
-
-### Bag system ← new April 14 2026
-- `bags_of` on receiving lines now pulled from `material_current.bag_size` at shipment creation (was hardcoded 25)
-- Bag generation is **append-only**: only generates bags for qty not yet bagged; appends from `existing_count + 1`; updates `total_bags` on all prior bags for that line
-- Multiple bag sizes per part across shipments fully supported — each bag carries its own qty
-- Bag ID format: `BAG-{part_code}-{line_id_last6}-{seq}` — globally unique, QR-scannable at issue time
-- Label format: LOT logo + part code + shipment ref | part name + qty + bag X of Y | QR of bag_id | unique bag ID footer
-- Per-line controls in reconciliation: editable bag size, expected bag count, GEN button, Print button
-- GEN ALL BAGS + PRINT ALL at reconciliation header level
-- Editing bag size after bags exist: new size applies to new bags only (old sealed bags unchanged)
-
-### GRN improvements ← April 14 2026
-- `grn_summary` view rebuilt: single product if uniform, "N products" if mixed, "—" if all blank
-- `product` field in `grn_register` now derived from `bom_current` for lines with blank product (HW/UNV parts inherit parent product)
-- GRN rows are now clickable — opens detail modal with full line-by-line breakdown
-- GRN detail modal placed at app root (not inside receiving section) so it works from any page
-
-### Cloudflare subrequest limit fixes ← April 14 2026
-- Root cause: Cloudflare Workers limit = 50 subrequests per invocation. CKD POs with 77 lines hit this in 3 places.
-- `postShipment`: `batchNextSeq` for receiving line IDs (1 RPC instead of N)
-- `postBoxIntake`: `batchNextSeq` for ENT IDs + single batch insert + `recompute_line_counts` RPC (was N×4 subrequests)
-- `raiseGRNFromReceiving`: single batch update with `IN` filter (was N individual updates)
+No changes this session. See v3.0.
 
 ---
 
-## 7. Procurement System ← major rebuild April 13 2026
+## 7. Procurement System
 
-### Page structure
-```
-Procurement
-├── Dashboard        ← new: pending requests + open POs summary + pending approvals + arriving soon
-├── Purchase Orders  ← rebuilt: category-first, redesigned header, improved line items
-├── Reorder Requests ← new: team inbox + procurement guy action view
-├── Vendors          ← existing + simplified supplied items (product/part/category types)
-└── Forwarders       ← unchanged
-```
-
-### PO Creation flow — FBU ← updated April 14 2026
-**New layout:** Product selector panel comes FIRST (before ORDER DETAILS). Header is now a contained breadcrumb bar. Expected Delivery field removed from ORDER DETAILS (calculated from Shipping Timeline instead).
-- SELECT PRODUCT panel: single product dropdown + format badge
-- ORDER DETAILS: Vendor + Payment Terms only (no expected delivery)
-- LINE ITEMS: variant qty grid + ADD TO ORDER + queue
-- SHIPPING TIMELINE: calculates expected arrival; auto-sets `po-delivery` hidden field
-
-### PO Creation flow — CKD ← rebuilt April 14 2026
-**New mode:** `ckd-units` (replaces old `bom` mode). Multi-product queue with BOM explosion.
-
-**SELECT PRODUCTS panel:**
-- Add multiple products from dropdown; each expands into variant grid
-- Each variant row: Car qty + Remote qty (Remote defaults to mirror Car, editable independently)
-- Remote qty is **product-level** in explosion: sum of all variant remote qtys per product
-- `CKD_EXCLUDED_PRODUCTS`: Dash, Nitro, Flare LE (FBU-only — hidden from CKD selector)
-- EXPLODE BOM button enabled once any qty is entered
-
-**BOM explosion logic:**
-- Car parts: `calcKit(product, variant, colour, carQty)` per variant row, **excluding Remote category**
-- Remote parts: `calcKit(product, '', '', totalRemoteQty)` per product, **Remote category only**
-- Parts merged by `part_code` across all calls (quantities summed)
-- Results grouped into display categories: Car Parts, Remote Parts, Fasteners, Batteries, Packaging (off by default), Para (off by default), Other
-
-**LINE ITEMS panel after explosion:**
-- Summary bar: total cars + remotes, per-product breakdown
-- Collapsible BOM groups with master include/exclude toggle per group
-- Editable qty per part row
-- RE-SELECT button resets explosion
-
-**On submit:** `getCKDLines()` reads checked groups + edited qtys; submitted as parts lines with `receive_format: 'CKD'`
-
-### Vendor supplied items — redesigned April 13 2026
-Three supply types (replaces old category+product+variant+color+component_type system):
-- **Product** — "Kai supplies Flare" — searchable product dropdown
-- **Part** — "Deng supplies Knox PCB" — searchable part code/name
-- **Category** — "Manvik supplies all Para" — fixed 8-category list
-
-Auto-fill logic: product-level match first, then category-level catch-all.
-
-### Reorder requests — new April 13 2026
-**Who can raise:** All roles (via `reorder_raise` permission added to all roles).
-**Two entry types:** By Part Code (searchable, shows current stock) or By Product (product → variant → color dropdowns).
-**Urgency:** Normal / Urgent / Critical.
-**Procurement guy view:** Full list with CONVERT → PO and REJECT actions.
-**Convert flow:** Opens PO form pre-filled, links RR to created PO on submit.
-
-### Approval threshold
-Managed via `store.settings` table, key `po_approval_threshold`. Null = self-approve always. Set by super_admin. Not yet wired to PO status — UI indicator exists but approval gate not enforced yet (future work).
+No changes this session. See v3.0.
 
 ---
 
-## 8. Schema Changes Log
+## 8. Dispatch System ← new April 15 2026
+
+### Shipment lifecycle
+```
+draft → packing → (ready) → shipped
+              ↘ cancelled
+```
+- `draft` — created on dashboard, waiting for packing to begin
+- `packing` — first box opened at PACK station
+- `shipped` — all boxes shipped (auto-set at DOUT when last box clears)
+- `cancelled` — manually cancelled from dashboard (draft or packing only)
+
+### Shipment manifest
+Created at same time as shipment, on dashboard. Product picker identical to FBU receiving flow — select product, all variants expand, enter qty per variant. Multiple products. PACK station hard-blocks units not in manifest and units that would exceed line target.
+
+**Ready-to-pack flag:** `pool_count >= expected_units` — visible in shipments table and scanner dropdown.
+
+### Dispatch print server
+`dispatch-printserver.js` — **new file, not yet deployed**. Must be set up on dispatch laptop:
+- Same architecture as production print servers
+- Polls `print_jobs WHERE line = 'DISPATCH'`
+- `PKG_LABEL` jobs: reprint of PKG label (unit fulfillment outer box)
+- `BOX_LABEL` jobs: combined box label with channel, product breakdown, QR of box_ref, unit count, shipment ref, date
+- QR encodes `box_ref` (e.g. `BOX-00001`) — scanned at DOUT for bulk exit
+
+### Box label format (bulk)
+50×25mm TSC TE244 label:
+- LOT logo + channel name
+- Product breakdown (compact: "Flare×10 Ghost×5")
+- Unit count (large)
+- Shipment ref + date
+- QR code encoding box_ref
+- Box ref ID footer
+
+---
+
+## 9. Dashboard Changes ← April 15 2026
+
+### Dispatch nav restructure
+Dispatch is now a dropdown with three sub-tabs, each a full scrollable content panel:
+- **Overview** — live status cards, allocated by channel, sent out by channel, units table (with `packed_dispatch` status)
+- **Shipments** — shipments table with pool/packed counts, ready badge, edit/cancel/delete actions
+- **Channel Master** — channel CRUD
+
+### Shipments table enhancements
+- Pool count vs expected units per shipment
+- ✓ READY badge when `pool_count >= expected_units`
+- Packing + Cancelled status badges
+- Edit button (draft/packing) — opens modal with editable manifest
+- Cancel button (draft/packing) — sets status=cancelled
+- Delete button (draft only, no boxes) — hard deletes
+- Click row → shipment detail modal (manifest progress + boxes + unit remove)
+
+### New Shipment modal
+- Multi-product manifest picker (same UX as FBU receiving)
+- Add products one by one — product block appended without re-rendering others (preserves entered values)
+- Quantities auto-total at bottom
+- Channel → Warehouse field toggles for bulk channels
+
+### Scans tab date filter
+- Own From/To date inputs + Today/This Week/This Month presets
+- No longer tied to global datebar
+- Worker `getAllScans` now accepts `date_from` + `date_to` params
+
+### Store history issue detail
+- Click any issue row → modal showing all part lines
+- Columns: Part Code, Part Name, BOM Qty, BOM Issue Qty, Actual Issued, Variance
+- Totals footer with total variance
+
+---
+
+## 10. Schema Changes Log
 
 | Change | SQL | Purpose |
 |---|---|---|
-| `store.settings` | CREATE TABLE + seed `po_approval_threshold` | System-wide config, approval threshold ← April 13 2026 |
-| `store.reorder_requests` | CREATE TABLE | Reorder request pipeline ← April 13 2026 |
-| `store.sequences 'rr'` | INSERT | RR-XXXX sequence ← April 13 2026 |
-| `store.roles: reorder_raise permission` | UPDATE all roles | Everyone can raise reorder requests ← April 13 2026 |
-| `store.roles: procurement role` | UPDATE permissions | Added grn/stock/reports/receiving/production_view ← April 13 2026 |
-| `store.vendor_supplied_items: supply_type, reference, display_label` | ALTER TABLE ADD COLUMN | Simplified vendor-product associations ← April 13 2026 |
-| `store.vendor_supplied_items: po_category DROP NOT NULL` | ALTER TABLE | product/part types don't have a category ← April 13 2026 |
-| `store.vendor_supplied_items_id_seq` | GRANT USAGE, SELECT TO service_role | Sequence permission fix ← April 13 2026 |
-| `store.settings` RLS | GRANT ALL TO service_role | Permission fix (RLS disabled on table) ← April 13 2026 |
-| `store.reorder_requests` RLS | GRANT ALL TO service_role | Permission fix (RLS disabled on table) ← April 13 2026 |
-| `public.product_master` | INSERT 2 rows (FERK car + FEXXR remote) | Flare LE product added ← April 13 2026 |
-| `store.next_seq_batch` | CREATE FUNCTION | Batch sequence reservation — returns first value of N reserved | ← April 14 2026 |
-| `store.recompute_line_counts` | CREATE FUNCTION | Batch recompute qty_counted on receiving_lines | ← April 14 2026 |
-| `store.update_fbu_stock_issued` | CREATE OR REPLACE FUNCTION | Rebuilt as upsert — INSERT at -qty if no row exists | ← April 15 2026 |
-| `store.fbu_issue_register` | GRANT ALL TO service_role | Permission fix — table existed but service_role had no access | ← April 15 2026 |
-| `store.grn_summary` | CREATE OR REPLACE VIEW | Product column now shows single product / "N products" / "—" | ← April 14 2026 |
-| All prior schema changes | — | See v2.8 for full history |
+| `dispatch_shipments: expected_units, packed_count` | ALTER TABLE ADD COLUMN | Shipment manifest tracking ← April 15 2026 |
+| `print_jobs: job_type, payload` | ALTER TABLE ADD COLUMN | Support BOX_LABEL type ← April 15 2026 |
+| `dispatch_boxes` | CREATE TABLE | Outer carton tracking ← April 15 2026 |
+| `dispatch_box_units` | CREATE TABLE | Unit→box junction ← April 15 2026 |
+| `dispatch_shipment_lines` | CREATE TABLE | Shipment manifest lines ← April 15 2026 |
+| `dispatch_allocations: box_id, packed_at` | ALTER TABLE ADD COLUMN | Link allocation to box ← April 15 2026 |
+| `store.sequences 'box'` | INSERT | BOX-XXXXX sequence ← April 15 2026 |
+| `devices: PACK-SHARED` | INSERT | PACK station device ← April 15 2026 |
+| `dispatch_channels: Website` | INSERT | Website channel (ecom, unit, is_sale=true) ← April 15 2026 |
+| `dispatch_shipments.shipment_no` | ALTER COLUMN DEFAULT | Changed prefix SHP- → DSO-, new `dso_seq` reset to 1 ← April 15 2026 |
+| `dispatch_boxes.shipment_id` | ALTER COLUMN DROP NOT NULL | Direct mode boxes have no shipment ← April 15 2026 |
+| `unit_status: packed_dispatch` | ALTER TYPE ADD VALUE | New dispatch packing status ← April 15 2026 |
+| All prior schema changes | — | See v3.0 for full history |
 
 ---
 
-## 9. Build Phases & Status
+## 11. Build Phases & Status
 
 | Phase | Module | Status |
 |---|---|---|
 | 1 | DB + Scanner App | ✅ Complete |
 | 1b | PKG Print System | ✅ Complete — polling v2.2 per-line atomic |
 | 2 | Reporting Dashboard | ✅ Live |
-| 3–3ab | All prior phases | ✅ Complete — see v2.7 for details |
-| 3ac | Procurement Redesign | ✅ Complete — full rebuild April 13 2026 |
-| 3ad | Scanner `deviceId` fix | ✅ Complete — `cfg.deviceId` now stored at setup ← April 13 2026 |
-| 3ae | INW `component_type` fix | ✅ Complete — derives from pm, not product_code suffix ← April 13 2026 |
-| 3af | `buildProductList` FBU fix | ✅ Complete — FBU products with no BOM now appear in all dropdowns ← April 13 2026 |
-| 3ag | QC line attribution fix | ✅ Complete — Knox QC_PASS scans corrected L1→L2 via SQL; scanner setup screen now shows active run per line ← April 13 2026 |
-| 3ah | Flare LE product | ✅ Complete — product_master rows inserted, store frontend updated ← April 13 2026 |
-| 3ai | FBU PO form redesign | ✅ Complete — product-first layout, breadcrumb header, expected delivery removed ← April 14 2026 |
-| 3aj | CKD PO flow rebuild | ✅ Complete — ckd-units mode, multi-product queue, BOM explosion, grouped result, editable qtys ← April 14 2026 |
-| 3ak | Cloudflare subrequest fixes | ✅ Complete — batchNextSeq, recompute_line_counts, batch IN filter ← April 14 2026 |
-| 3al | Bag system | ✅ Complete — append-only generation, material_master bag_size defaults, per-line controls, labels with QR ← April 14 2026 |
-| 3am | GRN improvements | ✅ Complete — grn_summary view rebuilt, detail modal, product derivation from bom_current ← April 14 2026 |
-| 3an | FBU issue flow fixes | ✅ Complete — pick list, validation, stock RPC, permissions all fixed ← April 15 2026 |
+| 3–3an | All prior phases | ✅ Complete — see v3.0 for details |
+| 3ao | Dispatch expansion (PACK stage) | ✅ Complete — full flow DTK→ALLOC→PACK→DOUT ← April 15 2026 |
+| 3ap | Dispatch print server | ⚠️ Built, not deployed — needs setup on dispatch laptop |
+| 3aq | Dashboard dispatch restructure | ✅ Complete ← April 15 2026 |
+| 3ar | Shipment manifest + product picker | ✅ Complete ← April 15 2026 |
+| 3as | Scans tab date filter | ✅ Complete ← April 15 2026 |
+| 3at | Store history issue detail | ✅ Complete ← April 15 2026 |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
 
 ### 🚨 Open Issues — fix FIRST next session
 
-None currently. All known bugs fixed this session.
+| Issue | Detail |
+|---|---|
+| **Dispatch print server not deployed** | `dispatch-printserver.js` built but needs laptop + printer setup at dispatch table |
+| **LOT-00007572 pending decision** | Flare Race Black, `qc_fail` status — team was checking whether to scrap with the 75 or handle separately |
 
-### ✅ Fixed This Session (15 Apr 2026)
+### ✅ Fixed This Session (15 Apr 2026 Part 2)
 
 | Fix | Root cause | Resolution |
 |---|---|---|
-| FBU production run pick list empty | `getProductionRun` WO loop had `if (!woBom.length) continue` before the `isFBU` block — pure FBU products with no BOM never accumulated into `fbuMap` | Moved FBU unit accumulation above the BOM guard so it runs regardless of BOM existence |
-| `issueAgainstRun` rejected FBU-only runs | Hard `if (!d.lines.length) return err('lines required')` blocked runs with no CKD parts | Changed to check `hasParts \|\| hasFbu` — either CKD lines or FBU lines satisfies the guard |
-| `update_fbu_stock_issued` silent no-op on missing row | RPC used plain `UPDATE` — if no `fbu_stock` row existed (no GRN done), update matched nothing | Rebuilt as upsert: INSERT at negative qty if no row exists, matching pattern of `update_fbu_stock_received` |
-| `fbu_issue_register` permission denied | Table existed but `service_role` had no grants | `GRANT ALL ON store.fbu_issue_register TO service_role` |
+| `sbPublic` 204 false error | `JSON.parse("")` throws on empty body; catch block returned `ok: false` even for successful 204 | Changed catch to `ok: res.ok` — 204 no longer misread as failure |
+| `createShipment` lines 400 | `dispatch_shipment_lines` table existed but `sbPublic` 204 fix above was the real root cause | Fixed via `sbPublic` patch |
+| Flare Burnout Green wrong labels | 22 units PKG'd as ecom, should be retail | `pkg_scans` channel+label corrected, RTE scans voided, units reverted to `pending_rtd`, new retail print jobs queued |
+| Flare Race Black variant error | 75 units INW'd (+ 1 qc_fail), wrong variant produced | INW scans voided, units set to `scrapped` — chassis to be restickered |
+| `packed_dispatch` enum missing | `ALTER TYPE unit_status ADD VALUE` not yet run | Run: `ALTER TYPE unit_status ADD VALUE IF NOT EXISTS 'packed_dispatch'` |
 
-### Pending Test — built but not yet verified on floor
+### Pending Test
 
 | Item | What to test |
 |---|---|
-| **CKD PO full flow** | Create CKD PO with Ghost × 125 → explode BOM → submit → PO lines correct |
-| **Receiving against CKD PO** | Create shipment → marks → open box → submit → reconciliation shows correctly |
-| **Bag generation** | GEN per line → correct bag count; GEN ALL → all lines; PRINT → label with QR opens |
-| **Bag append** | Day 2 more qty → GEN → new bags appended, total_bags updated on existing bags |
-| **GRN detail modal** | Click GRN row → modal opens with correct lines and qtys |
-| **FBU PO form** | Product-first layout renders; expected delivery absent; shipping timeline auto-calculates |
-| **Dispatch DTK fix (3ad)** | Operator redoes setup on DTK device → DTK scan succeeds |
-| **INW component_type fix (3ae)** | Ghost Burnout Red and remote stickers inward with correct component_type |
+| **PACK station — bulk mode** | Select shipment → open box → scan units → close → BOX label prints at dispatch printer |
+| **PACK station — direct mode** | Select unit channel → scan unit → auto-close → PKG label reprints |
+| **DOUT — box label** | Scan BOX-XXXXX → all units marked shipped |
+| **Manifest enforcement** | Scan wrong product at PACK → hard block |
+| **Line full block** | Pack all units for a line → next scan hard blocks |
+| **Shipment ready flag** | Allocate enough units → READY badge appears in dashboard + scanner |
+| **Dispatch print server** | Setup on laptop → print PKG_LABEL → print BOX_LABEL |
+| **Shipment edit** | Edit manifest qtys and date → changes persist |
+| **Cancel/delete shipment** | Cancel packing shipment → status=cancelled; delete draft → removed |
 
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **FBU GRN for Flare LE** — 200 units received, do GRN so fbu_stock is positive before production scans
-2. **Full receiving → stock flow verification** — end-to-end with real CKD PO on live data
-2. **Scanner setup screen: show active run** — when operator picks a line, show current product + run before LAUNCH
-3. **Reorder requests — stock page integration** — raise request directly from stock/inventory page
-4. **Procurement approval gate** — wire `po_approval_threshold` to actual PO status enforcement
-5. **Repair run design session** — design only, no code
+1. **Dispatch print server setup** — deploy on dispatch laptop, confirm both label types print
+2. **LOT-00007572 resolution** — scrap or keep pending team decision
+3. **FBU GRN for Flare LE** — 200 units received, need GRN before production scans
+4. **Scanner setup screen: show active run** — show current product + run before LAUNCH
+5. **Reorder requests — stock page entry** — raise from stock/inventory page
+6. **Repair run design session** — design only, no code
 
 **Store backlog:**
-6. **Print PO** — PDF for emailing to vendor
-7. **Price master module**
-8. **Parts receiving reconciliation edge cases** — Short/Over/Damage handling in GRN raise flow
+7. **Print PO** — PDF for emailing to vendor
+8. **Price master module**
+9. **Parts receiving reconciliation edge cases** — Short/Over/Damage in GRN raise flow
+10. **Procurement approval gate** — wire threshold to PO status
 
 **Dashboard backlog:**
-9. **EAN sticker** — separate sticker at PKG station
-10. **Info scan / test scanner mode**
-11. **Dashboard day view for production**
-12. **Consolidated dispatch view**
+11. **EAN sticker** — separate sticker at PKG station
+12. **Info scan / test scanner mode**
+13. **Dashboard day view for production**
+14. **Consolidated dispatch view**
 
 **General backlog:**
-13. **Product entry frontend** — UI for adding new products/variants without SQL
-14. **Unicommerce integration**
-15. **Legacy UPC manual entry**
-16. **Reconciliation module** — Phase 4
-17. **Audit module** — Phase 5
-18. **Assembly stations** — Phase 6
-19. **Dashboard tab RBAC**
-20. **Google sign-in** — Supabase OAuth
-21. **Biometric integration**
-22. **APK rollout to all 15 devices**
-23. **Dash/Nitro QR code problem**
-24. **material_master name inconsistencies**
-25. **Old para items with `(old)` suffix**
-26. **PRODUCT_SUBVARIANTS for Nitro/Dash/Fang/Atlas**
+15. **Product entry frontend**
+16. **Unicommerce integration**
+17. **Legacy UPC manual entry**
+18. **Reconciliation module** — Phase 4
+19. **Audit module** — Phase 5
+20. **Assembly stations** — Phase 6
+21. **Dashboard tab RBAC**
+22. **Google sign-in** — Supabase OAuth
+23. **Biometric integration**
+24. **APK rollout to all 15 devices**
+25. **Dash/Nitro QR code problem**
+26. **material_master name inconsistencies**
+27. **Old para items with `(old)` suffix**
+28. **PRODUCT_SUBVARIANTS for Nitro/Dash/Fang/Atlas**
+29. **Dispatch calendar in system** — currently Google Sheets, deferred
 
 ---
 
-## 10. Cycle Time Design
+## 12. Cycle Time Design
 
-| Segment | From | To | RPC | Status |
-|---|---|---|---|---|
-| QC Cycle Time | INW | QC_PASS or QC_FAIL | `get_qc_cycle_time` | ✅ Built |
-| PKG Cycle Time | QC_PASS | PKG | `get_pkg_cycle_time` | ✅ Built |
-| RTD Cycle Time | PKG | RTE or RTR | `get_rtd_cycle_time` | ✅ Built |
-
-IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap: 480 minutes.
+Same as v3.0. No changes this session.
 
 ---
 
-## 11. Technical Decisions Log
+## 13. Technical Decisions Log
 
 | Decision | Choice | Reason |
 |---|---|---|
-| Camera library | Native getUserMedia + ZXing | html5-qrcode fails silently on MIUI |
-| Scan at PKG_OUT | Batch label not UPC | UPC inaccessible inside sealed box |
-| Print approach | Polling Supabase print_jobs | Chrome Android blocks local network fetch from HTTPS PWA |
-| Void mechanism | voided flag on scans row | Records never deleted |
-| **component_type derivation at INW** | `pm.component_type` → product name contains "remote" → 'car' | product_code suffix (e.g. GHBR = Red) caused misclassification. pm lookup first, name fallback second ← April 13 2026 |
-| **cfg.deviceId** | Stored at saveSetup time from `device.id` | Was never stored; DTK/ALLOC/DOUT all read `cfg.deviceId` which was always undefined ← April 13 2026 |
-| **Procurement: category locks format** | `poCurrentCategory` overrides `receiveFormatCache` in grid, badge, and submission | Product default (CKD) must not bleed through when user explicitly chose FBU category ← April 13 2026 |
-| **FBU remote: product-level line** | `addUnitsToQueue` collapses all remote qtys per product into one line | Remotes are product SKU, not variant-specific. Avoids duplicate box intake rows ← April 13 2026 |
-| **Vendor supplied items: 3-type model** | product / part / category (replaces old 5-field model) | Matches how people think: "Kai does Flare", "Deng does PCBs", "Manvik does all Para" ← April 13 2026 |
-| **Reorder requests: anyone can raise** | `reorder_raise` permission added to all roles | Low-stakes action; team members closest to stock shortage should be able to flag it ← April 13 2026 |
-| **store.settings table** | Key-value store for system config | First use: `po_approval_threshold`. Managed by super_admin. ← April 13 2026 |
-| **RLS on new tables** | Disabled; GRANT ALL to service_role | Worker uses service_role key; RLS without policies = permission denied ← April 13 2026 |
-| **buildProductList FBU products** | Merge PRODUCT_VARIANTS keys into product list | FBU products have no BOM entries → never appeared in `materialCache` → missing from all dropdowns ← April 13 2026 |
-| **Cloudflare 50-subrequest limit** | Never loop `await` calls per-line in a Worker handler. Always batch: use `batchNextSeq` for sequences, single INSERT for row arrays, `IN` filter for batch updates, RPCs for aggregate operations. N lines = must stay under ~40 total subrequests including auth + logging. ← April 14 2026 |
-| **`closing_stock` is generated** | `stock_ledger.closing_stock` is a Postgres generated column (`opening_stock + total_received - total_issued + returned`). Cannot UPDATE directly. Reverse stock by subtracting from `total_received`. ← April 14 2026 |
-| **FBU WO loop guard order** | `if (!woBom.length) continue` in `getProductionRun` must come AFTER the `isFBU` fbuMap accumulation block, not before. Pure FBU products have no BOM — the continue fires before fbu_lines can be built. ← April 15 2026 |
-| **`update_fbu_stock_issued` must upsert** | Plain UPDATE silently matches 0 rows if no fbu_stock row exists yet (no GRN done). Always use upsert pattern (same as `update_fbu_stock_received`) so negative stock is visible rather than lost. ← April 15 2026 |
-| **New store tables need explicit GRANT** | `fbu_issue_register` existed but service_role had no grants → 400 permission denied. Pattern: every new store table needs `GRANT ALL ON store.{table} TO service_role`. ← April 15 2026 |
-| **`grn_register.product` blank for CKD** | `receiving_lines.product` is null for hardware/universal parts. Fix: derive from `bom_current` by part_code at GRN creation time. ← April 14 2026 |
-| **Fixed-position modals must be at app root** | A `position:fixed` element inside a `display:none` parent is hidden regardless. GRN detail modal (and any future modals) must live outside all view sections, directly inside `#app`. ← April 14 2026 |
-| All prior decisions | — | See v2.8 for full history |
+| *(all prior decisions unchanged)* | — | See v3.0 |
+| **`sbPublic` 204 handling** | `catch(e) { return { ok: res.ok, ... } }` not `ok: false` | PostgREST returns 204 No Content on successful DELETE/INSERT with Prefer:return=minimal. `JSON.parse("")` throws but the operation succeeded. ← April 15 2026 |
+| **`activity_type` enum: PKG_OUT never written** | `PKG_OUT` scan writes `RTE` or `RTR` based on label suffix | Confirmed via live data query. Never use `PKG_OUT` as activity filter. ← April 15 2026 |
+| **Dispatch shipment_no prefix: DSO-** | Changed from SHP- (used in procurement) | Avoids floor confusion between procurement shipments and dispatch outward shipments. Reset sequence to DSO-0001. ← April 15 2026 |
+| **PACK direct mode for unit channels** | No shipment required; channel selector only | Unit fulfillment orders are ad-hoc (one unit per order); forcing a manifest would be impractical. Direct mode gives operational trackability without planning overhead. ← April 15 2026 |
+| **PACK manifest enforced at scan time** | Hard block if product not in manifest OR line full | Prevents mis-packing; dispatch team must create shipment with correct manifest before packing begins. ← April 15 2026 |
+| **DOUT accepts BOX- or batch label** | Auto-detected by regex — BOX-\d+ vs LOT-\d+-[ER] | Operator doesn't change behaviour; scan format determines path. One DOUT scan marks all units in a box as shipped. ← April 15 2026 |
+| **Scanner: today-only shipments in PACK** | `status=packing` (any date) OR `status=draft AND scheduled_date=today` | Already-started shipments always show. Future-dated drafts are hidden until their day. Prevents accidental early packing. ← April 15 2026 |
+| **`packed_dispatch` enum value** | Added to `unit_status` | Required before first PACK scan reaches floor — PostgREST rejects unknown enum values with 400. Always add enum values via SQL before deploying code that writes them. ← April 15 2026 |
+| **Box label QR encodes box_ref** | `BOX-XXXXX` string | DOUT scanner reads this, looks up all units in box, marks all shipped atomically. Outer carton scan = entire contents exit. ← April 15 2026 |
+| **`dispatch_boxes.shipment_id` nullable** | DROP NOT NULL ← April 15 2026 | Direct mode boxes have no shipment. Made nullable to support both modes with one table. |
+| **Store history detail: cache rows in `window._shIssueRows`** | No extra API call — reuse already-fetched data | `getIssues` returns all line data; aggregate to header for table, cache raw for detail modal. ← April 15 2026 |
+| **Scans tab: own date inputs** | `scanDateFrom`/`scanDateTo` replace global datebar | Global datebar is production-day-only; scans tab needs multi-day range for investigations. ← April 15 2026 |
 
 ---
 
-## 12. Open Technical Questions
+## 14. Open Technical Questions
 
 1. **Scan events partitioning:** Defer to month 10 (~500K events/month).
 2. **QC_PASS timeout:** Should second scan time out after N seconds? Recommend yes.
@@ -545,17 +510,18 @@ IQR fence: `GREATEST(Q3 + 2×GREATEST(IQR, 5), Q3 + 10)` minutes. Overnight cap:
 11. **Price master table:** Unit cost history per part.
 12. **Hourly target split intelligence:** Currently equal (target/9 hrs).
 13. **PRODUCT_SUBVARIANTS data:** Nitro, Dash, Fang, Atlas need base variant + colors.
-14. **Google sign-in:** Supabase Google OAuth. Decision pending: `@legendoftoys.com` or open + role-gated.
+14. **Google sign-in:** Supabase Google OAuth. Decision pending.
 15. **Takt time thresholds:** Currently ≤5m/≤10m/>10m. Arbitrary — calibrate per station per product.
 16. **Dispatch Unicommerce link:** Integration design pending.
-17. **SKD receive format:** Deferred — build after FBU+CKD stable.
-18. **Procurement approval gate:** `po_approval_threshold` in settings but not yet enforced on PO status.
-19. **Print PO:** Designed; not built. Language-ready (Chinese support deferred).
-20. **FBU receiving format auto-select:** Currently determined by `allFbu` check on po_lines. POs created before FBU fix (e.g. CN-PRD-0009) will show PARTS — expected, receive as-is.
+17. **SKD receive format:** Deferred.
+18. **Procurement approval gate:** Not yet enforced on PO status.
+19. **Print PO:** Designed; not built.
+20. **Dispatch calendar in system:** Currently Google Sheets — deferred to next build.
+21. **PACK: shipments with no scheduled date** — if team forgets to set date, shipment won't appear in scanner. Consider allowing override or showing undated drafts.
 
 ---
 
-## 13. Environment Reference
+## 15. Environment Reference
 
 > ⚠️ Do not commit to git.
 
