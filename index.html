@@ -1682,7 +1682,7 @@ async function doPackScan(barcode) {
     playErrBeep(); vibrate([100,50,100]);
     return;
   }
-  if (!packShipment) {
+  if (packMode === 'shipment' && !packShipment) {
     showReject('NO SHIPMENT', 'Select a shipment above before scanning');
     playErrBeep(); vibrate([100,50,100]);
     return;
