@@ -677,6 +677,15 @@
       </div>
     </div>
 
+    <div class="sec-div">Legacy Registration</div>
+    <div class="field">
+      <div class="seg-group" id="s_legacyStationGroup">
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Legacy Reg" data-code="LEGACY_REG" data-shared="1" onclick="pickStation(this)">Legacy Reg</div>
+        </div>
+      </div>
+    </div>
+
     <div class="sec-div">Dispatch Station</div>
     <div class="field">
       <div class="seg-group" id="s_dispatchStationGroup">
@@ -767,6 +776,33 @@
     <div class="ch-label">CHANNEL</div>
     <div class="ch-btn active ecom" id="chEcom" onclick="setChannel('ecom',this)">📦 ECOM</div>
     <div class="ch-btn retail" id="chRetail" onclick="setChannel('retail',this)">🏪 RETAIL</div>
+  </div>
+
+  <!-- ── LEGACY REG panel ── -->
+  <div id="legacyRegPanel" style="display:none;margin-bottom:12px">
+    <div style="display:flex;gap:8px;margin-bottom:10px">
+      <button id="legacyModeDispatch" onclick="setLegacyMode('dispatch')"
+        style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer">
+        DISPATCH
+      </button>
+      <button id="legacyModeStore" onclick="setLegacyMode('store')"
+        style="flex:1;padding:8px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer">
+        STORE
+      </button>
+    </div>
+    <div id="legacyChannelToggle" style="display:none;display:flex;gap:8px;margin-bottom:10px">
+      <button id="legacyChanE" onclick="setLegacyChan('E')"
+        style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer">
+        ECOM
+      </button>
+      <button id="legacyChanR" onclick="setLegacyChan('R')"
+        style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer">
+        RETAIL
+      </button>
+    </div>
+    <div id="legacyModeHint" style="font-size:11px;color:var(--text3);font-family:var(--mono);text-align:center;padding:6px 0">
+      SELECT MODE ABOVE
+    </div>
   </div>
 
   <div class="shift-bar">
@@ -1250,11 +1286,12 @@ const STATION_DEFS = {
   PACK:    { label: 'Dispatch Pack', activity: 'PACK',    hint: 'SELECT SHIPMENT THEN SCAN BATCH LABEL' },
   DTK:     { label: 'Dispatch In',  activity: 'DTK',   hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   ALLOC:   { label: 'Allocate',     activity: 'ALLOC', hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
-  DOUT:    { label: 'Dispatch Out', activity: 'DOUT',  hint: 'SCAN BOX LABEL (BOX-XXXXX) OR BATCH LABEL' },
+  DOUT:       { label: 'Dispatch Out',    activity: 'DOUT',       hint: 'SCAN BOX LABEL (BOX-XXXXX) OR BATCH LABEL' },
+  LEGACY_REG: { label: 'Legacy Reg',      activity: 'LEGACY_REG', hint: 'SELECT MODE THEN SCAN' },
 };
 
 async function saveSetup() {
-  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on');
+  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on, #s_legacyStationGroup .seg-btn.on');
   if (!stationEl) { showToast('Select a station', 'err'); return; }
 
   const stationCode = stationEl.dataset.code;
@@ -1366,6 +1403,7 @@ function bootScanner() {
   if (cfg.stationCode === 'DTK')   { setupDtkStation();   }
   if (cfg.stationCode === 'ALLOC') { setupAllocStation(); }
   if (cfg.stationCode === 'PACK')  { setupPackStation();  }
+  if (cfg.stationCode === 'LEGACY_REG') { setupLegacyRegStation(); }
 
   // Tally — show at PKG_OUT
   document.getElementById('tallyPanel').classList.toggle('show', cfg.activity === 'PKG_OUT');
@@ -1377,6 +1415,82 @@ function bootScanner() {
 }
 
 function buildActivityUI() {}
+
+let _legacyMode    = null; // 'dispatch' | 'store'
+let _legacyChan    = 'E';  // 'E' | 'R' — for dispatch mode
+
+function setupLegacyRegStation() {
+  document.getElementById('legacyRegPanel').style.display = '';
+  // Restore persisted mode
+  const saved = localStorage.getItem('legacyRegMode');
+  if (saved) setLegacyMode(saved);
+}
+
+function setLegacyMode(mode) {
+  _legacyMode = mode;
+  localStorage.setItem('legacyRegMode', mode);
+  document.getElementById('legacyModeDispatch').style.background = mode === 'dispatch' ? 'var(--yellow)' : 'var(--bg3)';
+  document.getElementById('legacyModeDispatch').style.color      = mode === 'dispatch' ? '#000'          : 'var(--text)';
+  document.getElementById('legacyModeStore').style.background    = mode === 'store'    ? 'var(--yellow)' : 'var(--bg3)';
+  document.getElementById('legacyModeStore').style.color         = mode === 'store'    ? '#000'          : 'var(--text)';
+  const chanToggle = document.getElementById('legacyChannelToggle');
+  chanToggle.style.display = mode === 'dispatch' ? 'flex' : 'none';
+  document.getElementById('legacyModeHint').textContent =
+    mode === 'dispatch' ? 'SCAN EAN FROM BOX EXTERIOR' :
+    mode === 'store'    ? 'SCAN LEGACY QR FROM CAR BASE' : 'SELECT MODE ABOVE';
+  if (mode === 'dispatch') setLegacyChan(_legacyChan);
+}
+
+function setLegacyChan(chan) {
+  _legacyChan = chan;
+  document.getElementById('legacyChanE').style.background = chan === 'E' ? 'var(--blue)' : 'var(--bg3)';
+  document.getElementById('legacyChanE').style.color      = chan === 'E' ? '#fff'        : 'var(--text)';
+  document.getElementById('legacyChanR').style.background = chan === 'R' ? 'var(--blue)' : 'var(--bg3)';
+  document.getElementById('legacyChanR').style.color      = chan === 'R' ? '#fff'        : 'var(--text)';
+}
+
+async function handleLegacyRegScan(barcode) {
+  if (!_legacyMode) {
+    addLog({ barcode, status:'err', tag:'LEGACY', label:'SELECT MODE FIRST' });
+    return;
+  }
+  document.getElementById('scanHint').textContent = 'Processing...';
+  try {
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action: 'registerLegacyUnit',
+        data: {
+          mode:         _legacyMode,
+          scan:         barcode,
+          channel_type: _legacyChan,
+          operator_id:  operatorUUID || currentOperator?.id || null,
+          device_code:  cfg.deviceCode,
+        }
+      })
+    });
+    const r = await res.json();
+    if (!r.ok) {
+      addLog({ barcode, status:'err', tag:'LEGACY', label: r.error || 'ERROR' });
+      document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
+      return;
+    }
+    if (r.already_registered) {
+      addLog({ barcode, status:'warn', tag:'LEGACY', label:`ALREADY REGISTERED — ${r.product} ${r.model} ${r.color} [${r.status}]` });
+      document.getElementById('scanHint').textContent = 'ALREADY IN SYSTEM';
+      return;
+    }
+    const label = _legacyMode === 'dispatch'
+      ? `${r.product} ${r.model} ${r.color} → ${r.batch_label} — PRINTING`
+      : `${r.product} ${r.model} ${r.color} → ${r.car_upc} — REGISTERED`;
+    addLog({ barcode, status:'ok', tag:'LEGACY', label });
+    document.getElementById('scanHint').textContent = _legacyMode === 'dispatch' ? 'STICK LABEL ON BOX' : 'REGISTERED — SCAN NEXT';
+  } catch(e) {
+    addLog({ barcode, status:'err', tag:'LEGACY', label:'NETWORK ERROR' });
+    document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
+  }
+}
 
 // ── DTK station setup ────────────────────────────────────────────
 function setupDtkStation() {
@@ -2034,6 +2148,12 @@ async function processBarcode(barcode, act) {
     return;
   }
 
+  // ── LEGACY REG ──
+  if (cfg.stationCode === 'LEGACY_REG') {
+    await handleLegacyRegScan(barcode);
+    return;
+  }
+
   // ── PKG_OUT — scans batch label, not UPC ──
   if (act === 'PKG_OUT') {
     if (!isBatchLabel) {
@@ -2139,6 +2259,37 @@ async function processBarcode(barcode, act) {
       playErrBeep(); vibrate([100,50,100]);
       showReject('DISPATCH OUT FAILED', res.error || 'Unknown error');
       addLog({ barcode, status:'err', tag:'DOUT', label:'DOUT ERR' });
+    }
+    return;
+  }
+
+  // Legacy format detection at RTO_IN
+  if (cfg.stationCode === 'RTO_IN' && /^\d{13,}$/.test(barcode)) {
+    // 13-digit = EAN, 14+ = legacy car QR — both route to registerLegacyUnit return mode
+    document.getElementById('scanHint').textContent = 'Processing legacy return...';
+    try {
+      const res = await fetch(WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'registerLegacyUnit',
+          data: { mode: 'return', scan: barcode, operator_id: operatorUUID || currentOperator?.id || null, device_code: cfg.deviceCode }
+        })
+      });
+      const r = await res.json();
+      if (!r.ok) {
+        addLog({ barcode, status:'err', tag:'RTO_IN', label: r.error || 'LEGACY RETURN ERROR' });
+        document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
+        return;
+      }
+      const label = r.found_existing
+        ? `${r.product} ${r.model} ${r.color} — EXISTING UNIT RTO_IN`
+        : `${r.product} ${r.model} ${r.color} — NEW UNIT → ${r.car_upc}`;
+      addLog({ barcode, status:'ok', tag:'RTO_IN', label });
+      document.getElementById('scanHint').textContent = 'RTO RECORDED';
+    } catch(e) {
+      addLog({ barcode, status:'err', tag:'RTO_IN', label:'NETWORK ERROR' });
+      document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
     }
     return;
   }
