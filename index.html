@@ -1411,6 +1411,12 @@ function bootScanner() {
   }
 
   // DTK / ALLOC station setup
+  // Remove all injected station UI elements before setting up new station
+  ['packModeToggle','packShipmentSelector','packDirectSelector',
+   'allocChannelBar','dtkPanel'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
   document.getElementById('legacyRegPanel').style.display =
     cfg.stationCode === 'LEGACY_REG' ? '' : 'none';
   if (cfg.stationCode === 'DTK')        { setupDtkStation();        }
