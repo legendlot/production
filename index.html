@@ -1449,11 +1449,15 @@ function setLegacyChan(chan) {
   document.getElementById('legacyChanR').style.color      = chan === 'R' ? '#fff'        : 'var(--text)';
 }
 
+let _legacyBusy = false;
+
 async function handleLegacyRegScan(barcode) {
   if (!_legacyMode) {
     addLog({ barcode, status:'err', tag:'LEGACY', label:'SELECT MODE FIRST' });
     return;
   }
+  if (_legacyBusy) return;
+  _legacyBusy = true;
   document.getElementById('scanHint').textContent = 'Processing...';
   try {
     const res = await fetch(WORKER_URL, {
@@ -1480,6 +1484,7 @@ async function handleLegacyRegScan(barcode) {
     if (rd.already_registered) {
       addLog({ barcode, status:'warn', tag:'LEGACY', label:`ALREADY REGISTERED — ${rd.product} ${rd.model} ${rd.color} [${rd.status}]` });
       document.getElementById('scanHint').textContent = 'ALREADY IN SYSTEM';
+      setTimeout(() => { _legacyBusy = false; }, 3000);
       return;
     }
     const label = _legacyMode === 'dispatch'
@@ -1487,9 +1492,11 @@ async function handleLegacyRegScan(barcode) {
       : `${rd.product} ${rd.model} ${rd.color} → ${rd.car_upc} — REGISTERED`;
     addLog({ barcode, status:'ok', tag:'LEGACY', label });
     document.getElementById('scanHint').textContent = _legacyMode === 'dispatch' ? 'STICK LABEL ON BOX' : 'REGISTERED — SCAN NEXT';
+    setTimeout(() => { _legacyBusy = false; }, 3000);
   } catch(e) {
     addLog({ barcode, status:'err', tag:'LEGACY', label:'NETWORK ERROR' });
     document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
+    setTimeout(() => { _legacyBusy = false; }, 2000);
   }
 }
 
