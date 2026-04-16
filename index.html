@@ -1712,6 +1712,8 @@ function togglePackShipmentList() {
   if (list) list.classList.toggle('show');
 }
 
+let openBoxes = []; // all open boxes for current shipment
+
 async function selectPackShipment(id, fromUI = true) {
   packShipment = activeShipments.find(s => s.id === id);
   localStorage.setItem('pack_shipment_id', id);
@@ -1720,12 +1722,19 @@ async function selectPackShipment(id, fromUI = true) {
 
   const label = document.getElementById('packShipmentLabel');
   const sel   = document.getElementById('packShipmentSelected');
-  if (label) label.textContent = `${packShipment?.shipment_no} · ${packShipment?.dispatch_channels?.name || ''}`;
+  if (label) label.textContent = `${packShipment?.shipment_no}${packShipment?.title ? ' · ' + packShipment.title : ''} · ${packShipment?.dispatch_channels?.name || ''}`;
   if (sel)   sel.classList.add('active');
 
-  // Check for open box
-  const res = await workerPost('getOpenBox', { shipment_id: id });
-  packBox = (res.ok && res.data) ? res.data : null;
+  // Load all open boxes for this shipment
+  const res = await workerPost('getOpenBoxes', { shipment_id: id });
+  openBoxes = (res.ok && res.data) ? res.data : [];
+
+  // Default to first open box, or restore previously selected
+  const savedBoxId = localStorage.getItem('pack_box_id');
+  const savedBox   = openBoxes.find(b => b.id === savedBoxId);
+  packBox = savedBox || openBoxes[0] || null;
+  if (packBox) localStorage.setItem('pack_box_id', packBox.id);
+
   renderPackBoxBar();
   updateScanHint();
 }
@@ -1735,53 +1744,73 @@ function renderPackBoxBar() {
   if (existing) existing.remove();
   if (!packShipment) return;
 
+  const isBulk = packShipment.dispatch_channels?.fulfillment_model !== 'unit';
   const bar = document.createElement('div');
   bar.id        = 'packBoxBar';
   bar.className = 'pack-box-bar';
+  bar.style.cssText = 'padding:8px 14px;background:var(--surface);border-bottom:1px solid var(--border);flex-shrink:0;display:flex;flex-direction:column;gap:6px';
 
-  if (!packBox) {
-    // No open box
-    if (packShipment.dispatch_channels?.fulfillment_model === 'unit') {
-      bar.innerHTML = `<div class="pack-box-info"><div class="pack-box-ref">UNIT MODE</div><div class="pack-box-count">Box opens automatically on scan</div></div>`;
-    } else {
-      bar.innerHTML = `
-        <div class="pack-box-info"><div class="pack-box-ref" style="color:var(--muted)">No open box</div><div class="pack-box-count">Tap to open a new box</div></div>
-        <button class="pack-box-btn open" onclick="openNewBox()">OPEN BOX</button>`;
-    }
-  } else {
-    const isPacked = packBox.status === 'packed';
+  if (!isBulk) {
+    // Unit mode — auto-creates box per scan, no selector needed
+    bar.innerHTML = `<div class="pack-box-info"><div class="pack-box-ref">UNIT MODE</div><div class="pack-box-count">Box auto-created per scan</div></div>`;
+  } else if (!openBoxes.length) {
+    // No open boxes — must create from dashboard
     bar.innerHTML = `
-      <div class="pack-box-info">
-        <div class="pack-box-ref">${packBox.box_ref}</div>
-        <div class="pack-box-count">${packBox.unit_count || 0} units · ${isPacked ? '📦 PACKED' : '🟢 OPEN'}</div>
-      </div>
-      ${isPacked
-        ? `<button class="pack-box-btn reopen" onclick="doReopenBox()">REOPEN</button>`
-        : `<button class="pack-box-btn close" onclick="doCloseBox()" ${(packBox.unit_count || 0) === 0 ? 'disabled' : ''}>CLOSE BOX</button>`
-      }`;
+      <div style="display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <div style="font-size:12px;font-weight:700;color:var(--red)">NO OPEN BOXES</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">Add boxes from dashboard before scanning</div>
+        </div>
+      </div>`;
+  } else {
+    // Box selector dropdown
+    const selectedRef = packBox?.box_ref || openBoxes[0]?.box_ref || '';
+    const selectedCount = packBox?.unit_count || 0;
+    bar.innerHTML = `
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="flex:1;position:relative">
+          <select id="packBoxSelect"
+            onchange="switchPackBox(this.value)"
+            style="width:100%;background:var(--surface2);border:1px solid var(--border2);
+                   border-radius:6px;padding:7px 10px;color:var(--text);font-size:12px;
+                   font-family:'JetBrains Mono',monospace;font-weight:700;cursor:pointer;
+                   appearance:none;-webkit-appearance:none">
+            ${openBoxes.map(b => `
+              <option value="${b.id}" ${b.id === packBox?.id ? 'selected' : ''}>
+                ${b.box_ref} · ${b.unit_count || 0} units
+              </option>`).join('')}
+          </select>
+        </div>
+        <button class="pack-box-btn close"
+          onclick="doCloseBox()"
+          ${selectedCount === 0 ? 'disabled' : ''}
+          style="flex-shrink:0">
+          CLOSE
+        </button>
+      </div>`;
   }
 
   const camWrap = document.querySelector('.camera-wrap');
   if (camWrap) camWrap.parentNode.insertBefore(bar, camWrap);
 }
 
-async function openNewBox() {
-  if (!packShipment) return;
-  showToast('Creating box...', 'ok');
-  const res = await workerPost('createBox', { shipment_id: packShipment.id });
-  if (!res.ok) { showToast(res.error || 'Failed to create box', 'err'); return; }
-  packBox = { ...res.data, units: [] };
-  renderPackBoxBar();
-  showToast(`✓ ${packBox.box_ref} opened`, 'ok');
+function switchPackBox(boxId) {
+  packBox = openBoxes.find(b => b.id === boxId) || null;
+  if (packBox) localStorage.setItem('pack_box_id', packBox.id);
+  updateScanHint();
 }
 
 async function doCloseBox() {
   if (!packBox) return;
   const res = await workerPost('closeBox', { box_id: packBox.id });
   if (!res.ok) { showToast(res.error || 'Close failed', 'err'); return; }
-  packBox = { ...packBox, status: 'packed' };
+  // Remove closed box from openBoxes, auto-select next
+  openBoxes = openBoxes.filter(b => b.id !== packBox.id);
+  packBox = openBoxes[0] || null;
+  if (packBox) localStorage.setItem('pack_box_id', packBox.id);
+  else localStorage.removeItem('pack_box_id');
   renderPackBoxBar();
-  showToast(`✓ ${packBox.box_ref} closed — label printing`, 'ok');
+  showToast(`✓ ${res.data?.box_ref || 'Box'} closed — label printing`, 'ok');
 }
 
 async function doReopenBox() {
@@ -1872,7 +1901,7 @@ async function doPackScan(barcode) {
 
   // Bulk: require open box
   if (isBulk && (!packBox || packBox.status !== 'open')) {
-    showReject('NO OPEN BOX', 'Tap OPEN BOX before scanning units');
+    showReject('NO OPEN BOX', openBoxes.length ? 'Select an open box above' : 'Add boxes from dashboard first');
     playErrBeep(); vibrate([100,50,100]);
     return;
   }
@@ -1892,6 +1921,18 @@ async function doPackScan(barcode) {
   }
 
   flash('ok'); vibrate([50]);
+
+  // Update local openBoxes count optimistically
+  if (packBox && openBoxes.length) {
+    const idx = openBoxes.findIndex(b => b.id === packBox.id);
+    if (idx !== -1) openBoxes[idx] = { ...openBoxes[idx], unit_count: (openBoxes[idx].unit_count || 0) + 1 };
+    packBox = { ...packBox, unit_count: (packBox.unit_count || 0) + 1 };
+    const sel = document.getElementById('packBoxSelect');
+    if (sel) {
+      const opt = sel.options[sel.selectedIndex];
+      if (opt) opt.textContent = `${packBox.box_ref} · ${packBox.unit_count} units`;
+    }
+  }
 
   const result = await workerPost('postPack', {
     batch_label:  barcode,
