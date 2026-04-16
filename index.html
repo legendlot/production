@@ -1478,12 +1478,15 @@ async function handleLegacyRegScan(barcode) {
     if (!r.ok) {
       addLog({ barcode, status:'err', tag:'LEGACY', label: r.error || 'ERROR' });
       document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
+      playErrBeep(); vibrate([100,50,100]);
+      setTimeout(() => { _legacyBusy = false; }, 2000);
       return;
     }
     const rd = r.data || r;
     if (rd.already_registered) {
       addLog({ barcode, status:'warn', tag:'LEGACY', label:`ALREADY REGISTERED — ${rd.product} ${rd.model} ${rd.color} [${rd.status}]` });
       document.getElementById('scanHint').textContent = 'ALREADY IN SYSTEM';
+      playErrBeep(); vibrate([100,50,100]);
       setTimeout(() => { _legacyBusy = false; }, 3000);
       return;
     }
@@ -1492,10 +1495,12 @@ async function handleLegacyRegScan(barcode) {
       : `${rd.product} ${rd.model} ${rd.color} → ${rd.car_upc} — REGISTERED`;
     addLog({ barcode, status:'ok', tag:'LEGACY', label });
     document.getElementById('scanHint').textContent = _legacyMode === 'dispatch' ? 'STICK LABEL ON BOX' : 'REGISTERED — SCAN NEXT';
+    flash('ok'); playSuccessBeep(); vibrate([50]);
     setTimeout(() => { _legacyBusy = false; }, 3000);
   } catch(e) {
     addLog({ barcode, status:'err', tag:'LEGACY', label:'NETWORK ERROR' });
     document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
+    playErrBeep(); vibrate([100,50,100]);
     setTimeout(() => { _legacyBusy = false; }, 2000);
   }
 }
