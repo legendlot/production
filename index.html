@@ -1255,13 +1255,24 @@ function goToSetup() {
 }
 
 function pickStation(el) {
-  document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn').forEach(b => b.classList.remove('on'));
+  const allBtns = document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn');
+  // Toggle off if already selected
+  if (el.classList.contains('on')) {
+    el.classList.remove('on');
+    document.getElementById('s_lineField').style.display = '';
+    document.getElementById('legacyRegPanel').style.display = 'none';
+    return;
+  }
+  allBtns.forEach(b => b.classList.remove('on'));
   el.classList.add('on');
   const isShared = el.dataset.shared === '1';
   document.getElementById('s_lineField').style.display = isShared ? 'none' : '';
   if (isShared) {
     document.querySelectorAll('#s_lineField .seg-btn').forEach(b => b.classList.remove('on'));
   }
+  // Hide legacy panel unless legacy reg is selected
+  document.getElementById('legacyRegPanel').style.display =
+    el.dataset.code === 'LEGACY_REG' ? '' : 'none';
 }
 
 function pickLine(el) {
@@ -1400,10 +1411,12 @@ function bootScanner() {
   }
 
   // DTK / ALLOC station setup
-  if (cfg.stationCode === 'DTK')   { setupDtkStation();   }
-  if (cfg.stationCode === 'ALLOC') { setupAllocStation(); }
-  if (cfg.stationCode === 'PACK')  { setupPackStation();  }
-  if (cfg.stationCode === 'LEGACY_REG') { setupLegacyRegStation(); }
+  document.getElementById('legacyRegPanel').style.display =
+    cfg.stationCode === 'LEGACY_REG' ? '' : 'none';
+  if (cfg.stationCode === 'DTK')        { setupDtkStation();        }
+  if (cfg.stationCode === 'ALLOC')      { setupAllocStation();      }
+  if (cfg.stationCode === 'PACK')       { setupPackStation();       }
+  if (cfg.stationCode === 'LEGACY_REG') { setupLegacyRegStation();  }
 
   // Tally — show at PKG_OUT
   document.getElementById('tallyPanel').classList.toggle('show', cfg.activity === 'PKG_OUT');
