@@ -1678,7 +1678,7 @@ function renderPackShipmentSelector() {
   bar.style.position = 'relative';
 
   const label  = packShipment
-    ? `${packShipment.shipment_no} · ${packShipment.dispatch_channels?.name || ''}`
+    ? `${packShipment.shipment_no}${packShipment.title ? ' · ' + packShipment.title : ''} · ${packShipment.dispatch_channels?.name || ''}`
     : 'Select Shipment';
   const isActive = !!packShipment;
 
@@ -1693,7 +1693,7 @@ function renderPackShipmentSelector() {
         <div class="pack-ship-item" onclick="selectPackShipment('${s.id}', true)">
           ${s.is_ready ? '<div class="pack-ready-dot"></div>' : '<div style="width:8px"></div>'}
           <div>
-            <div class="pack-ship-name">${s.shipment_no} · ${s.dispatch_channels?.name || '—'}</div>
+            <div class="pack-ship-name">${s.shipment_no}${s.title ? ' · ' + s.title : ''} · ${s.dispatch_channels?.name || '—'}</div>
             <div class="pack-ship-meta">
               ${s.expected_units ? `${s.pool_count || 0}/${s.expected_units} units` : `${s.pool_count || 0} in pool`}
               ${s.scheduled_date ? ` · ${new Date(s.scheduled_date).toLocaleDateString('en-IN',{day:'2-digit',month:'short'})}` : ''}
