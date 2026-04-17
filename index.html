@@ -674,6 +674,9 @@
         <div class="seg-row">
           <div class="seg-btn" data-val="RTO In" data-code="RTO_IN" data-shared="1" onclick="pickStation(this)">RTO In</div>
         </div>
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Repair" data-code="REPAIR" data-shared="0" onclick="pickStation(this)">Repair</div>
+        </div>
       </div>
     </div>
 
@@ -779,6 +782,28 @@
   </div>
 
   <!-- ── LEGACY REG panel ── -->
+  <div id="repairRunPanel" style="display:none;margin-bottom:12px">
+    <select id="repairRunSelect"
+      style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;margin-bottom:10px"
+      onchange="selectRepairRun(this.value)">
+      <option value="">Loading runs...</option>
+    </select>
+    <div style="display:flex;gap:6px;margin-bottom:10px">
+      <button onclick="setRepairMode('REP_START',this)"
+        style="flex:1;padding:8px 4px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer"
+        id="repBtn_START">🔧 START</button>
+      <button onclick="setRepairMode('REP_PASS',this)"
+        style="flex:1;padding:8px 4px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer"
+        id="repBtn_PASS">✅ PASS</button>
+      <button onclick="setRepairMode('REP_SCRAP',this)"
+        style="flex:1;padding:8px 4px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer"
+        id="repBtn_SCRAP">❌ SCRAP</button>
+    </div>
+    <div id="repairModeHint" style="font-size:11px;color:var(--text3);font-family:var(--mono);text-align:center;padding:4px 0">
+      SELECT RUN + MODE ABOVE
+    </div>
+  </div>
+
   <div id="legacyRegPanel" style="display:none;margin-bottom:12px">
     <div style="display:flex;gap:8px;margin-bottom:10px">
       <button id="legacyModeDispatch" onclick="setLegacyMode('dispatch')"
@@ -969,6 +994,11 @@ let pendingDefectUpc       = null;
 let pendingDefectComponent = null;
 let pendingWksScan         = null;
 let pendingWksOutUpc       = null;
+
+// Repair run state
+let repairScanMode      = null;   // 'REP_START' | 'REP_PASS' | 'REP_SCRAP'
+let activeRepairRunId   = null;
+let repairRunsList      = [];
 
 let currentCamTrack = null;
 let scanLoopActive  = false;
@@ -1273,6 +1303,8 @@ function pickStation(el) {
   // Hide legacy panel unless legacy reg is selected
   document.getElementById('legacyRegPanel').style.display =
     el.dataset.code === 'LEGACY_REG' ? '' : 'none';
+  document.getElementById('repairRunPanel').style.display =
+    el.dataset.code === 'REPAIR' ? '' : 'none';
 }
 
 function pickLine(el) {
@@ -1299,6 +1331,7 @@ const STATION_DEFS = {
   ALLOC:   { label: 'Allocate',     activity: 'ALLOC', hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
   DOUT:       { label: 'Dispatch Out',    activity: 'DOUT',       hint: 'SCAN BOX LABEL (BOX-XXXXX) OR BATCH LABEL' },
   LEGACY_REG: { label: 'Legacy Reg',      activity: 'LEGACY_REG', hint: 'SELECT MODE THEN SCAN' },
+  REPAIR:     { label: 'Repair',          activity: 'REPAIR',     hint: 'SELECT MODE ABOVE' },
 };
 
 async function saveSetup() {
@@ -1419,10 +1452,13 @@ function bootScanner() {
   });
   document.getElementById('legacyRegPanel').style.display =
     cfg.stationCode === 'LEGACY_REG' ? '' : 'none';
+  document.getElementById('repairRunPanel').style.display =
+    cfg.stationCode === 'REPAIR' ? '' : 'none';
   if (cfg.stationCode === 'DTK')        { setupDtkStation();        }
   if (cfg.stationCode === 'ALLOC')      { setupAllocStation();      }
   if (cfg.stationCode === 'PACK')       { setupPackStation();       }
   if (cfg.stationCode === 'LEGACY_REG') { setupLegacyRegStation();  }
+  if (cfg.stationCode === 'REPAIR')     { setupRepairStation();     }
 
   // Tally — show at PKG_OUT
   document.getElementById('tallyPanel').classList.toggle('show', cfg.activity === 'PKG_OUT');
@@ -2200,6 +2236,12 @@ function onScan(raw) {
     return;
   }
 
+  // REPAIR — mode selected via panel buttons
+  if (act === 'REPAIR') {
+    doRepairScan(barcode);
+    return;
+  }
+
   processBarcode(barcode, act);
 }
 
@@ -2737,6 +2779,114 @@ function cancelPkgFlow() {
 }
 
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// REPAIR STATION
+// ══════════════════════════════════════════════════════
+function setupRepairStation() {
+  repairScanMode    = null;
+  activeRepairRunId = null;
+  repairRunsList    = [];
+  document.getElementById('repairRunPanel').style.display = '';
+  loadRepairRuns();
+}
+
+async function loadRepairRuns() {
+  const select = document.getElementById('repairRunSelect');
+  if (!select) return;
+  select.innerHTML = '<option value="">Loading...</option>';
+  const res = await workerPost('getRepairRuns', {});
+  if (!res.ok || !res.data?.length) {
+    select.innerHTML = '<option value="">No active repair runs</option>';
+    repairRunsList = [];
+    return;
+  }
+  repairRunsList = res.data;
+  select.innerHTML = '<option value="">Select repair run...</option>';
+  res.data.forEach(run => {
+    const opt = document.createElement('option');
+    opt.value = run.id;
+    opt.textContent = `${run.run_no || run.id.slice(0,8)} — ${run.status.toUpperCase()}`;
+    select.appendChild(opt);
+  });
+}
+
+function selectRepairRun(id) {
+  activeRepairRunId = id || null;
+  const hint = document.getElementById('repairModeHint');
+  if (!id) {
+    hint.textContent = 'SELECT RUN + MODE ABOVE';
+    return;
+  }
+  const run = repairRunsList.find(r => r.id === id);
+  hint.textContent = run
+    ? `RUN: ${run.run_no || id.slice(0,8)} · ${run.status.toUpperCase()}`
+    : `RUN SELECTED`;
+}
+
+function setRepairMode(mode, btn) {
+  repairScanMode = mode;
+  ['repBtn_START','repBtn_PASS','repBtn_SCRAP'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.background = 'var(--bg3)';
+  });
+  if (btn) btn.style.background = mode === 'REP_SCRAP' ? 'var(--red)' :
+                                   mode === 'REP_PASS'  ? 'var(--green)' : 'var(--yellow)';
+  const hints = {
+    REP_START: 'SCAN UNIT TO START REPAIR',
+    REP_PASS:  'SCAN REPAIRED UNIT',
+    REP_SCRAP: 'SCAN UNIT TO SCRAP'
+  };
+  document.getElementById('scanHint').textContent = hints[mode] || 'ALIGN QR CODE';
+  document.getElementById('repairModeHint').textContent = hints[mode];
+}
+
+async function doRepairScan(barcode) {
+  if (!repairScanMode) {
+    showReject('SELECT MODE', 'Tap START, PASS, or SCRAP above');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+  if (repairScanMode === 'REP_START' && !activeRepairRunId) {
+    showReject('SELECT RUN', 'Choose a repair run from the dropdown');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+  const isLotUpc = /^LOT-\d+$/.test(barcode);
+  if (!isLotUpc) {
+    showReject('WRONG BARCODE', 'Scan a LOT UPC (LOT-XXXXXXXX)');
+    playErrBeep(); vibrate([100,50,100]);
+    addLog({ barcode, status:'err', tag:'REP', label:'WRONG FORMAT' });
+    return;
+  }
+
+  showToast('Processing...', 'ok');
+  const res = await workerPost('postRepScan', {
+    upc:           barcode,
+    scan_type:     repairScanMode,
+    repair_run_id: repairScanMode === 'REP_START' ? activeRepairRunId : null,
+    device_code:   cfg.deviceCode,
+    operator_id:   operatorUUID || currentOperator?.id || null
+  });
+
+  if (!res.ok) {
+    flash('err'); playErrBeep(); vibrate([100,50,100]);
+    showReject('SCAN FAILED', res.error || 'Unknown error');
+    addLog({ barcode, status:'err', tag:'REP', label:`${repairScanMode} ERR` });
+    return;
+  }
+
+  const d = res.data;
+  const tagMap  = { REP_START:'REP START', REP_PASS:'REP PASS', REP_SCRAP:'SCRAPPED' };
+  const msgMap  = {
+    REP_START: `✓ In Repair — ${d.product || ''} ${d.model || ''} ${d.color || ''}`.trim(),
+    REP_PASS:  `✓ Repaired — ${d.product || ''} ${d.model || ''} ${d.color || ''}`.trim(),
+    REP_SCRAP: `✓ Scrapped — ${d.product || ''} ${d.model || ''} ${d.color || ''}`.trim()
+  };
+  flash('ok'); playSuccessBeep(); vibrate([50]);
+  showToast(msgMap[repairScanMode] || '✓ Done', 'ok');
+  addLog({ barcode, status:'ok', tag:'REP', label:tagMap[repairScanMode] });
+}
+
 // WKS FLOW — SYSTEM INFERRED
 // ══════════════════════════════════════════════════════
 async function doWksScan(upc) {
