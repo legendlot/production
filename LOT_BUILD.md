@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 3.4 | **Last Updated:** April 2026 (Session: 17 Apr 2026)
+**Version:** 3.5 | **Last Updated:** April 2026 (Session: 17 Apr 2026)
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -12,8 +12,8 @@
 | API layer | Cloudflare Workers | `lotopsproxy.afshaan.workers.dev` |
 | Scanner PWA | Vanilla JS + ZXing | `scanner.legendoftoys.com` — GitHub Pages, repo `legendlot/production` |
 | Scanner APK | TWA (Bubblewrap) | Built via bubblewrap CLI — `app-release-signed.apk`. PKG station Redmi A5 uses APK. Keystore at `/Users/afshaansiddiqui/Documents/lot-scanner-apk/android.keystore` |
-| Dashboard | Vanilla JS | `dashboard.legendoftoys.com` — GitHub Pages, repo `legendlot/dashboard` |
-| Store system | Vanilla JS | `store.legendoftoys.com` — GitHub Pages, repo `legendlot/Stores` |
+| Dashboard | Vanilla JS | `redline.legendoftoys.com` — GitHub Pages, repo `legendlot/dashboard` |
+| Store system | Vanilla JS | `garage.legendoftoys.com` — GitHub Pages, repo `legendlot/Stores` |
 | Camera/scanning | Native `getUserMedia` + ZXing | Replaced html5-qrcode (MIUI incompatibility) |
 | Print server (production) | Node.js v2.2 | `printserver.js` on each line's PKG station laptop — polls Supabase filtered by line. Atomic job claiming prevents cross-line duplicate prints. |
 | Print server (dispatch) | Node.js v1.0 | `dispatch-printserver.js` on dispatch laptop — polls `line = 'DISPATCH'`. Handles `PKG_LABEL` + `BOX_LABEL` job types. **Not yet deployed — needs setup on dispatch laptop.** |
@@ -408,6 +408,8 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | 3au | Legacy unit integration | ✅ Complete ← April 16 2026 |
 | 3av | Repair station scanner (REP_START/PASS/SCRAP) | ✅ Complete ← April 17 2026 |
 | 3aw | Repair run dashboard (Store + Redline) | ✅ Complete ← April 17 2026 |
+| 3ax | Google OAuth + session persistence (Redline + Garage) | ✅ Complete ← April 17 2026 |
+| 3ay | Domain migration (redline + garage subdomains) | ✅ Complete ← April 17 2026 |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
@@ -450,6 +452,8 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | Repair run detail in Garage | Separate `pr-repair-detail-panel`; shows stats (total/in repair/repaired/scrapped), planned lines table, unit list; Complete/Cancel actions |
 | Redline dashboard: Repair Queue tab | New Repair nav group; Queue tab shows units available for repair grouped by product/model/color/status |
 | Schema | `repair_run_lines` table created; `rep` sequence seeded in `store.sequences` |
+| Google OAuth + session persistence | Supabase JS client added to Redline + Garage; email/password login replaced with Google button; sessions persist in localStorage (survive refresh); `hd: legendoftoys.com` restriction; auto-creates `users_profile` on first login via Postgres trigger |
+| Domain migration | Redline: `dashboard.legendoftoys.com` → `redline.legendoftoys.com`; Garage: `store.legendoftoys.com` → `garage.legendoftoys.com`; GoDaddy DNS + GitHub Pages CNAME updated |
 
 ### Pending Test
 
@@ -547,6 +551,9 @@ Same as v3.0. No changes this session.
 | **Claude Code rules** | No `cd` commands, no `wrangler deploy` commands in instructions | Claude Code handles directory context and deployment automatically per its rulebook ← April 17 2026 |
 | **Repair run `hasRemote`** | All repair units have remotes — `const hasRemote = true` in picker, not `HAS_REMOTE.has(product)` | HAS_REMOTE is a BOM/receiving context set; repair runs always have both car and remote ← April 17 2026 |
 | **Repair run lines schema** | `repair_run_lines` in public schema (not store schema) | Same as `repair_runs` and `repair_run_units` — all public ← April 17 2026 |
+| **Google OAuth for vanilla JS SPAs** | Supabase JS client via CDN + `signInWithOAuth` + `getSession` on load | No React needed. Session in localStorage survives refresh. `onAuthStateChange` handles redirect-back token. Worker `ping` validates Supabase token and returns role ← April 17 2026 |
+| **Worker auth unchanged for OAuth** | `verifyJWT` already calls Supabase `/auth/v1/user` | Accepts any valid Supabase token — email/password or Google OAuth. Zero Worker changes needed ← April 17 2026 |
+| **Auto-provision users_profile** | Postgres trigger `on_auth_user_created` on `auth.users` INSERT | Creates `users_profile` row with role=viewer on first Google login. Existing rows untouched (ON CONFLICT DO NOTHING) ← April 17 2026 |
 
 ---
 
@@ -584,11 +591,11 @@ Same as v3.0. No changes this session.
 - **Supabase publishable key:** `sb_publishable_1Dd-r3h9Mou2Wqgn6t24Dw_lmWdBtLh`
 - **Worker URL:** `https://lotopsproxy.afshaan.workers.dev`
 - **Scanner:** `https://scanner.legendoftoys.com`
-- **Dashboard:** `https://dashboard.legendoftoys.com`
-- **Store:** `https://store.legendoftoys.com`
+- **Dashboard (Redline):** `https://redline.legendoftoys.com` (old: `dashboard.legendoftoys.com`)
+- **Store (Garage):** `https://garage.legendoftoys.com` (old: `store.legendoftoys.com`)
 - **Scanner repo:** `legendlot/production`
-- **Dashboard repo:** `legendlot/dashboard`
-- **Store repo:** `legendlot/Stores`
+- **Dashboard repo:** `legendlot/dashboard` (redline.legendoftoys.com)
+- **Store repo:** `legendlot/Stores` (garage.legendoftoys.com)
 - **APK keystore:** `/Users/afshaansiddiqui/Documents/lot-scanner-apk/android.keystore`
 - **APK package ID:** `com.legendoftoys.scanner`
 - **Local Claude folder:** `/Users/afshaansiddiqui/Documents/Claude` — 01_Scanner, 02_Dashboard, 03_Store, 04_Worker

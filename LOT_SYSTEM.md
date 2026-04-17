@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 3.4 | **Last Updated:** April 2026 (Session: 17 Apr 2026)
+**Version:** 3.6 | **Last Updated:** April 2026 (Session: 17 Apr 2026)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -12,7 +12,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Full production operations system live on floor. Repair run system complete — scanner REP_START/PASS/SCRAP, Garage run creation with product×variant picker, Redline Queue tab. Dispatch expansion complete. Store history issue detail view live.
+**Current state:** Full production operations system live on floor. Repair run system complete. Google OAuth live on Redline + Garage with persistent sessions. Both systems migrated to new subdomains (redline.legendoftoys.com, garage.legendoftoys.com).
 
 ---
 
@@ -235,6 +235,9 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 - REPAIR station: REP_START (enters repair run), REP_PASS (marks repaired → proceeds to QC), REP_SCRAP (scraps unit)
 - Repair run creation in Garage: FRESH/REPAIR toggle, product×variant×color picker, lines saved to `repair_run_lines`
 - Repair Queue tab in Redline: aggregated repairable units by product/status
+- Google OAuth on Redline + Garage — Supabase JS client, persistent localStorage sessions, legendoftoys.com domain restriction, auto-provision trigger
+- Domain migration: Redline → redline.legendoftoys.com, Garage → garage.legendoftoys.com
+- PNG favicons on Redline + Garage (fixes Safari address bar globe)
 - PACK station: shipment mode + direct mode
 - PKG label printing — TSC TE244 via Supabase polling v2.2
 - Full Dispatch system — DTK/ALLOC/PACK/DOUT, 17 channels + Website
