@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 3.2 | **Last Updated:** April 2026 (Session: 16 Apr 2026)
+**Version:** 3.4 | **Last Updated:** April 2026 (Session: 17 Apr 2026)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 ---
@@ -12,7 +12,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Full production operations system live on floor. Dispatch expansion complete — full PACK stage added with shipment manifests, box management, and label printing. Dashboard dispatch restructured into three separate tabs. Store history now has issue detail view.
+**Current state:** Full production operations system live on floor. Repair run system complete — scanner REP_START/PASS/SCRAP, Garage run creation with product×variant picker, Redline Queue tab. Dispatch expansion complete. Store history issue detail view live.
 
 ---
 
@@ -80,6 +80,19 @@ Parts (Store) → Assembly → QC → Packaging → RTD → Dispatch
 | ALLOC | Dispatch Allocate | Channel dropdown. Sets allocated. |
 | PACK | Dispatch Packing | Scans batch label into box. Sets packed_dispatch. ← new April 15 2026 |
 | DOUT | Dispatch Out | Scans BOX label (bulk) or batch label (unit). Sets shipped. ← updated April 15 2026 |
+| REPAIR | Repair Station | Per-line. Operator selects repair run + mode (START/PASS/SCRAP) then scans LOT UPC ← April 17 2026 |
+
+### Repair Run System ← April 17 2026
+
+**Flow:** Units accumulate in store (qc_fail, rto_in, scrapped_repair) → production manager creates repair run in Garage → assigns line + planned units by product/variant/color → operators scan at REPAIR station → REP_START (in_repair_run) → REP_PASS (repaired) → QC_PASS → PKG → RTD
+
+**Key tables:** `repair_runs` (run shell), `repair_run_units` (scanner activity), `repair_run_lines` (planned units per variant)
+
+**Garage (Store):** Production Runs page has FRESH/REPAIR toggle. Repair form: line + date + notes + product picker. Runs list shows both RUN-XXX and REP-XXX with type badge.
+
+**Redline (Dashboard):** Repair nav group with Queue tab — aggregated view of repairable units by product/model/color/status.
+
+**`hasRemote` rule:** All repair units have remotes regardless of product — picker always shows CAR + REMOTE columns.
 
 ### Batch Label Format — LOCKED
 `LOT-XXXXXXXX-E` (ecom) or `LOT-XXXXXXXX-R` (retail).
@@ -219,6 +232,9 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 
 ### Live & Confirmed ✅
 - All scanner flows: INW, QC_PASS, QC_FAIL, WKS, PKG, PKG_OUT, RTO_IN, DTK, ALLOC, DOUT
+- REPAIR station: REP_START (enters repair run), REP_PASS (marks repaired → proceeds to QC), REP_SCRAP (scraps unit)
+- Repair run creation in Garage: FRESH/REPAIR toggle, product×variant×color picker, lines saved to `repair_run_lines`
+- Repair Queue tab in Redline: aggregated repairable units by product/status
 - PACK station: shipment mode + direct mode
 - PKG label printing — TSC TE244 via Supabase polling v2.2
 - Full Dispatch system — DTK/ALLOC/PACK/DOUT, 17 channels + Website

@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 3.2 | **Last Updated:** April 2026 (Session: 16 Apr 2026)
+**Version:** 3.4 | **Last Updated:** April 2026 (Session: 17 Apr 2026)
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -406,6 +406,8 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | 3as | Scans tab date filter | ✅ Complete ← April 15 2026 |
 | 3at | Store history issue detail | ✅ Complete ← April 15 2026 |
 | 3au | Legacy unit integration | ✅ Complete ← April 16 2026 |
+| 3av | Repair station scanner (REP_START/PASS/SCRAP) | ✅ Complete ← April 17 2026 |
+| 3aw | Repair run dashboard (Store + Redline) | ✅ Complete ← April 17 2026 |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
@@ -416,7 +418,7 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 |---|---|
 | Dispatch print server not deployed | dispatch-printserver.js built, needs laptop + printer setup at dispatch table |
 | LOT-00007572 | Flare Race Black qc_fail — team checking whether to scrap |
-| Worker: registerLegacyUnit not yet deployed | Built, needs wrangler deploy |
+| L3 reprint not working | Normal PKG prints working on L3, reprint flow broken — investigate next session |
 
 ### ✅ Fixed This Session (15 Apr 2026 Part 2)
 
@@ -436,10 +438,30 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | Activity tab scans not loading | `+05:30` in raw URL string decoded as space by Postgres | Wrap timestamp values in `encodeURIComponent()` in `getAllScans` worker handler (line ~647) |
 | Legacy unit integration | Old units have no LOT UPC, cannot enter new system | New `registerLegacyUnit` worker action + LEGACY_REG scanner station — 3 modes: dispatch/store/return |
 
+### ✅ Built This Session (17 Apr 2026)
+
+| Item | Detail |
+|---|---|
+| Repair station scanner | REPAIR station in STATION_DEFS + setup screen; repairRunPanel with run selector dropdown + START/PASS/SCRAP mode buttons; `doRepairScan()` routes to `postRepScan` worker action |
+| Worker: `getRepairRuns` | Added to SCANNER_ACTIONS + POST handler — returns `status=in.(planned,active)` repair runs |
+| Devices seeded | REP-L1, REP-L2, REP-L3 inserted into devices table |
+| Repair run creation in Garage (Store) | FRESH/REPAIR toggle on Production Runs page; repair form with product×variant×color picker (car + remote qty per row, all products show remote); lines saved to `repair_run_lines` table; repair runs show in unified runs list with REPAIR badge |
+| Worker: repair run endpoints | GET `getRepairRunsDash` (with unit counts), `getRepairRunDetail` (with lines + units), `getRepairRunsQueue`; JWT POST `createRepairRun` (saves lines), `updateRepairRunStatus` |
+| Repair run detail in Garage | Separate `pr-repair-detail-panel`; shows stats (total/in repair/repaired/scrapped), planned lines table, unit list; Complete/Cancel actions |
+| Redline dashboard: Repair Queue tab | New Repair nav group; Queue tab shows units available for repair grouped by product/model/color/status |
+| Schema | `repair_run_lines` table created; `rep` sequence seeded in `store.sequences` |
+
 ### Pending Test
 
 | Item | What to test |
 |---|---|
+| **Repair station — REP_START** | Setup → Repair → select run → START mode → scan LOT UPC → unit status = `in_repair_run` |
+| **Repair station — REP_PASS** | PASS mode → scan repaired unit → status = `repaired` → proceeds to QC_PASS → PKG → RTD |
+| **Repair station — REP_SCRAP** | SCRAP mode → scan unit → status = `scrapped_repair` |
+| **Repair: no run selected** | REP_START without selecting run → hard block with message |
+| **Repair: no mode selected** | Scan without picking START/PASS/SCRAP → hard block |
+| **Repair run creation** | Garage → Production Runs → REPAIR toggle → pick line/date + add products → CREATE REPAIR RUN → REP-XXX created with lines |
+| **Repair run detail** | Click VIEW on REP-XXX in runs list → shows stats + planned lines + scanned units |
 | **PACK station — bulk mode** | Select shipment → open box → scan units → close → BOX label prints at dispatch printer |
 | **PACK station — direct mode** | Select unit channel → scan unit → auto-close → PKG label reprints |
 | **DOUT — box label** | Scan BOX-XXXXX → all units marked shipped |
@@ -453,14 +475,15 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **Deploy worker** — `registerLegacyUnit` is built, not deployed
-2. **Test LEGACY_REG station end-to-end** — dispatch mode first (batch session)
-3. **Dispatch print server setup** — deploy on dispatch laptop, confirm both label types print
-4. **LOT-00007572 resolution** — scrap or keep pending team decision
-5. **FBU GRN for Flare LE** — 200 units received, need GRN before production scans
-6. **Scanner setup screen: show active run** — show current product + run before LAUNCH
-7. **Reorder requests — stock page entry** — raise from stock/inventory page
-8. **Repair run design session** — design only, no code
+1. **Test LEGACY_REG station end-to-end** — dispatch mode first (batch session)
+2. **Dispatch print server setup** — deploy on dispatch laptop, confirm both label types print
+3. **LOT-00007572 resolution** — scrap or keep pending team decision
+4. **FBU GRN for Flare LE** — 200 units received, need GRN before production scans
+5. **Test repair station end-to-end** — REP_START → REP_PASS → QC → PKG flow
+6. **Investigate L3 reprint bug**
+7. **Scanner setup screen: show active run** — show current product + run before LAUNCH
+8. **Reorder requests — stock page entry** — raise from stock/inventory page
+9. **Exec dashboard: fresh + repaired RTD split** — show today's repair contribution separately
 
 **Store backlog:**
 9. **Print PO** — PDF for emailing to vendor
@@ -520,6 +543,10 @@ Same as v3.0. No changes this session.
 | **Legacy starting statuses** | dispatch=`handed_over`, store=`inwarded`, return=`rto_in` | Reflects physical reality — dispatch units already handed over, store units re-enter at INW, returns enter at RTO_IN ← April 16 2026 |
 | **Legacy UPC generation** | Max of `upc_pool.upc_id` and `units.upc`, increment | Legacy units bypass upc_pool entirely; checking both tables ensures no collisions ← April 16 2026 |
 | **Remote lookup for legacy** | `component_type=remote AND linked_product_code=car.product_code` | Car rows have `linked_product_code=null`; remote rows point back to their car's product_code ← April 16 2026 |
+| **Repair station scan routing** | `onScan` intercepts `act === 'REPAIR'` → `doRepairScan()` reads `repairScanMode` state | Mirrors WKS pattern. REP_START requires `activeRepairRunId`; REP_PASS/SCRAP do not ← April 17 2026 |
+| **Claude Code rules** | No `cd` commands, no `wrangler deploy` commands in instructions | Claude Code handles directory context and deployment automatically per its rulebook ← April 17 2026 |
+| **Repair run `hasRemote`** | All repair units have remotes — `const hasRemote = true` in picker, not `HAS_REMOTE.has(product)` | HAS_REMOTE is a BOM/receiving context set; repair runs always have both car and remote ← April 17 2026 |
+| **Repair run lines schema** | `repair_run_lines` in public schema (not store schema) | Same as `repair_runs` and `repair_run_units` — all public ← April 17 2026 |
 
 ---
 
@@ -531,7 +558,7 @@ Same as v3.0. No changes this session.
 4. **Dashboard tab access control:** Deferred.
 5. **Defect master ownership:** Who can add/modify defect codes post-seeding?
 6. **Legacy UPC gap:** Build when triggered.
-7. **Repair run schema:** Two contexts — inline vs L3 auxiliary. Pending design session.
+7. **Repair run schema:** Tables `repair_runs`, `repair_run_units`, `repair_run_lines` all confirmed in public schema. Full UI built in Garage + Redline.
 8. **print_jobs retention:** Cleanup for done/failed rows older than 30 days.
 9. **All 15 devices APK vs PWA:** Deferred.
 10. **Operator performance view:** Data available, view not built.
