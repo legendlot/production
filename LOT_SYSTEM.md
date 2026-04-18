@@ -2,6 +2,8 @@
 **Version:** 3.6 | **Last Updated:** April 2026 (Session: 17 Apr 2026)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
+> **Migration in planning:** A full migration of Garage and Redline into the Throttle React monorepo is underway. Planning documents are at `/Users/afshaansiddiqui/Documents/00_Claude/migration-kit/`. The live system described below is unchanged during the migration period.
+
 ---
 
 ## 1. Company & Context
