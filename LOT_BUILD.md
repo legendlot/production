@@ -510,6 +510,7 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 11. **Reorder requests — stock page entry** — raise from stock/inventory page
 12. **Exec dashboard: fresh + repaired RTD split** — show today's repair contribution separately
 13. **Verify on factory floor** — PKG double-scan fix lands cleanly: GH Pages cache must invalidate on operator devices for the scanner-side guard to take effect; the worker 23505 catch protects until then
+14. **Audit scanner POST handlers for async-gap double-scan pattern** — review INW / QC / WKS / RTO_IN handlers for the same pre-check-then-insert shape that bit PKG on 29 Apr. Apply the two-layer fix (frontend in-flight flag + worker 23505 catch) where the pattern exists. Revisit ~5-6 May 2026
 
 **Store backlog:**
 9. **Print PO** — PDF for emailing to vendor
