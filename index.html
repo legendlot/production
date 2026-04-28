@@ -975,6 +975,7 @@ let pendingQcPassProduct = null;
 let pendingPkgCar     = null;
 let pkgChannel        = 'ecom';
 let pkgResultShowing  = false;
+let pkgInFlight       = false;  // guard against double-submit during async postPkg call
 let lastPkgData       = null;
 
 // Dispatch state
@@ -2565,36 +2566,46 @@ async function doPkgCar(carUpc) {
     playErrBeep(); vibrate([100,50,100]);
     return;
   }
+  if (pkgInFlight) return;  // double-scan guard — drop silently, first request is already processing
+  pkgInFlight = true;
 
-  // First attempt — no remote_upc yet
-  const result = await workerPost('postPkg', {
-    car_upc:     carUpc,
-    device_code: cfg.deviceCode,
-    operator_id: operatorUUID || currentOperator?.id,
-    channel:     pkgChannel,
-    line:        cfg.line,
-  });
+  try {
+    // First attempt — no remote_upc yet
+    const result = await workerPost('postPkg', {
+      car_upc:     carUpc,
+      device_code: cfg.deviceCode,
+      operator_id: operatorUUID || currentOperator?.id,
+      channel:     pkgChannel,
+      line:        cfg.line,
+    });
 
-  if (!result.ok) {
-    if (result.error && result.error.includes('remote_upc required')) {
-      // RC car — start two-scan flow
-      pendingPkgCar = carUpc;
-      showPkgRemotePrompt();
-      flash('ok'); vibrate([50]); playSuccessBeep();
-      addLog({ barcode: carUpc, status:'pending', tag:'PKG', label:'CAR ✓ — SCAN REMOTE' });
-      showToast('✓ Car scanned — now scan REMOTE', 'ok');
-    } else {
-      flash('err'); vibrate([100,50,100]); playErrBeep();
-      showReject('PKG FAILED', result.error || 'Unknown error');
-      addLog({ barcode: carUpc, status:'err', tag:'PKG', label:'PKG ERR' });
+    if (!result.ok) {
+      if (result.error && result.error.includes('remote_upc required')) {
+        // RC car — start two-scan flow; keep pkgInFlight true until remote is scanned
+        pendingPkgCar = carUpc;
+        showPkgRemotePrompt();
+        flash('ok'); vibrate([50]); playSuccessBeep();
+        addLog({ barcode: carUpc, status:'pending', tag:'PKG', label:'CAR ✓ — SCAN REMOTE' });
+        showToast('✓ Car scanned — now scan REMOTE', 'ok');
+        // pkgInFlight stays true — cleared in doPkgRemote after the remote call resolves
+        return;
+      } else {
+        flash('err'); vibrate([100,50,100]); playErrBeep();
+        showReject('PKG FAILED', result.error || 'Unknown error');
+        addLog({ barcode: carUpc, status:'err', tag:'PKG', label:'PKG ERR' });
+        return;
+      }
     }
-    return;
-  }
 
-  // No-remote product — complete
-  flash('ok'); vibrate([50,30,50]); playSuccessBeep();
-  addLog({ barcode: carUpc, status:'ok', tag:'PKG', label:'PKG ✓' });
-  showPkgResult(result.data);
+    // No-remote product — complete
+    flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+    addLog({ barcode: carUpc, status:'ok', tag:'PKG', label:'PKG ✓' });
+    showPkgResult(result.data);
+  } finally {
+    // Only clear the flag here for no-remote products and errors.
+    // For remote products the flag stays set until doPkgRemote clears it.
+    if (!pendingPkgCar) pkgInFlight = false;
+  }
 }
 
 async function doPkgRemote(remoteUpc) {
@@ -2603,30 +2614,35 @@ async function doPkgRemote(remoteUpc) {
     playErrBeep(); vibrate([100,50,100]);
     return;
   }
+  // pkgInFlight is already true from doPkgCar — no need to re-check here
 
-  const result = await workerPost('postPkg', {
-    car_upc:     pendingPkgCar,
-    remote_upc:  remoteUpc,
-    device_code: cfg.deviceCode,
-    operator_id: operatorUUID || currentOperator?.id,
-    channel:     pkgChannel,
-    line:        cfg.line,
-  });
+  try {
+    const result = await workerPost('postPkg', {
+      car_upc:     pendingPkgCar,
+      remote_upc:  remoteUpc,
+      device_code: cfg.deviceCode,
+      operator_id: operatorUUID || currentOperator?.id,
+      channel:     pkgChannel,
+      line:        cfg.line,
+    });
 
-  const carUpc = pendingPkgCar;
-  pendingPkgCar = null;
-  hidePkgRemotePrompt();
+    const carUpc = pendingPkgCar;
+    pendingPkgCar = null;
+    hidePkgRemotePrompt();
 
-  if (!result.ok) {
-    flash('err'); vibrate([100,50,100]); playErrBeep();
-    showReject('PACKAGING FAILED', result.error || 'Unknown error');
-    addLog({ barcode: remoteUpc, status:'err', tag:'PKG', label:'PKG ERR' });
-    return;
+    if (!result.ok) {
+      flash('err'); vibrate([100,50,100]); playErrBeep();
+      showReject('PACKAGING FAILED', result.error || 'Unknown error');
+      addLog({ barcode: remoteUpc, status:'err', tag:'PKG', label:'PKG ERR' });
+      return;
+    }
+
+    flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+    addLog({ barcode: carUpc + ' + ' + remoteUpc, status:'ok', tag:'PKG', label:'PKG ✓' });
+    showPkgResult(result.data);
+  } finally {
+    pkgInFlight = false;
   }
-
-  flash('ok'); vibrate([50,30,50]); playSuccessBeep();
-  addLog({ barcode: carUpc + ' + ' + remoteUpc, status:'ok', tag:'PKG', label:'PKG ✓' });
-  showPkgResult(result.data);
 }
 
 async function doPkgOut(batchLabel) {
@@ -2722,6 +2738,7 @@ async function retryPrint() {
 
 function clearPkgResult() {
   pkgResultShowing = false;
+  pkgInFlight      = false;
   document.getElementById('pkgResult').classList.remove('show');
   // Reset debounce so next scan isn't suppressed
   lastBarcode = '';
@@ -2770,10 +2787,12 @@ function hidePkgRemotePrompt() {
 function cancelPkgFlow() {
   if (pendingPkgCar) {
     pendingPkgCar = null;
+    pkgInFlight = false;
     hidePkgRemotePrompt();
     showToast('Packaging flow cancelled', 'warn');
   } else {
     pendingPkgCar = null;
+    pkgInFlight = false;
     hidePkgRemotePrompt();
   }
 }
