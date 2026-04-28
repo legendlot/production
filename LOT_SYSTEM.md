@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 3.6 | **Last Updated:** April 2026 (Session: 17 Apr 2026)
+**Version:** 3.8 | **Last Updated:** April 2026 (Session: 29 Apr 2026)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 > **Migration in planning:** A full migration of Garage and Redline into the Throttle React monorepo is underway. Planning documents are at `/Users/afshaansiddiqui/Documents/00_Claude/migration-kit/`. The live system described below is unchanged during the migration period.
@@ -206,6 +206,14 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 - `dispatch_shipments.shipment_no` prefix: SHP- = procurement (old), DSO- = dispatch outward (new)
 - PACK direct mode: gate `!packShipment` check with `packMode === 'shipment' &&` to avoid blocking direct mode
 - `dispatch_boxes.shipment_id` is nullable — direct mode boxes have no shipment
+- RPCs that count units must filter `component_type = 'car'` — cars and remotes both generate INW/QC_PASS scans causing double-counting otherwise
+- `get_dispatch_counts` must use `current_status` filters, not cumulative scan counts — pipeline tiles must reflect current state not historical totals
+- `generateUpcBatch` must check `MAX(units.upc)` in addition to `MAX(upc_pool)` and `MAX(upc_batches.upc_to)` — legacy units written directly to `units` bypass `upc_pool` entirely
+- `upc_pool` valid statuses: generated, printed, received, available, applied, damaged, unused, voided — `voided` added April 24 2026
+- Re-alloc at ALLOC is intentional (channel change) but same-channel re-scan must be blocked — check `dispatch_allocations.channel_id` before writing
+- Concurrent scans (same second) can both pass status checks read at handler start — re-fetch critical status fields atomically just before writing for idempotency-sensitive handlers (PKG_OUT)
+- `postFlush` in worker had `canFlush` defined but never called — always verify permission gates are actually invoked inside their case, not just defined at top of file
+- **Async-gap double-scan race in scanner POST handlers** — any scanner action that does a uniqueness pre-check on the worker before writing will leak duplicates if the same barcode is scanned twice during the awaiting RTT (gun scanners fire fast). Two-layer fix is mandatory: (1) frontend in-flight boolean (`pkgInFlight`-style) set on entry, cleared in `finally` + every cancel/reset path, drops second scan silently; (2) worker catches Postgres `23505` on the unique-constraint insert and returns the same human-readable duplicate message the pre-check uses. PKG handler patched 29 Apr 2026 (`02_scanner` `6cd6832`, `01_worker` `c4f0183`); audit other scanner POSTs (e.g. INW, QC, WKS, RTO_IN) for the same shape — most have similar pre-check-then-insert structure
 - All prior learnings — see v3.0
 
 ---
@@ -251,6 +259,8 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 ### Pending Deployment ⚠️
 - **Dispatch print server** — `dispatch-printserver.js` needs laptop + printer at dispatch table
 - **`packed_dispatch` enum** — run `ALTER TYPE unit_status ADD VALUE IF NOT EXISTS 'packed_dispatch'` if not yet applied
+- **`postFlush` canFlush gate** — only one of the original 24-Apr 4-pack still NOT in worker HEAD. Other three (`generateUpcBatch` units check, `postAlloc` same-channel guard, `postPkgOut` re-fetch) deployed live in `lotopsproxy` v `56c37241` on 29 Apr 2026
+- **Favicon** — new `03_dashboard/favicon.png` generated (3 yellow + 2 red bars), push to repo
 
 ### Pending Test 🧪
 - PACK bulk flow end-to-end (open box → scan → close → BOX label)
@@ -264,12 +274,21 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 ### Open Issues 🔶
 - LOT-00007572 (Flare Race Black, qc_fail) — team checking whether to scrap with the 75
 - Dispatch print server not yet deployed
+- Line Flush Unauthorised for Anusha — `postFlush` `canFlush` gate still missing inside the case block (function defined, never called). **Diagnosis complete: Anusha role = admin, issue was expired JWT. Immediate fix: log out + log back in. Permanent: add canFlush invocation to handler and deploy.**
+- L3 reprint not working — investigation pending
 
-### Fixed This Session 🔧
-- `sbPublic` 204 false error → catch block fix
-- Flare Burnout Green ecom→retail label correction (22 units)
-- Flare Burnout Green RTE scans voided, units reverted to pending_rtd
-- Flare Race Black 75 units INW voided, scrapped
+### Fixed This Session 🔧 (29 Apr 2026)
+- **PKG double-scan race condition** → operator surface no longer dumps raw Postgres 23505 JSON when a gun scanner fires twice on the same car barcode. Two-layer fix: scanner `pkgInFlight` flag (`02_scanner` `6cd6832`) + worker `pkg_scans_batch_label_key` 23505 catch (`01_worker` `c4f0183`). Both layers needed because GH Pages cache delays the scanner update reaching operator devices
+- **3 prior-pending worker fixes shipped in same deploy** — `npx wrangler deploy` on 29 Apr swept HEAD, which carried `1c5cd24` (`generateUpcBatch` units check), `48787b1` (`postAlloc` same-channel guard), `e1446d9` (`postPkgOut` race re-fetch). All now live in `lotopsproxy` version `56c37241-209e-4567-ae14-6b1cea9b46c6`
+
+### Fixed This Session 🔧 (24 Apr 2026)
+- `get_dispatch_counts` RPC inflated PKG Out tile (6596 vs actual 2102) → replaced with correct current_status filter
+- Redline favicon all yellow → regenerated with 3 yellow + 2 red bars
+- ALLOC same-channel duplicate scan accepted → same-channel guard added to `postAlloc` (deployed 29 Apr)
+- First Cry channel `fulfillment_model` corrected to `unit` via SQL
+- Legacy UPC ↔ upc_pool collision (2593 conflicts) → voided conflicted pool entries, worker fix written (deployed 29 Apr)
+
+### Fixed This Session 🔧 (prior)
 
 ### Pending Build 🔲
 See LOT_BUILD.md §11 Pending Build Items for full prioritised list.

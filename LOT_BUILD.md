@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 3.5 | **Last Updated:** April 2026 (Session: 17 Apr 2026)
+**Version:** 3.7 | **Last Updated:** April 2026 (Session: 29 Apr 2026)
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -421,6 +421,24 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | Dispatch print server not deployed | dispatch-printserver.js built, needs laptop + printer setup at dispatch table |
 | LOT-00007572 | Flare Race Black qc_fail — team checking whether to scrap |
 | L3 reprint not working | Normal PKG prints working on L3, reprint flow broken — investigate next session |
+| Line Flush Unauthorised in Garage | `postFlush` still missing `canFlush(P)` invocation inside its case block (function defined at worker.js:31 but never called in handler at ~line 5300). **Anusha diagnosis complete: role = admin, issue was expired JWT (refresh token stale) — fix: log out + log back in via Google OAuth. Permission gate still needs to be added + deployed for non-admin roles.** |
+
+### ✅ Fixed / Resolved This Session (29 Apr 2026)
+
+| Fix | Root cause | Resolution |
+|---|---|---|
+| PKG double-scan duplicate insert error surfaced as raw 23505 JSON | `pkgResultShowing` only guarded scans while result overlay was visible. Two scans of the same car barcode entering `doPkgCar` before either's `await workerPost('postPkg', ...)` returned both passed the `existPkgR` pre-check and raced to insert; one hit the `pkg_scans_batch_label_key` unique constraint and dumped the raw Postgres error to the operator | Two-layer fix. **Scanner** (`02_scanner/index.html` commit `6cd6832`): added `pkgInFlight` boolean guard set on entry to `doPkgCar`, kept set across the two-scan RC flow into `doPkgRemote`, cleared in finally + `clearPkgResult` + both `cancelPkgFlow` branches — silently drops duplicate scans during the async gap. **Worker** (`01_worker/worker.js` commit `c4f0183`, `lotopsproxy` version `56c37241-209e-4567-ae14-6b1cea9b46c6`): `postPkg` now catches Postgres `23505` on the `pkg_scans` insert and the `pkg_scans_batch_label_key` unique-key name, returns the same human-readable `"<car_upc> has already been packaged — duplicate scan"` message that the `existPkgR` pre-check uses. Belt-and-suspenders |
+| Three prior-pending worker fixes shipped in this deploy (`generateUpcBatch` units check, `postAlloc` same-channel guard, `postPkgOut` re-fetch) | Were committed (`1c5cd24`, `48787b1`, `e1446d9`) on 24 Apr but no deploy ran between then and 29 Apr | Today's `npx wrangler deploy` swept HEAD, so all three are now live in `lotopsproxy` alongside the 23505 fix. `postFlush canFlush` gate is the only one still NOT in HEAD — needs to be added |
+
+### ✅ Fixed / Resolved Prior Session (24 Apr 2026)
+
+| Fix | Root cause | Resolution |
+|---|---|---|
+| `get_dispatch_counts` returning 6596 (inflated) for PKG Out tile | RPC not filtering by `current_status` correctly — was cumulative | Replaced RPC with `COUNT(*) FILTER (WHERE current_status = ...)` per status, `component_type = 'car'` only |
+| Redline favicon all yellow in browser/address bar | `favicon.png` in `03_dashboard/` had all yellow bars | Regenerated PNG: 3 yellow + 2 red bars. Drop new file into `03_dashboard/favicon.png` and push |
+| ALLOC duplicate scan accepted (same unit + same channel) | `postAlloc` allows `allocated` status as valid for re-alloc without checking if channel is unchanged | Added same-channel guard: fetch existing `dispatch_allocations`, reject if `channel_id` matches |
+| First Cry channel set as bulk instead of unit | `fulfillment_model` wrong in DB | SQL: `UPDATE dispatch_channels SET fulfillment_model = 'unit' WHERE name ILIKE '%first%cry%'` |
+| Legacy UPC registration colliding with upc_pool batches | `generateUpcBatch` only checked `MAX(upc_pool)` + `MAX(upc_batches.upc_to)` — never checked `MAX(units.upc)` | (1) Added `voided` to `upc_pool_status_check` constraint; (2) Voided 2593 conflicted pool entries via SQL; (3) Worker `generateUpcBatch` fix to check `MAX(units.upc)` — written, deploy pending |
 
 ### ✅ Fixed This Session (15 Apr 2026 Part 2)
 
@@ -479,15 +497,19 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 ### Pending Build Items (prioritised)
 
 **Next session:**
-1. **Test LEGACY_REG station end-to-end** — dispatch mode first (batch session)
-2. **Dispatch print server setup** — deploy on dispatch laptop, confirm both label types print
-3. **LOT-00007572 resolution** — scrap or keep pending team decision
-4. **FBU GRN for Flare LE** — 200 units received, need GRN before production scans
-5. **Test repair station end-to-end** — REP_START → REP_PASS → QC → PKG flow
-6. **Investigate L3 reprint bug**
-7. **Scanner setup screen: show active run** — show current product + run before LAUNCH
-8. **Reorder requests — stock page entry** — raise from stock/inventory page
-9. **Exec dashboard: fresh + repaired RTD split** — show today's repair contribution separately
+1. **Add + deploy `postFlush` canFlush gate** — only worker fix from the 24-Apr batch still missing in HEAD. `canFlush` defined at worker.js:31 but never invoked inside `case 'postFlush'` (~line 5300). Gate non-admin roles before allowing a flush; admin path stays unchanged
+2. **Deploy favicon** — drop `03_dashboard/favicon.png` (new file generated), push to repo
+3. **Anusha Line Flush** — role confirmed `admin`, JWT was expired. Have her log out + log back in. Once `canFlush` gate ships, non-admin protection is also in place
+4. **Test LEGACY_REG station end-to-end** — dispatch mode first (batch session)
+5. **Dispatch print server setup** — deploy on dispatch laptop, confirm both label types print
+6. **LOT-00007572 resolution** — scrap or keep pending team decision
+7. **FBU GRN for Flare LE** — 200 units received, need GRN before production scans
+8. **Test repair station end-to-end** — REP_START → REP_PASS → QC → PKG flow
+9. **Investigate L3 reprint bug**
+10. **Scanner setup screen: show active run** — show current product + run before LAUNCH
+11. **Reorder requests — stock page entry** — raise from stock/inventory page
+12. **Exec dashboard: fresh + repaired RTD split** — show today's repair contribution separately
+13. **Verify on factory floor** — PKG double-scan fix lands cleanly: GH Pages cache must invalidate on operator devices for the scanner-side guard to take effect; the worker 23505 catch protects until then
 
 **Store backlog:**
 9. **Print PO** — PDF for emailing to vendor
