@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 3.7 | **Last Updated:** April 2026 (Session: 29 Apr 2026)
+**Version:** 3.8 | **Last Updated:** April 2026 (Session: 30 Apr 2026)
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -388,6 +388,9 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 - Scanner Claude Code instructions: use `WORKER_URL` not `API`, use `document.getElementById('scanHint').textContent` not `setScanPrompt()`, use `operatorUUID || currentOperator?.id || null` not `cfg.operatorId`, station setup functions are `function` not `async function`
 - Legacy car QR format: purely numeric, 14+ digits, first 13 = EAN, remainder = unit suffix. Never has a `LOT-` prefix.
 - `registerLegacyUnit` dedup key: `legacy_car_upc` — always check before creating. Dispatch mode (EAN only, no car QR accessible) intentionally allows multiple registrations of same EAN.
+- Dispatch handlers (postDtk/postAlloc/postDout) must always co-update the paired remote via `paired_with=eq.{carUpc}&component_type=eq.remote` — cars and remotes are physically inseparable after QC_PASS pairing. Forgetting this causes silent status drift that only surfaces during stock reconciliation.
+- `get_dispatch_counts` RPC filters `component_type = 'car'` — dashboard tiles never reflect remote statuses. Remote drift can accumulate invisibly for months.
+- EAN codes in a physical stock-take are SKU-level identifiers, not unit-level — treating them as unit identifiers in a safe_set will protect entire SKU populations instead of specific units. Always ignore EAN scan artifacts and rely on LOT batch labels only.
 
 ---
 
@@ -410,6 +413,7 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | 3aw | Repair run dashboard (Store + Redline) | ✅ Complete ← April 17 2026 |
 | 3ax | Google OAuth + session persistence (Redline + Garage) | ✅ Complete ← April 17 2026 |
 | 3ay | Domain migration (redline + garage subdomains) | ✅ Complete ← April 17 2026 |
+| 3av-fix | Dispatch remote co-update (worker) | ✅ Complete ← April 30 2026 |
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
@@ -423,7 +427,14 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | L3 reprint not working | Normal PKG prints working on L3, reprint flow broken — investigate next session |
 | Line Flush Unauthorised in Garage | `postFlush` still missing `canFlush(P)` invocation inside its case block (function defined at worker.js:31 but never called in handler at ~line 5300). **Anusha diagnosis complete: role = admin, issue was expired JWT (refresh token stale) — fix: log out + log back in via Google OAuth. Permission gate still needs to be added + deployed for non-admin roles.** |
 
-### ✅ Fixed / Resolved This Session (29 Apr 2026)
+### ✅ Fixed / Resolved This Session (30 Apr 2026)
+
+| Fix | Root cause | Resolution |
+|---|---|---|
+| Dispatch funnel inflated (rtd=12,057 showing as 1,993, handed_over=6,443 all stale) | Dispatch system went live while units were already accumulating. DTK/ALLOC/DOUT only ever updated car status, never paired remote. Units dispatched before system went live were never marked shipped. | Two-part fix: (1) DB cleanup — physical stock-take of 6,355 batch labels + BOX-03285 used as ground truth. Marked 2,723 cars + 6,042 remotes as shipped, synced 3,941 remotes to correct intermediate stages (handed_over/allocated/pending_rtd). Audit trail: updated_at::date = 2026-04-30. (2) Worker fix — postDtk, postAlloc, postDout (unit + box paths) now co-update paired remote on every car status change. |
+| Remotes permanently out of sync with cars at all dispatch stages | DTK/ALLOC/DOUT handlers only updated car unit, never touched paired_with remote | Added `updatePublic('units', { current_status: ... }, paired_with=eq.{carUpc}&component_type=eq.remote)` after every car status update in all three handlers. BOX path uses `paired_with=in.(${inParam})` for batch update. |
+
+### ✅ Fixed / Resolved Prior Session (29 Apr 2026)
 
 | Fix | Root cause | Resolution |
 |---|---|---|

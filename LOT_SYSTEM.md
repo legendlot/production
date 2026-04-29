@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 3.8 | **Last Updated:** April 2026 (Session: 29 Apr 2026)
+**Version:** 3.9 | **Last Updated:** April 2026 (Session: 30 Apr 2026)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 > **Migration in planning:** A full migration of Garage and Redline into the Throttle React monorepo is underway. Planning documents are at `/Users/afshaansiddiqui/Documents/00_Claude/migration-kit/`. The live system described below is unchanged during the migration period.
@@ -83,6 +83,8 @@ Parts (Store) → Assembly → QC → Packaging → RTD → Dispatch
 | PACK | Dispatch Packing | Scans batch label into box. Sets packed_dispatch. ← new April 15 2026 |
 | DOUT | Dispatch Out | Scans BOX label (bulk) or batch label (unit). Sets shipped. ← updated April 15 2026 |
 | REPAIR | Repair Station | Per-line. Operator selects repair run + mode (START/PASS/SCRAP) then scans LOT UPC ← April 17 2026 |
+
+**Car + remote co-update rule (April 30 2026):** After QC_PASS pairing, cars and remotes are physically inseparable. All dispatch stage transitions (DTK → handed_over, ALLOC → allocated, DOUT → shipped) now co-update the paired remote in the same handler. The remote UPC is identified via `paired_with=eq.{carUpc}&component_type=eq.remote`. This applies to both UNIT path (single scan) and BOX path (batch) in postDout.
 
 ### Repair Run System ← April 17 2026
 
@@ -214,6 +216,8 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 - Concurrent scans (same second) can both pass status checks read at handler start — re-fetch critical status fields atomically just before writing for idempotency-sensitive handlers (PKG_OUT)
 - `postFlush` in worker had `canFlush` defined but never called — always verify permission gates are actually invoked inside their case, not just defined at top of file
 - **Async-gap double-scan race in scanner POST handlers** — any scanner action that does a uniqueness pre-check on the worker before writing will leak duplicates if the same barcode is scanned twice during the awaiting RTT (gun scanners fire fast). Two-layer fix is mandatory: (1) frontend in-flight boolean (`pkgInFlight`-style) set on entry, cleared in `finally` + every cancel/reset path, drops second scan silently; (2) worker catches Postgres `23505` on the unique-constraint insert and returns the same human-readable duplicate message the pre-check uses. PKG handler patched 29 Apr 2026 (`02_scanner` `6cd6832`, `01_worker` `c4f0183`); audit other scanner POSTs (e.g. INW, QC, WKS, RTO_IN) for the same shape — most have similar pre-check-then-insert structure
+- `get_dispatch_counts` RPC is `component_type = 'car'` only — remote status drift is invisible on the dashboard. Remotes must be kept in sync via worker logic, not by relying on dashboard visibility.
+- After QC_PASS, cars and remotes move as a pair for the rest of their lifecycle. Any handler that moves a car through dispatch stages must also move its paired remote in the same operation.
 - All prior learnings — see v3.0
 
 ---
@@ -255,6 +259,7 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 - Dashboard: Overview/Shipments/Channel Master tabs, shipment detail modal, issue detail modal
 - Scans tab date range filter
 - Store receiving, procurement, GRN, bag system, FBU issue flow all live
+- Dispatch remote co-update: postDtk, postAlloc, postDout (unit + box paths) now co-update paired remote on every car status change ← April 30 2026
 
 ### Pending Deployment ⚠️
 - **Dispatch print server** — `dispatch-printserver.js` needs laptop + printer at dispatch table
@@ -276,6 +281,10 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 - Dispatch print server not yet deployed
 - Line Flush Unauthorised for Anusha — `postFlush` `canFlush` gate still missing inside the case block (function defined, never called). **Diagnosis complete: Anusha role = admin, issue was expired JWT. Immediate fix: log out + log back in. Permanent: add canFlush invocation to handler and deploy.**
 - L3 reprint not working — investigation pending
+
+### Fixed This Session 🔧 (30 Apr 2026)
+- **Dispatch funnel DB cleanup** — physical stock-take of 6,355 batch labels used as ground truth. Marked 2,723 cars + 6,042 remotes shipped. Synced 3,941 remotes to correct intermediate stages. All cars in L3 29-Apr IST (82 rtd + 3 pending_rtd) preserved. Audit trail via updated_at::date = 2026-04-30.
+- **Worker: remote co-update on all dispatch handlers** — postDtk, postAlloc, postDout unit + box paths. Cars and remotes now move together through all dispatch stages.
 
 ### Fixed This Session 🔧 (29 Apr 2026)
 - **PKG double-scan race condition** → operator surface no longer dumps raw Postgres 23505 JSON when a gun scanner fires twice on the same car barcode. Two-layer fix: scanner `pkgInFlight` flag (`02_scanner` `6cd6832`) + worker `pkg_scans_batch_label_key` 23505 catch (`01_worker` `c4f0183`). Both layers needed because GH Pages cache delays the scanner update reaching operator devices
