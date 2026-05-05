@@ -1,5 +1,5 @@
 # Legend of Toys — System Understanding Document
-**Version:** 3.9 | **Last Updated:** April 2026 (Session: 30 Apr 2026)
+**Version:** 4.0 | **Last Updated:** May 2026 (Session: 05 May 2026)
 **Purpose:** Canonical reference for understanding the LOT production operations system. Feed this to any new AI session to establish full context before building or designing.
 
 > **Migration in planning:** A full migration of Garage and Redline into the Throttle React monorepo is underway. Planning documents are at `/Users/afshaansiddiqui/Documents/00_Claude/migration-kit/`. The live system described below is unchanged during the migration period.
@@ -14,7 +14,7 @@
 - **Afshaan** — tech, branding, production (owns this system)
 - **Vinay** — finance, sales, procurement
 
-**Current state:** Full production operations system live on floor. Repair run system complete. Google OAuth live on Redline + Garage with persistent sessions. Both systems migrated to new subdomains (redline.legendoftoys.com, garage.legendoftoys.com).
+**Current state:** Full production operations system live on floor. Repair run system complete. Google OAuth live on Redline + Garage with persistent sessions. Both systems migrated to new subdomains. BOM revision complete May 2026 — 16 products now in store.bom_current including 6 new products (Apex, Doughty, Ellie/Train, MC Cloud/Drone, Night Wolf, Thunder).
 
 ---
 
@@ -48,7 +48,11 @@ LOT currently makes RC cars. A finished RC car unit consists of: car body, remot
 - **Current data:** Dash + Nitro + Flare LE = FBU. All other cars + all remotes = CKD.
 
 ### Products in system (April 2026)
-Flare, Ghost, Knox, Shadow, Nitro, Dash, Fang, Atlas, Bumble, Gazer, Alex (test), **Flare LE** (FBU, Race Black only)
+**Cars (CKD):** Fang, Flare, Ghost, Knox, Shadow, Dash, Atlas, Bumble, Gazer, Apex, Night Wolf, Thunder
+**FBU/CKD:** Nitro (FBU car, CKD remote), Dash (FBU car, CKD remote)
+**Other product types:** Ellie (Train), MC Cloud (Drone)
+**Legacy/test:** Alex (test), Flare LE (FBU, Race Black only)
+All 16 products have complete BOMs in `store.bom_current` and `store.material_master` as of May 2026.
 
 ---
 
@@ -172,6 +176,26 @@ No changes from v3.0. See v3.0 for full details.
 
 ---
 
+## 8a. BOM & Master Data System ← May 2026
+
+### Tables
+- **`store.bom_current`** — active BOM VIEW (is_active=true). Part code + product + variant + qty + category + type. `part_category` = what the part belongs to (Car/Remote/Para/Packaging/etc.). `part_type` = material (Metal/Plastic/Electronic/Hardware/etc.). These are separate columns — CSV export shows "Category" which maps to `part_category`.
+- **`store.bom_register`** — all BOM rows including deprecated. Trigger moves rows from bom_current to bom_register when is_active set to false. Query here for part history and supersession chains (superseded_by column).
+- **`store.material_master`** — one row per part code, independent of product. Used for procurement, stock, reorder. Has `active` (nullable bool) AND `is_active` (non-nullable bool) — both must be true for rows to be visible in all downstream queries. Universal parts: `product = 'Universal'`, `default_variant = 'All'`.
+
+### Part code conventions
+- **Universal hardware (HW-*):** Dimension-encoded. Plain screws: `HW-SC-{d×10}-{l×10}`. Countersunk: `HW-CSC-{d×10}-{pitch×10}-{l×10}`. HT screws: `HW-SC-HT-{d×10}-{d2×10}-{l×10}`. All new standard fasteners follow this convention.
+- **Universal consumables (UNV-*):** `UNV-{type}-{descriptor}-{seq}`. E.g. UNV-CB-3PIN-01, UNV-RC-1500-01.
+- **Product-specific parts:** `{PRODUCT_PREFIX}-{type}-{seq}`. Type = EL (electronic), ME (metal/shaft), PB (plastic body), PM (precision metal), RB (rubber), SC (product-specific screw/HT), ST (sticker), PP (para/packaging), AC (accessories), VL (velcro/belt).
+- **Battery terminals:** HW-TM-CMB (combined +/-), HW-TM-POS (positive only), HW-TM-NEG (negative only) — all Universal.
+
+### Pending BOM actions
+- **17 PO-bound deprecations** (Fang/Flare/Nitro) — awaiting receipt of POs CN-CMP-0014/15/16/17. Run deprecation blocks only after POs closed.
+- **Finance fields** (unit_cost, reorder_level, location_code) on all new material_master rows — deferred until finance module is built post-migration.
+- **Stock ledger reconciliation** — BOM qty corrections made; actual stock count update is a separate exercise.
+
+---
+
 ## 9. Dashboard ← updated April 15 2026
 
 ### Dispatch tabs (restructured)
@@ -190,6 +214,11 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 
 ## 10. Key Technical Learnings (don't repeat these mistakes)
 
+- `bom_current` is a VIEW on `is_active = true` — deprecated rows are in `bom_register`. Never query bom_current for history.
+- `material_master` has TWO booleans: `active` (nullable) and `is_active` (non-nullable). Both must be `true` on INSERT or downstream queries silently miss the row.
+- Universal parts in material_master: `product = 'Universal'`, `default_variant = 'All'`. Product-specific: product = product name, default_variant = 'Common' or 'Variant'.
+- BOM part_category and part_type are SEPARATE columns. HW-TM-CMB is correctly `part_category = 'Remote'`, `part_type = 'Metal'` — do not change part_category to Metal.
+- Fastener naming: dimension-encoded convention (HW-SC-23-50) is canonical. HW-SC-M08-* batch was a one-time migration. All new standard fasteners get dimension-encoded codes.
 - `unit_status` enum = lowercase; `activity_type` enum = uppercase
 - `PKG_OUT` is NEVER an activity value — scanner writes `RTE` or `RTR`
 - `packed_dispatch` must be added via `ALTER TYPE unit_status ADD VALUE` before first PACK scan
@@ -245,6 +274,7 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 ## 13. Build Status
 
 ### Live & Confirmed ✅
+- BOM revision complete — all 16 products in store.bom_current and store.material_master. 6 new products: Apex, Doughty, Ellie (Train), MC Cloud (Drone), Night Wolf, Thunder ← May 05 2026
 - All scanner flows: INW, QC_PASS, QC_FAIL, WKS, PKG, PKG_OUT, RTO_IN, DTK, ALLOC, DOUT
 - REPAIR station: REP_START (enters repair run), REP_PASS (marks repaired → proceeds to QC), REP_SCRAP (scraps unit)
 - Repair run creation in Garage: FRESH/REPAIR toggle, product×variant×color picker, lines saved to `repair_run_lines`
@@ -281,6 +311,7 @@ Issue rows are now clickable — opens detail modal showing all part lines with 
 - Dispatch print server not yet deployed
 - Line Flush Unauthorised for Anusha — `postFlush` `canFlush` gate still missing inside the case block (function defined, never called). **Diagnosis complete: Anusha role = admin, issue was expired JWT. Immediate fix: log out + log back in. Permanent: add canFlush invocation to handler and deploy.**
 - L3 reprint not working — investigation pending
+- 17 PO-bound part code deprecations (Fang/Flare/Nitro) pending PO receipt for CN-CMP-0014/15/16/17 (overdue ~Apr 28 2026)
 
 ### Fixed This Session 🔧 (30 Apr 2026)
 - **Dispatch funnel DB cleanup** — physical stock-take of 6,355 batch labels used as ground truth. Marked 2,723 cars + 6,042 remotes shipped. Synced 3,941 remotes to correct intermediate stages. All cars in L3 29-Apr IST (82 rtd + 3 pending_rtd) preserved. Audit trail via updated_at::date = 2026-04-30.

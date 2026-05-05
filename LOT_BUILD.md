@@ -1,5 +1,5 @@
 # Legend of Toys — Technical Build Document
-**Version:** 3.8 | **Last Updated:** April 2026 (Session: 30 Apr 2026)
+**Version:** 3.9 | **Last Updated:** May 2026 (Session: 05 May 2026)
 **Purpose:** Technical reference for the LOT production operations system. Feed alongside LOT_SYSTEM.md when continuing development in a new chat session.
 
 ---
@@ -367,6 +367,13 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 
 | Change | SQL | Purpose |
 |---|---|---|
+| `store.bom_current` — BOM revision v1 | UPDATE/INSERT/deprecate | Fang, Flare, Nitro, Shadow: 184 rows touched (name fixes, qty corrections, category updates, code migrations, deprecations, new inserts). change_note = 'BOM revision 2026-05-05'. ← May 05 2026 |
+| `store.bom_register` trigger confirmed | Discovered | bom_current is a VIEW filtering is_active=true. Rows set is_active=false are physically moved to bom_register by trigger. Query bom_register for deprecated part history. ← May 05 2026 |
+| `store.material_master` — BOM v1 backfill | INSERT/UPDATE | 22 new product-specific rows + 1 name fix (UNV-PP-ZIP-01). material_master has TWO boolean columns: active (nullable) AND is_active (non-nullable). Both must be set to true on every INSERT or rows are invisible to queries filtering on active=true. ← May 05 2026 |
+| `store.bom_current` — BOM revision v2 | UPDATE/INSERT/deprecate | Dash/Gazer/Ghost/Knox: delta updates. Apex/Doughty/Ellie/MC Cloud/Night Wolf/Thunder: full inserts (6 new products). 433 rows tagged change_note = 'BOM revision 2026-05-05 v2'. ← May 05 2026 |
+| `store.material_master` — BOM v2 backfill | INSERT | 376 new rows. 29 universal (HW-*/UNV-* prefix, product='Universal', default_variant='All'). 347 product-specific. Pattern: INSERT ... SELECT FROM bom_current. ← May 05 2026 |
+| New part_category values: 'Train', 'Drone' | INSERT | Ellie = Train product type. MC Cloud = Drone product type. Both in bom_current and material_master. ← May 05 2026 |
+| New universal codes | INSERT | HW-TM-POS (Positive Terminal), HW-TM-NEG (Negative Terminal), UNV-CB-3PIN-01 (Charging Cable 3-Pin), UNV-CB-USBB-01 (Charging Cable USB-B), UNV-RC-2600-01 (18650 - 2600 mAh) added to material_master as Universal. ← May 05 2026 |
 | `dispatch_shipments: expected_units, packed_count` | ALTER TABLE ADD COLUMN | Shipment manifest tracking ← April 15 2026 |
 | `print_jobs: job_type, payload` | ALTER TABLE ADD COLUMN | Support BOX_LABEL type ← April 15 2026 |
 | `dispatch_boxes` | CREATE TABLE | Outer carton tracking ← April 15 2026 |
@@ -385,6 +392,13 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 
 ## 10a. Key Technical Learnings
 
+- `bom_current` is a VIEW filtered on `is_active = true` — deprecated rows live in `store.bom_register`. Always query bom_register for supersession history and deprecated part lookups.
+- `material_master` has two boolean columns: `active` (nullable) and `is_active` (non-nullable). Every INSERT must set BOTH to true or rows will be invisible to downstream queries filtering on `active = true`.
+- `material_master` convention: universal hardware (HW-* and UNV-* part codes) use `product = 'Universal'` and `default_variant = 'All'`. Product-specific codes use their product name and `default_variant = 'Common'` (or `'Variant'` for variant-specific parts).
+- `bom_current` columns: `part_category` (what the part belongs to — Car/Remote/Para/etc.) and `part_type` (material — Metal/Plastic/Electronic/etc.) are SEPARATE columns. The CSV export label "Category" maps to `part_category`. HW-TM-CMB is correct as `part_category = 'Remote'`, `part_type = 'Metal'` — no change needed.
+- Fastener naming convention: the old dimension-encoded convention (`HW-SC-23-50`, `HW-CSC-59-26-47`) is the canonical system going forward. `HW-SC-M08-*` sequential codes were a one-time migration batch (today's v1 run) and should not be extended. New standard fasteners get dimension-encoded codes. Product-specific HT screws get `{product-prefix}-SC-{seq}`.
+- Large-volume `material_master` backfill pattern: use `INSERT ... SELECT DISTINCT ON (b.product, b.part_code) FROM bom_current b LEFT JOIN material_master m ON m.part_code = b.part_code WHERE m.part_code IS NULL`. Universal codes use `DISTINCT ON (b.part_code)` with `product = 'Universal'`, `default_variant = 'All'`.
+- 17 PO-bound part codes are still active (not deprecated) pending receipt of POs CN-CMP-0014/15/16/17 (overdue since Apr 28 2026): Fang: FG-PA-01/02/03, FG-ME-17, HW-SC-23-7, HW-CSC-59-24-4, HW-CSC-78-225-54. Flare: FL-ME-16/17/18, FL-PB-25, FL-AU-08, HW-CSC-575-22-4, HW-CSC-7-2-35, HW-SC-23-52, HW-SC-HT-184-34-8. Nitro: HW-SC-23-55. Deprecate only after POs received and closed.
 - Scanner Claude Code instructions: use `WORKER_URL` not `API`, use `document.getElementById('scanHint').textContent` not `setScanPrompt()`, use `operatorUUID || currentOperator?.id || null` not `cfg.operatorId`, station setup functions are `function` not `async function`
 - Legacy car QR format: purely numeric, 14+ digits, first 13 = EAN, remainder = unit suffix. Never has a `LOT-` prefix.
 - `registerLegacyUnit` dedup key: `legacy_car_upc` — always check before creating. Dispatch mode (EAN only, no car QR accessible) intentionally allows multiple registrations of same EAN.
@@ -417,6 +431,12 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | 4 | Reconciliation | 🔲 Not started |
 | 5 | Audit Module | 🔲 Not started |
 | 6 | Assembly Stations | 🔲 Not started |
+| 3az | BOM revision v1 — Fang/Flare/Nitro/Shadow | ✅ Complete ← May 05 2026 |
+| 3ba | BOM revision v2 — Dash/Gazer/Ghost/Knox delta + 6 new products full insert | ✅ Complete ← May 05 2026 |
+| 3bb | material_master backfill — all 10 v2 products, zero gaps confirmed | ✅ Complete ← May 05 2026 |
+| 3bc | 17 PO-bound deprecations (Fang/Flare/Nitro) | 🔴 Pending PO receipt CN-CMP-0014/15/16/17 |
+| 3bd | Stock ledger reconciliation (BOM qty deltas) | 🔴 Separate exercise — direct live count update |
+| 3be | material_master finance fields (unit_cost, reorder_level, location_code) | 🔲 Post-migration, after finance module |
 
 ### 🚨 Open Issues — fix FIRST next session
 
@@ -426,6 +446,7 @@ Dispatch is now a dropdown with three sub-tabs, each a full scrollable content p
 | LOT-00007572 | Flare Race Black qc_fail — team checking whether to scrap |
 | L3 reprint not working | Normal PKG prints working on L3, reprint flow broken — investigate next session |
 | Line Flush Unauthorised in Garage | `postFlush` still missing `canFlush(P)` invocation inside its case block (function defined at worker.js:31 but never called in handler at ~line 5300). **Anusha diagnosis complete: role = admin, issue was expired JWT (refresh token stale) — fix: log out + log back in via Google OAuth. Permission gate still needs to be added + deployed for non-admin roles.** |
+| 17 PO-bound deprecations pending | Fang/Flare/Nitro part codes still active pending POs CN-CMP-0014/15/16/17 (overdue ~Apr 28). Once received + closed: run held deprecation blocks. Codes: FG-PA-01/02/03, FG-ME-17, HW-SC-23-7, HW-CSC-59-24-4, HW-CSC-78-225-54 (Fang); FL-ME-16/17/18, FL-PB-25, FL-AU-08, HW-CSC-575-22-4, HW-CSC-7-2-35, HW-SC-23-52, HW-SC-HT-184-34-8 (Flare); HW-SC-23-55 (Nitro) |
 
 ### ✅ Fixed / Resolved This Session (30 Apr 2026)
 
