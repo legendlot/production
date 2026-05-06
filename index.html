@@ -2420,6 +2420,13 @@ async function processBarcode(barcode, act) {
     }
   }
 
+  // ── RTO_IN: if operator scans a batch label (LOT-XXXXXXXX-E/R), extract car UPC ──
+  // Operators scan the label on the outside of the returned box — strip the suffix
+  // so postScan receives a valid car UPC and records the RTO_IN correctly.
+  if (act === 'RTO_IN' && isBatchLabel) {
+    barcode = barcode.replace(/-[ER]$/i, '');
+  }
+
   // ── QC_PASS — two-scan pairing flow ──
   if (act === 'QC_PASS') {
     if (pendingQcPassCar) {
@@ -2449,10 +2456,14 @@ async function processBarcode(barcode, act) {
   }
 
   // ── All other scan types (INW, WKS_IN, WKS_OUT, RTO_IN) ──
-  flash('ok'); vibrate([50]); playSuccessBeep();
-  addLog({ barcode, status:'ok', tag: act, label: act.replace(/_/g,' ') });
-  showToast('✓ ' + barcode, 'ok');
-  await submitScanWorker(barcode, act);
+  // Flash and beep only after the API confirms success, so operators don't
+  // walk away believing a scan registered when it actually failed.
+  const scanId = await submitScanWorker(barcode, act);
+  if (scanId !== null) {
+    flash('ok'); vibrate([50]); playSuccessBeep();
+    addLog({ barcode, status:'ok', tag: act, label: act.replace(/_/g,' ') });
+    showToast('✓ ' + barcode, 'ok');
+  }
 }
 
 // ══════════════════════════════════════════════════════
