@@ -3244,6 +3244,7 @@ async function submitScanWorker(barcode, act) {
 
   if (!isOnline) {
     enqueue('postScan', payload);
+    showToast('Queued — offline', 'warn');
     return null;
   }
 
