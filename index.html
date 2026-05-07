@@ -606,6 +606,75 @@
       font-weight:900;font-size:13px;letter-spacing:0.1em;border:none;
       border-radius:12px;cursor:pointer;font-family:'JetBrains Mono',monospace;width:100%;
     }
+
+    /* ── LOOKUP RESULT OVERLAY ── */
+    .lookup-result{
+      display:none;position:absolute;inset:0;z-index:50;
+      background:rgba(8,8,8,0.97);
+      flex-direction:column;overflow-y:auto;
+      padding:20px 16px 40px;
+    }
+    .lookup-result.show{display:flex}
+    .lookup-result-header{
+      display:flex;align-items:flex-start;justify-content:space-between;
+      margin-bottom:12px;
+    }
+    .lookup-upc{
+      font-size:13px;font-weight:700;color:var(--yellow);
+      letter-spacing:0.04em;font-family:'JetBrains Mono',monospace;
+    }
+    .lookup-product{font-size:11px;color:var(--text2);margin-top:3px;letter-spacing:0.04em}
+    .lookup-status-badge{
+      font-size:10px;font-weight:700;padding:4px 10px;
+      border-radius:6px;letter-spacing:0.1em;text-transform:uppercase;
+      border:1px solid;flex-shrink:0;margin-left:10px;
+    }
+    .lookup-section-label{
+      font-size:9px;color:var(--muted);letter-spacing:0.15em;
+      text-transform:uppercase;margin:14px 0 8px;
+    }
+    .lookup-pair-row{
+      background:var(--surface);border:1px solid var(--border2);
+      border-radius:8px;padding:10px 14px;
+    }
+    .lookup-pair-upc{font-size:12px;font-weight:700;color:var(--sky);letter-spacing:0.04em}
+    .lookup-pair-detail{font-size:10px;color:var(--text2);margin-top:2px;letter-spacing:0.03em}
+    .lookup-scan-row{
+      display:flex;align-items:center;gap:10px;
+      padding:9px 0;border-bottom:1px solid var(--border);
+    }
+    .lookup-scan-row:last-child{border-bottom:none}
+    .lookup-activity-badge{
+      font-size:10px;font-weight:700;padding:3px 8px;
+      border-radius:5px;letter-spacing:0.08em;flex-shrink:0;border:1px solid;
+    }
+    .lookup-scan-meta{font-size:10px;color:var(--muted);letter-spacing:0.03em;line-height:1.5}
+    .lookup-printer-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+    .lookup-printer-btn{
+      flex:1;padding:10px 8px;background:var(--surface2);
+      border:1px solid var(--border2);color:var(--text2);
+      font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;
+      letter-spacing:0.08em;border-radius:8px;cursor:pointer;text-align:center;
+      transition:background 0.1s,color 0.1s,border-color 0.1s;
+    }
+    .lookup-printer-btn.selected{
+      background:rgba(242,205,26,0.1);border-color:var(--yellow);color:var(--yellow);
+    }
+    .lookup-reprint-btn{
+      width:100%;padding:14px;background:var(--surface2);
+      border:1px solid var(--border2);color:var(--text2);
+      font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;
+      letter-spacing:0.1em;border-radius:10px;cursor:pointer;margin-top:4px;
+    }
+    .lookup-reprint-btn.ready{
+      background:rgba(242,205,26,0.08);border-color:var(--yellow);color:var(--yellow);
+    }
+    .lookup-done-btn{
+      margin-top:16px;padding:16px;background:var(--surface2);
+      border:1px solid var(--border2);color:var(--text2);
+      font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;
+      letter-spacing:0.1em;border-radius:12px;cursor:pointer;width:100%;flex-shrink:0;
+    }
   </style>
 </head>
 <body>
@@ -685,6 +754,15 @@
       <div class="seg-group" id="s_legacyStationGroup">
         <div class="seg-row">
           <div class="seg-btn" data-val="Legacy Reg" data-code="LEGACY_REG" data-shared="1" onclick="pickStation(this)">Legacy Reg</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="sec-div">Utilities</div>
+    <div class="field">
+      <div class="seg-group" id="s_utilityStationGroup">
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Lookup" data-code="LOOKUP" data-shared="1" onclick="pickStation(this)">Lookup</div>
         </div>
       </div>
     </div>
@@ -885,6 +963,9 @@
       <div class="pack-result-sub" id="packResultSub">—</div>
       <button class="pack-result-done" onclick="clearPackResult()">NEXT UNIT →</button>
     </div>
+
+    <!-- LOOKUP result overlay — dynamically populated by showLookupResult() -->
+    <div class="lookup-result" id="lookupResult"></div>
   </div>
 
   <div class="tally-panel" id="tallyPanel">
@@ -1251,11 +1332,10 @@ function goToSetup() {
   document.getElementById('setupOpRole').textContent  = currentOperator.role;
 
   if (cfg.stationLabel) {
-    document.querySelectorAll('#s_stationGroup .seg-btn').forEach(b => {
-      const match = b.dataset.val === cfg.stationLabel;
-      b.classList.toggle('on', match);
+    document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn').forEach(b => {
+      b.classList.toggle('on', b.dataset.val === cfg.stationLabel);
     });
-    const savedBtn = document.querySelector(`#s_stationGroup .seg-btn[data-val="${cfg.stationLabel}"]`);
+    const savedBtn = document.querySelector(`.seg-btn[data-val="${cfg.stationLabel}"]`);
     if (savedBtn) {
       const isShared = savedBtn.dataset.shared === '1';
       document.getElementById('s_lineField').style.display = isShared ? 'none' : '';
@@ -1286,7 +1366,7 @@ function goToSetup() {
 }
 
 function pickStation(el) {
-  const allBtns = document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn');
+  const allBtns = document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn');
   // Toggle off if already selected
   if (el.classList.contains('on')) {
     el.classList.remove('on');
@@ -1333,10 +1413,11 @@ const STATION_DEFS = {
   DOUT:       { label: 'Dispatch Out',    activity: 'DOUT',       hint: 'SCAN BOX LABEL (BOX-XXXXX) OR BATCH LABEL' },
   LEGACY_REG: { label: 'Legacy Reg',      activity: 'LEGACY_REG', hint: 'SELECT MODE THEN SCAN' },
   REPAIR:     { label: 'Repair',          activity: 'REPAIR',     hint: 'SELECT MODE ABOVE' },
+  LOOKUP:     { label: 'Lookup',          activity: 'LOOKUP',     hint: 'SCAN ANY UPC — LOT, BOX, OR REMOTE' },
 };
 
 async function saveSetup() {
-  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on, #s_legacyStationGroup .seg-btn.on');
+  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on, #s_legacyStationGroup .seg-btn.on, #s_utilityStationGroup .seg-btn.on');
   if (!stationEl) { showToast('Select a station', 'err'); return; }
 
   const stationCode = stationEl.dataset.code;
@@ -1350,6 +1431,31 @@ async function saveSetup() {
   const statusEl = document.getElementById('setupStatus');
   statusEl.textContent = 'Looking up device...';
   statusEl.style.color = 'var(--text2)';
+
+  // LOOKUP is a deviceless ad hoc mode — no device record required
+  if (stationCode === 'LOOKUP') {
+    const camElLookup = document.querySelector('.seg-btn.on[data-val="environment"]') ||
+                        document.querySelector('.seg-btn.on[data-val="user"]');
+    cfg = {
+      url:          DEFAULT_SUPABASE_URL,
+      key:          DEFAULT_SUPABASE_KEY,
+      stationCode,
+      stationLabel: stationEl.dataset.val,
+      line:         'SHARED',
+      deviceCode:   null,
+      deviceId:     null,
+      activity:     'LOOKUP',
+      shift:        currentShift,
+      camFacing:    camElLookup ? camElLookup.dataset.val : 'environment',
+      torchEnabled: document.getElementById('s_torch').checked,
+    };
+    localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+    localStorage.setItem('lot_volume', document.getElementById('s_volume').value);
+    statusEl.textContent = '';
+    startSession();
+    bootScanner();
+    return;
+  }
 
   try {
     const devices = await sbGet('devices',
@@ -2114,6 +2220,218 @@ function updateScanHint() {
 }
 
 // ══════════════════════════════════════════════════════
+// LOOKUP STATION
+// ══════════════════════════════════════════════════════
+
+let lookupInFlight = false;
+let lookupPrinter  = localStorage.getItem('lot_lookup_printer') || '';
+
+const LOOKUP_ACT_COLORS = {
+  INW:     '#22c55e', QC_PASS: '#22c55e', QC_FAIL: '#DE2A2A',
+  WKS_IN:  '#8b5cf6', WKS_OUT: '#8b5cf6', PKG:     '#8b5cf6',
+  PKG_OUT: '#8b5cf6', RTE:     '#0ea5e9', RTR:     '#F2CD1A',
+  DOUT:    '#F2CD1A', DTK:     '#f59e0b', ALLOC:   '#f59e0b',
+  RTO_IN:  '#f59e0b',
+};
+
+function fmtIST(ts) {
+  return new Date(ts).toLocaleString('en-IN', {
+    timeZone: 'Asia/Kolkata',
+    day: '2-digit', month: 'short',
+    hour: '2-digit', minute: '2-digit',
+    hour12: false,
+  });
+}
+
+async function doLookupScan(barcode) {
+  if (lookupInFlight) return;
+  lookupInFlight = true;
+  document.getElementById('scanHint').textContent = 'Looking up...';
+
+  try {
+    const res = await workerPost('getUnitLookup', { upc: barcode });
+    if (!res.ok) {
+      addLog({ barcode, status: 'err', tag: 'LOOKUP', label: res.error || 'NOT FOUND' });
+      document.getElementById('scanHint').textContent = 'NOT FOUND — TRY AGAIN';
+      playErrBeep(); vibrate([80, 40, 80]);
+      setTimeout(() => {
+        document.getElementById('scanHint').textContent = STATION_DEFS.LOOKUP.hint;
+        lookupInFlight = false;
+      }, 2000);
+      return;
+    }
+    const d = res.data;
+    const logLabel = d.type === 'box'
+      ? 'BOX · ' + (d.box && d.box.unit_count ? d.box.unit_count : 0) + ' units'
+      : [d.unit && d.unit.product, d.unit && d.unit.current_status].filter(Boolean).join(' · ');
+    addLog({ barcode, status: 'ok', tag: 'LOOKUP', label: logLabel });
+    showLookupResult(d, barcode);
+  } catch(e) {
+    addLog({ barcode, status: 'err', tag: 'LOOKUP', label: 'NETWORK ERROR' });
+    document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
+    playErrBeep(); vibrate([100, 50, 100]);
+    setTimeout(() => {
+      document.getElementById('scanHint').textContent = STATION_DEFS.LOOKUP.hint;
+      lookupInFlight = false;
+    }, 2000);
+  }
+}
+
+function buildLookupBoxHTML(data, barcode) {
+  const box   = data.box || {};
+  const units = data.box_units || [];
+  const count = box.unit_count || units.length;
+
+  let unitRows = '';
+  for (const u of units) {
+    const label   = u.batch_label || u.upc || '—';
+    const product = [u.product, u.model, u.color].filter(Boolean).join(' ') || '—';
+    unitRows += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
+      + '<span style="color:var(--yellow);font-family:\'JetBrains Mono\',monospace;font-size:11px;font-weight:700">' + label + '</span>'
+      + '<span style="color:var(--text2);font-size:10px">' + product + '</span>'
+      + '</div>';
+  }
+  if (!unitRows) {
+    unitRows = '<div style="padding:12px 0;color:var(--muted);font-size:11px;text-align:center">No units recorded</div>';
+  }
+
+  const printers = ['L1', 'L2', 'L3', 'DISPATCH'];
+  let printerBtns = '';
+  for (const p of printers) {
+    const sel = lookupPrinter === p ? ' selected' : '';
+    printerBtns += '<button class="lookup-printer-btn' + sel + '" id="lp_' + p + '" onclick="selectLookupPrinter(\'' + p + '\')">' + p + '</button>';
+  }
+
+  const reprintReady = lookupPrinter ? ' ready' : '';
+  const boxRef = box.box_ref || barcode;
+  const model  = box.fulfillment_model || '—';
+
+  return '<div class="lookup-result-header">'
+    + '<div>'
+    + '<div class="lookup-upc">' + boxRef + '</div>'
+    + '<div class="lookup-product">' + count + ' unit' + (count !== 1 ? 's' : '') + ' · ' + model + '</div>'
+    + '</div>'
+    + '<span class="lookup-status-badge" style="background:rgba(14,165,233,0.15);color:var(--sky);border-color:rgba(14,165,233,0.4)">BOX</span>'
+    + '</div>'
+    + '<div class="lookup-section-label">Contents</div>'
+    + '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:0 12px">' + unitRows + '</div>'
+    + '<div class="lookup-section-label">Print to Printer</div>'
+    + '<div class="lookup-printer-row">' + printerBtns + '</div>'
+    + '<button class="lookup-reprint-btn' + reprintReady + '" id="lookupReprintBtn" onclick="doLookupReprint(\'' + boxRef + '\')">'
+    + '🖨 REPRINT BOX LABEL</button>'
+    + '<div style="font-size:10px;color:var(--muted);text-align:center;margin-top:6px;letter-spacing:0.04em;min-height:16px" id="lookupReprintStatus"></div>'
+    + '<button class="lookup-done-btn" onclick="clearLookupResult()">← SCAN AGAIN</button>';
+}
+
+function buildLookupUnitHTML(data, barcode) {
+  const unit  = data.unit || {};
+  const scans = data.scans || [];
+  const pair  = data.paired_unit;
+
+  const statusColorMap = {
+    inwarded:  'var(--green)',  qc_pass:  'var(--green)',
+    packaged:  'var(--sky)',    allocated:'var(--yellow)',
+    shipped:   'var(--yellow)', qc_fail:  'var(--red)',
+    in_repair: 'var(--purple)', rto_in:   'var(--orange)',
+  };
+  const sc = statusColorMap[unit.current_status] || 'var(--text2)';
+  const statusLabel = (unit.current_status || '—').toUpperCase().replace(/_/g, ' ');
+  const productLine = [unit.product, unit.model, unit.color].filter(Boolean).join(' · ');
+  const typeLabel   = unit.component_type === 'car'    ? '🚗 Car Unit'
+                    : unit.component_type === 'remote' ? '🎮 Remote'
+                    : '—';
+
+  let pairSection = '';
+  if (pair) {
+    const partnerType = unit.component_type === 'car' ? 'Remote' : 'Car';
+    const pairProduct = [pair.product, pair.model, pair.color].filter(Boolean).join(' · ');
+    pairSection = '<div class="lookup-section-label">Paired ' + partnerType + '</div>'
+      + '<div class="lookup-pair-row">'
+      + '<div class="lookup-pair-upc">' + pair.upc + '</div>'
+      + '<div class="lookup-pair-detail">' + pairProduct + ' · ' + (pair.current_status || '—') + '</div>'
+      + '</div>';
+  }
+
+  let scanRows = '';
+  for (const s of scans) {
+    const c = LOOKUP_ACT_COLORS[s.activity] || 'var(--text2)';
+    scanRows += '<div class="lookup-scan-row">'
+      + '<span class="lookup-activity-badge" style="background:' + c + '22;color:' + c + ';border-color:' + c + '44">' + s.activity + '</span>'
+      + '<div>'
+      + '<div class="lookup-scan-meta" style="color:var(--text2)">' + fmtIST(s.timestamp) + '</div>'
+      + '<div class="lookup-scan-meta">' + (s.operator_name || '—') + ' · ' + (s.line || '—') + '</div>'
+      + '</div>'
+      + '</div>';
+  }
+  if (!scanRows) {
+    scanRows = '<div style="padding:12px 0;color:var(--muted);font-size:11px;text-align:center">No scans on record</div>';
+  }
+  const scanCount = scans.length;
+  const scanLabel = 'Last ' + scanCount + ' Scan' + (scanCount !== 1 ? 's' : '');
+
+  return '<div class="lookup-result-header">'
+    + '<div>'
+    + '<div class="lookup-upc">' + (unit.upc || barcode) + '</div>'
+    + '<div class="lookup-product">' + productLine + '</div>'
+    + '</div>'
+    + '<span class="lookup-status-badge" style="color:' + sc + ';border-color:' + sc + ';background:' + sc + '11">' + statusLabel + '</span>'
+    + '</div>'
+    + '<div style="font-size:10px;color:var(--text2);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px">' + typeLabel + '</div>'
+    + pairSection
+    + '<div class="lookup-section-label">' + scanLabel + '</div>'
+    + '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:0 12px">' + scanRows + '</div>'
+    + '<button class="lookup-done-btn" onclick="clearLookupResult()">← SCAN AGAIN</button>';
+}
+
+function showLookupResult(data, barcode) {
+  const el = document.getElementById('lookupResult');
+  el.innerHTML = data.type === 'box'
+    ? buildLookupBoxHTML(data, barcode)
+    : buildLookupUnitHTML(data, barcode);
+  el.classList.add('show');
+  playSuccessBeep(); vibrate([60]);
+}
+
+function selectLookupPrinter(line) {
+  lookupPrinter = line;
+  localStorage.setItem('lot_lookup_printer', line);
+  document.querySelectorAll('.lookup-printer-btn').forEach(function(b) {
+    b.classList.toggle('selected', b.id === 'lp_' + line);
+  });
+  var btn = document.getElementById('lookupReprintBtn');
+  if (btn) btn.classList.add('ready');
+}
+
+async function doLookupReprint(boxRef) {
+  if (!lookupPrinter) { showToast('Select a printer first', 'warn'); return; }
+  var statusEl = document.getElementById('lookupReprintStatus');
+  var btn      = document.getElementById('lookupReprintBtn');
+  if (statusEl) { statusEl.textContent = '🖨 Queuing...'; statusEl.style.color = 'var(--text2)'; }
+  if (btn)      { btn.disabled = true; }
+
+  var res = await workerPost('postLookupReprint', { box_ref: boxRef, line: lookupPrinter });
+
+  if (res.ok) {
+    if (statusEl) { statusEl.textContent = '✓ Queued to ' + lookupPrinter + ' — printing shortly'; statusEl.style.color = 'var(--green)'; }
+    showToast('✓ Queued to ' + lookupPrinter, 'ok');
+  } else {
+    if (statusEl) { statusEl.textContent = '⚠ Print failed — try again'; statusEl.style.color = 'var(--orange)'; }
+    if (btn)      { btn.disabled = false; }
+    showToast('⚠ Reprint failed', 'warn');
+  }
+}
+
+function clearLookupResult() {
+  var el = document.getElementById('lookupResult');
+  el.classList.remove('show');
+  el.innerHTML = '';
+  document.getElementById('scanHint').textContent = STATION_DEFS.LOOKUP.hint;
+  lookupInFlight = false;
+  lastBarcode = '';
+  lastScanTs  = 0;
+}
+
+// ══════════════════════════════════════════════════════
 // CAMERA
 // ══════════════════════════════════════════════════════
 function initCamera() {
@@ -2230,6 +2548,13 @@ function onScan(raw) {
 
   const barcode = raw.replace(/\s+/g, '').trim();
   const act     = cfg.activity || 'INW';
+
+  // LOOKUP — ad hoc unit/box lookup, no production writes
+  if (cfg.stationCode === 'LOOKUP') {
+    if (document.getElementById('lookupResult').classList.contains('show')) return;
+    doLookupScan(barcode);
+    return;
+  }
 
   // WKS — system-inferred, no manual modal
   if (act === 'WKS') {
