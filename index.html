@@ -2369,6 +2369,34 @@ function buildLookupUnitHTML(data, barcode) {
   const scanCount = scans.length;
   const scanLabel = 'Last ' + scanCount + ' Scan' + (scanCount !== 1 ? 's' : '');
 
+  // Package label reprint section — shown when a pkg_scan exists for this unit
+  let pkgReprintSection = '';
+  if (data.pkg_scan) {
+    const ps = data.pkg_scan;
+    const printers = ['L1', 'L2', 'L3', 'DISPATCH'];
+    let printerBtns = '';
+    for (const p of printers) {
+      const sel = lookupPrinter === p ? ' selected' : '';
+      printerBtns += '<button class="lookup-printer-btn' + sel + '" id="lp_' + p + '" onclick="selectLookupPrinter(\'' + p + '\')">' + p + '</button>';
+    }
+    const reprintReady = lookupPrinter ? ' ready' : '';
+    const safeBl  = (ps.batch_label || '').replace(/'/g, "\\'");
+    const safeProd = (unit.product || '').replace(/'/g, "\\'");
+    const safeMod  = (unit.model   || '').replace(/'/g, "\\'");
+    const safeCol  = (unit.color   || '').replace(/'/g, "\\'");
+    const safeCh   = (ps.channel   || '').replace(/'/g, "\\'");
+    pkgReprintSection = '<div class="lookup-section-label">Package Label</div>'
+      + '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">'
+      + '<div style="color:var(--yellow);font-family:\'JetBrains Mono\',monospace;font-size:13px;font-weight:700">' + (ps.batch_label || '—') + '</div>'
+      + '<div style="color:var(--text2);font-size:10px;margin-top:2px">' + (ps.channel || '—') + '</div>'
+      + '</div>'
+      + '<div class="lookup-printer-row">' + printerBtns + '</div>'
+      + '<button class="lookup-reprint-btn' + reprintReady + '" id="lookupBatchReprintBtn"'
+      + ' onclick="doLookupBatchReprint(\'' + safeBl + '\',\'' + safeProd + '\',\'' + safeMod + '\',\'' + safeCol + '\',\'' + safeCh + '\')">'
+      + '🖨 REPRINT PACKAGE LABEL</button>'
+      + '<div style="font-size:10px;color:var(--muted);text-align:center;margin-top:6px;letter-spacing:0.04em;min-height:16px" id="lookupBatchReprintStatus"></div>';
+  }
+
   // Box reprint section — shown when unit is packed in a dispatch box
   let boxReprintSection = '';
   if (data.box) {
@@ -2406,6 +2434,7 @@ function buildLookupUnitHTML(data, barcode) {
     + '</div>'
     + '<div style="font-size:10px;color:var(--text2);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px">' + typeLabel + '</div>'
     + pairSection
+    + pkgReprintSection
     + boxReprintSection
     + '<div class="lookup-section-label">' + scanLabel + '</div>'
     + '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:0 12px">' + scanRows + '</div>'
@@ -2429,6 +2458,32 @@ function selectLookupPrinter(line) {
   });
   var btn = document.getElementById('lookupReprintBtn');
   if (btn) btn.classList.add('ready');
+}
+
+async function doLookupBatchReprint(batchLabel, product, model, color, channel) {
+  if (!lookupPrinter) { showToast('Select a printer first', 'warn'); return; }
+  var statusEl = document.getElementById('lookupBatchReprintStatus');
+  var btn      = document.getElementById('lookupBatchReprintBtn');
+  if (statusEl) { statusEl.textContent = '🖨 Queuing...'; statusEl.style.color = 'var(--text2)'; }
+  if (btn)      { btn.disabled = true; }
+
+  var res = await workerPost('postReprintJob', {
+    batch_label: batchLabel,
+    product:     product  || '',
+    model:       model    || '',
+    color:       color    || '',
+    channel:     channel  || '',
+    line:        lookupPrinter,
+  });
+
+  if (res.ok) {
+    if (statusEl) { statusEl.textContent = '✓ Queued to ' + lookupPrinter + ' — printing shortly'; statusEl.style.color = 'var(--green)'; }
+    showToast('✓ Queued to ' + lookupPrinter, 'ok');
+  } else {
+    if (statusEl) { statusEl.textContent = '⚠ Print failed — try again'; statusEl.style.color = 'var(--orange)'; }
+    if (btn)      { btn.disabled = false; }
+    showToast('⚠ Reprint failed', 'warn');
+  }
 }
 
 async function doLookupReprint(boxRef) {
