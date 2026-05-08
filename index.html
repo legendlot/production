@@ -2369,6 +2369,34 @@ function buildLookupUnitHTML(data, barcode) {
   const scanCount = scans.length;
   const scanLabel = 'Last ' + scanCount + ' Scan' + (scanCount !== 1 ? 's' : '');
 
+  // Box reprint section — shown when unit is packed in a dispatch box
+  let boxReprintSection = '';
+  if (data.box) {
+    const bRef = data.box.box_ref || '';
+    const bCount = data.box.unit_count || 0;
+    const bModel = data.box.fulfillment_model || '—';
+    const printers = ['L1', 'L2', 'L3', 'DISPATCH'];
+    let printerBtns = '';
+    for (const p of printers) {
+      const sel = lookupPrinter === p ? ' selected' : '';
+      printerBtns += '<button class="lookup-printer-btn' + sel + '" id="lp_' + p + '" onclick="selectLookupPrinter(\'' + p + '\')">' + p + '</button>';
+    }
+    const reprintReady = lookupPrinter ? ' ready' : '';
+    boxReprintSection = '<div class="lookup-section-label">Packed In Box</div>'
+      + '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:10px 12px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center">'
+      + '<div>'
+      + '<div style="color:var(--sky);font-family:\'JetBrains Mono\',monospace;font-size:12px;font-weight:700">' + bRef + '</div>'
+      + '<div style="color:var(--text2);font-size:10px;margin-top:2px">' + bCount + ' units · ' + bModel + '</div>'
+      + '</div>'
+      + '<span style="background:rgba(14,165,233,0.15);color:var(--sky);border:1px solid rgba(14,165,233,0.4);border-radius:4px;font-size:9px;font-weight:700;letter-spacing:0.06em;padding:3px 7px">BOX</span>'
+      + '</div>'
+      + '<div class="lookup-section-label">Reprint Box Label</div>'
+      + '<div class="lookup-printer-row">' + printerBtns + '</div>'
+      + '<button class="lookup-reprint-btn' + reprintReady + '" id="lookupReprintBtn" onclick="doLookupReprint(\'' + bRef + '\')">'
+      + '🖨 REPRINT BOX LABEL</button>'
+      + '<div style="font-size:10px;color:var(--muted);text-align:center;margin-top:6px;letter-spacing:0.04em;min-height:16px" id="lookupReprintStatus"></div>';
+  }
+
   return '<div class="lookup-result-header">'
     + '<div>'
     + '<div class="lookup-upc">' + (unit.upc || barcode) + '</div>'
@@ -2378,6 +2406,7 @@ function buildLookupUnitHTML(data, barcode) {
     + '</div>'
     + '<div style="font-size:10px;color:var(--text2);letter-spacing:0.06em;text-transform:uppercase;margin-bottom:8px">' + typeLabel + '</div>'
     + pairSection
+    + boxReprintSection
     + '<div class="lookup-section-label">' + scanLabel + '</div>'
     + '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:0 12px">' + scanRows + '</div>'
     + '<button class="lookup-done-btn" onclick="clearLookupResult()">← SCAN AGAIN</button>';
