@@ -1,34 +1,53 @@
 # CLAUDE.md — LOT Scanner App
+> Last updated: 2026-05-10
 
-## Project Context
-This is the Legend of Toys (LOT) operations system, built by the co-founder Afshaan. The system is built and maintained using the following workflow:
+## What this is
 
-- **Claude Chat** acts as the orchestrator and designer — it handles strategy, system design, and produces specific change instructions for each component.
-- **Four Claude Code agents** run in separate terminal tabs, each responsible for edits to files in their own folder/repo. This agent is one of those four.
-- **Database edits** are handled directly by the co-founder based on instructions from Claude Chat — there is no separate agent for database interaction.
-- Development happens across two laptops (office and home) with a similar setup on both.
+Factory floor scanner PWA for Legend of Toys.
+Used on Android devices at scan stations across the production line.
 
-The build comprises three separate but connected systems:
+Repo: `legendlot/production`
+Live URL: `scanner.legendoftoys.com`
+Deploy: GitHub Pages, auto-deploys on push to `main`.
 
-1. **Store system** (`legendlot/Stores`) — handles everything to do with store operations for Legend of Toys, including raw materials, procurement, POs, GRN receiving, inventory management, and issuing raw material to production.
-2. **Production system** — contains two sub-systems:
-   - **Scanner app** (`legendlot/production`) — used by people on the factory floor to scan inventory. **This agent is responsible for this system.**
-   - **Dashboard** (`legendlot/dashboard`) — used for reporting and general admin of the production system.
-3. **Cloudflare Worker** (`legendlot/Cloudfare`) — the single backend API layer that all three frontend systems route through to communicate with Supabase.
+## The file
+
+Single file: `index.html`. This is the only file you edit. Nothing else.
+
+## Stations
+
+INW, QC_PASS, QC_FAIL, WKS, PKG, PKG_OUT, RTE/RTR/RTD, LOOKUP (read-only utility)
+
+## Worker dependency
+
+Scanner talks to `lotopsproxy` (`01_worker/worker.js`).
+Scanner actions are listed in the `SCANNER_ACTIONS` array in the worker.
+Scanner sends no JWT — auth is via device_code only.
+
+Critical: any worker action used by scanner must have its handler inside the
+SCANNER_ACTIONS if-chain in worker.js, NOT inside the JWT-authenticated switch block.
+Placing a handler in the wrong block causes 401 on every scanner request.
 
 ## Session start
-- Always pull from git remote and sync the local folder at the start of every new session.
-- Remote is the source of truth.
 
-## Editing rules
-- Only edit `index.html` unless there are explicit instructions for editing other files.
-- If instructions reference edits to other files, highlight them to the user and ignore those edits.
+```
+git pull origin main
+```
+Remote is source of truth. Always pull before doing anything.
 
-## Git workflow
-- Always commit to git after making changes — do this automatically.
-- Always push to remote to keep local and remote in sync.
-- Remote is the source of truth.
+## Workflow
 
-## Change discipline
+1. Pull from remote.
+2. Read the relevant section of `index.html` before editing.
+3. Make changes with minimal disruption to surrounding code.
+4. `git add index.html && git commit -m "description" && git push origin main`
+5. GitHub Pages auto-deploys. Confirm live within ~60s.
+
+## Rules
+
+- Only edit `index.html`. If instructions reference other files, flag and skip.
+- Commit and push automatically after every confirmed change.
 - Do not make unnecessary changes.
-- Feel free to suggest enhancements or flag conflicts you identify, but do not apply them without approval.
+- Suggest enhancements or flag conflicts, but do not apply without approval.
+- Worker changes needed to support scanner features are out of scope here —
+  flag them and they will be handled in the 01_worker repo.
