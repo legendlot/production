@@ -1179,7 +1179,7 @@ async function loadMasters() {
   } catch(e) {}
 
   try {
-    const ops = await sbGet('operators', 'is_active=eq.true&order=name.asc');
+    const ops = await sbGet('operators', 'status=eq.active&order=name.asc');
     operators = ops;
     buildManualSelect();
   } catch(e) {}
