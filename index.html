@@ -913,11 +913,11 @@
   <div id="attendancePanel" style="display:none;margin-bottom:12px">
     <!-- State A: idle -->
     <div id="att_idle">
-      <input id="att_input" type="text" autocomplete="off" autocapitalize="characters"
-        placeholder="Scan or enter Employee ID"
+      <input id="att_input" type="text" autocomplete="off" inputmode="numeric"
+        placeholder="Employee number (e.g. 1012)"
         style="width:100%;box-sizing:border-box;padding:14px 12px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:15px;text-align:center;letter-spacing:.05em">
       <div style="font-size:11px;color:var(--text3);font-family:var(--mono);text-align:center;padding:10px 0">
-        Type or scan your LOT-FACT-XXXX ID. Press Enter to confirm.
+        4 digits auto-submit. Press Enter for legacy IDs.
       </div>
     </div>
 
@@ -1657,11 +1657,18 @@ function setupLegacyRegStation() {
 // (LOT-FACT-XXXX or legacy G00XXX); server auto-detects in vs out via
 // optimistic clockIn → fallback clockOut if already clocked in.
 
-const ATT_EMP_PATTERN = /^(LOT-FACT-\d{4}|G0+\d+)$/i;
 let attState   = 'idle';     // 'idle' | 'loading' | 'confirm' | 'success' | 'error'
 let attOpData  = null;        // operator {id, name, department, status, employee_id} once confirmed
 let attResetTimer = null;
 let _attBound = false;
+
+// Normalize raw input → full employee_id. 4-digit numeric prepends LOT-FACT-;
+// anything else passes through (covers full LOT-FACT-XXXX and legacy G00XXX).
+function normalizeEmployeeId(raw) {
+  const v = (raw || '').trim().toUpperCase();
+  if (/^\d{4}$/.test(v)) return 'LOT-FACT-' + v;
+  return v;
+}
 
 function setupAttendanceStation() {
   setAttState('idle');
@@ -1671,9 +1678,9 @@ function setupAttendanceStation() {
       if (e.key === 'Enter') { e.preventDefault(); submitAttendanceLookup(); }
     });
     input.addEventListener('input', () => {
-      // Auto-submit if a hardware QR scanner fired a full employee_id string at once
-      const v = input.value.trim().toUpperCase();
-      if (ATT_EMP_PATTERN.test(v)) submitAttendanceLookup();
+      // Primary path: auto-submit when the input is exactly 4 digits.
+      const v = input.value.trim();
+      if (/^\d{4}$/.test(v)) submitAttendanceLookup();
     });
     _attBound = true;
   }
@@ -1701,18 +1708,15 @@ function resetAttendance() {
 async function submitAttendanceLookup() {
   if (attState !== 'idle') return;
   const input = document.getElementById('att_input');
-  const employeeId = input.value.trim().toUpperCase();
+  const employeeId = normalizeEmployeeId(input.value);
   if (!employeeId) return;
-  if (!ATT_EMP_PATTERN.test(employeeId)) {
-    return showAttError('Invalid Employee ID format');
-  }
   setAttState('loading');
   const r = await workerPost('getOperatorByCode', { employee_id: employeeId, device_id: cfg.deviceCode || 'ATTENDANCE' });
   if (!r || r.ok === false) {
     return showAttError(r?.error || 'Operator not found');
   }
-  // Worker returns { ok: true, data: { id, name, department, status } }
-  const op = r.data || r;
+  // Worker (post-fix) returns { ok: true, data: { id, name, department, status } }
+  const op = r.data;
   if (!op || !op.id) return showAttError('Operator not found');
   attOpData = { ...op, employee_id: employeeId };
   document.getElementById('att_opName').textContent = op.name || '—';
@@ -1732,18 +1736,18 @@ async function confirmAttendance() {
   // Optimistic clockIn; fall back to clockOut if already clocked in.
   let r = await workerPost('clockIn', payload);
   let action = 'Clocked In';
-  let timeIst = r?.clock_in_ist;
+  let timeIst = r?.data?.clock_in_ist;
   if (r && r.ok === false && /already clocked in/i.test(r.error || '')) {
     r = await workerPost('clockOut', payload);
     action = 'Clocked Out';
-    timeIst = r?.clock_out_ist;
+    timeIst = r?.data?.clock_out_ist;
   }
   if (!r || r.ok === false) {
     return showAttError(r?.error || 'Attendance failed');
   }
 
   document.getElementById('att_successAction').textContent = action.toUpperCase();
-  document.getElementById('att_successName').textContent   = r.operator_name || attOpData.name || '';
+  document.getElementById('att_successName').textContent   = r.data?.operator_name || attOpData.name || '';
   document.getElementById('att_successTime').textContent   = timeIst ? `${timeIst} IST` : '';
   setAttState('success');
   attResetTimer = setTimeout(() => resetAttendance(), 2500);
