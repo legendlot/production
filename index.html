@@ -763,6 +763,7 @@
       <div class="seg-group" id="s_utilityStationGroup">
         <div class="seg-row">
           <div class="seg-btn" data-val="Lookup" data-code="LOOKUP" data-shared="1" onclick="pickStation(this)">Lookup</div>
+          <div class="seg-btn" data-val="Attendance" data-code="ATTENDANCE" data-shared="1" onclick="pickStation(this)">Attendance</div>
         </div>
       </div>
     </div>
@@ -905,6 +906,59 @@
     </div>
     <div id="legacyModeHint" style="font-size:11px;color:var(--text3);font-family:var(--mono);text-align:center;padding:6px 0">
       SELECT MODE ABOVE
+    </div>
+  </div>
+
+  <!-- ── ATTENDANCE panel (Manpower Step 4) ── -->
+  <div id="attendancePanel" style="display:none;margin-bottom:12px">
+    <!-- State A: idle -->
+    <div id="att_idle">
+      <input id="att_input" type="text" autocomplete="off" autocapitalize="characters"
+        placeholder="Scan or enter Employee ID"
+        style="width:100%;box-sizing:border-box;padding:14px 12px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:15px;text-align:center;letter-spacing:.05em">
+      <div style="font-size:11px;color:var(--text3);font-family:var(--mono);text-align:center;padding:10px 0">
+        Type or scan your LOT-FACT-XXXX ID. Press Enter to confirm.
+      </div>
+    </div>
+
+    <!-- State B: loading -->
+    <div id="att_loading" style="display:none;padding:24px 0;text-align:center">
+      <div style="font-family:var(--mono);font-size:13px;color:var(--text2)">⏳ Looking up operator…</div>
+    </div>
+
+    <!-- State C: confirm -->
+    <div id="att_confirm" style="display:none">
+      <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:8px;padding:20px 16px;text-align:center;margin-bottom:12px">
+        <div style="font-size:28px;margin-bottom:8px">👷</div>
+        <div id="att_opName" style="font-family:var(--mono);font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px"></div>
+        <div id="att_opCode" style="font-family:var(--mono);font-size:12px;color:var(--text3);margin-bottom:14px;letter-spacing:.05em"></div>
+        <div id="att_actionLabel" style="font-family:var(--head);font-size:14px;letter-spacing:.15em;color:var(--yellow);padding:8px 0">⏱ RECORD ATTENDANCE</div>
+        <div id="att_actionSub" style="font-family:var(--mono);font-size:11px;color:var(--text3)"></div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button id="att_confirmBtn" onclick="confirmAttendance()"
+          style="flex:2;padding:14px;border-radius:8px;border:none;background:var(--yellow);color:#000;font-family:var(--head);font-size:13px;font-weight:700;letter-spacing:.15em;cursor:pointer">
+          CONFIRM
+        </button>
+        <button onclick="resetAttendance()"
+          style="flex:1;padding:14px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:12px;cursor:pointer">
+          Cancel
+        </button>
+      </div>
+    </div>
+
+    <!-- State D: success -->
+    <div id="att_success" style="display:none;padding:28px 16px;text-align:center;background:var(--bg3);border:1px solid #22c55e;border-radius:8px">
+      <div style="font-size:36px;color:#22c55e;margin-bottom:8px">✓</div>
+      <div id="att_successAction" style="font-family:var(--head);font-size:15px;letter-spacing:.15em;color:#22c55e;margin-bottom:6px"></div>
+      <div id="att_successName" style="font-family:var(--mono);font-size:13px;color:var(--text);margin-bottom:4px"></div>
+      <div id="att_successTime" style="font-family:var(--mono);font-size:12px;color:var(--text3)"></div>
+    </div>
+
+    <!-- Error -->
+    <div id="att_error" style="display:none;padding:20px 16px;text-align:center;background:var(--bg3);border:1px solid var(--red);border-radius:8px">
+      <div style="font-size:24px;color:var(--red);margin-bottom:8px">✕</div>
+      <div id="att_errorMsg" style="font-family:var(--mono);font-size:13px;color:var(--red)"></div>
     </div>
   </div>
 
@@ -1416,6 +1470,7 @@ const STATION_DEFS = {
   LEGACY_REG: { label: 'Legacy Reg',      activity: 'LEGACY_REG', hint: 'SELECT MODE THEN SCAN' },
   REPAIR:     { label: 'Repair',          activity: 'REPAIR',     hint: 'SELECT MODE ABOVE' },
   LOOKUP:     { label: 'Lookup',          activity: 'LOOKUP',     hint: 'SCAN ANY UPC — LOT, BOX, OR REMOTE' },
+  ATTENDANCE: { label: 'Attendance',      activity: 'ATTENDANCE', hint: 'SCAN OR TYPE EMPLOYEE ID' },
 };
 
 async function saveSetup() {
@@ -1434,8 +1489,8 @@ async function saveSetup() {
   statusEl.textContent = 'Looking up device...';
   statusEl.style.color = 'var(--text2)';
 
-  // LOOKUP is a deviceless ad hoc mode — no device record required
-  if (stationCode === 'LOOKUP') {
+  // LOOKUP and ATTENDANCE are deviceless ad hoc modes — no device record required
+  if (stationCode === 'LOOKUP' || stationCode === 'ATTENDANCE') {
     const camElLookup = document.querySelector('.seg-btn.on[data-val="environment"]') ||
                         document.querySelector('.seg-btn.on[data-val="user"]');
     cfg = {
@@ -1446,7 +1501,7 @@ async function saveSetup() {
       line:         'SHARED',
       deviceCode:   null,
       deviceId:     null,
-      activity:     'LOOKUP',
+      activity:     stationCode,
       shift:        currentShift,
       camFacing:    camElLookup ? camElLookup.dataset.val : 'environment',
       torchEnabled: document.getElementById('s_torch').checked,
@@ -1569,6 +1624,13 @@ function bootScanner() {
   if (cfg.stationCode === 'LEGACY_REG') { setupLegacyRegStation();  }
   if (cfg.stationCode === 'REPAIR')     { setupRepairStation();     }
 
+  // ATTENDANCE — hide camera/shift bar; show dedicated panel with typed input
+  const isAttendance = cfg.stationCode === 'ATTENDANCE';
+  document.getElementById('attendancePanel').style.display = isAttendance ? '' : 'none';
+  document.querySelector('.camera-wrap').style.display     = isAttendance ? 'none' : '';
+  document.querySelector('.shift-bar').style.display       = isAttendance ? 'none' : '';
+  if (isAttendance) setupAttendanceStation();
+
   // Tally — show at PKG_OUT
   document.getElementById('tallyPanel').classList.toggle('show', cfg.activity === 'PKG_OUT');
 
@@ -1588,6 +1650,109 @@ function setupLegacyRegStation() {
   // Restore persisted mode
   const saved = localStorage.getItem('legacyRegMode');
   if (saved) setLegacyMode(saved);
+}
+
+// ── ATTENDANCE station (Manpower Step 4) ──────────────────────────────────
+// Clock-in / clock-out terminal. Operators scan or type their employee_id
+// (LOT-FACT-XXXX or legacy G00XXX); server auto-detects in vs out via
+// optimistic clockIn → fallback clockOut if already clocked in.
+
+const ATT_EMP_PATTERN = /^(LOT-FACT-\d{4}|G0+\d+)$/i;
+let attState   = 'idle';     // 'idle' | 'loading' | 'confirm' | 'success' | 'error'
+let attOpData  = null;        // operator {id, name, department, status, employee_id} once confirmed
+let attResetTimer = null;
+let _attBound = false;
+
+function setupAttendanceStation() {
+  setAttState('idle');
+  const input = document.getElementById('att_input');
+  if (!_attBound) {
+    input.addEventListener('keydown', e => {
+      if (e.key === 'Enter') { e.preventDefault(); submitAttendanceLookup(); }
+    });
+    input.addEventListener('input', () => {
+      // Auto-submit if a hardware QR scanner fired a full employee_id string at once
+      const v = input.value.trim().toUpperCase();
+      if (ATT_EMP_PATTERN.test(v)) submitAttendanceLookup();
+    });
+    _attBound = true;
+  }
+  input.value = '';
+  setTimeout(() => input.focus(), 50);
+}
+
+function setAttState(state) {
+  attState = state;
+  ['idle','loading','confirm','success','error'].forEach(s => {
+    const el = document.getElementById('att_' + s);
+    if (el) el.style.display = (s === state) ? '' : 'none';
+  });
+  if (attResetTimer) { clearTimeout(attResetTimer); attResetTimer = null; }
+}
+
+function resetAttendance() {
+  attOpData = null;
+  setAttState('idle');
+  const input = document.getElementById('att_input');
+  input.value = '';
+  setTimeout(() => input.focus(), 50);
+}
+
+async function submitAttendanceLookup() {
+  if (attState !== 'idle') return;
+  const input = document.getElementById('att_input');
+  const employeeId = input.value.trim().toUpperCase();
+  if (!employeeId) return;
+  if (!ATT_EMP_PATTERN.test(employeeId)) {
+    return showAttError('Invalid Employee ID format');
+  }
+  setAttState('loading');
+  const r = await workerPost('getOperatorByCode', { employee_id: employeeId, device_id: cfg.deviceCode || 'ATTENDANCE' });
+  if (!r || r.ok === false) {
+    return showAttError(r?.error || 'Operator not found');
+  }
+  // Worker returns { ok: true, data: { id, name, department, status } }
+  const op = r.data || r;
+  if (!op || !op.id) return showAttError('Operator not found');
+  attOpData = { ...op, employee_id: employeeId };
+  document.getElementById('att_opName').textContent = op.name || '—';
+  document.getElementById('att_opCode').textContent = employeeId;
+  document.getElementById('att_actionLabel').textContent = '⏱ RECORD ATTENDANCE';
+  document.getElementById('att_actionSub').textContent = op.department ? op.department.toUpperCase() : '';
+  setAttState('confirm');
+  // 15-second auto-reset on confirm screen
+  attResetTimer = setTimeout(() => resetAttendance(), 15000);
+}
+
+async function confirmAttendance() {
+  if (attState !== 'confirm' || !attOpData) return;
+  setAttState('loading');
+  const payload = { employee_id: attOpData.employee_id, device_id: cfg.deviceCode || 'ATTENDANCE' };
+
+  // Optimistic clockIn; fall back to clockOut if already clocked in.
+  let r = await workerPost('clockIn', payload);
+  let action = 'Clocked In';
+  let timeIst = r?.clock_in_ist;
+  if (r && r.ok === false && /already clocked in/i.test(r.error || '')) {
+    r = await workerPost('clockOut', payload);
+    action = 'Clocked Out';
+    timeIst = r?.clock_out_ist;
+  }
+  if (!r || r.ok === false) {
+    return showAttError(r?.error || 'Attendance failed');
+  }
+
+  document.getElementById('att_successAction').textContent = action.toUpperCase();
+  document.getElementById('att_successName').textContent   = r.operator_name || attOpData.name || '';
+  document.getElementById('att_successTime').textContent   = timeIst ? `${timeIst} IST` : '';
+  setAttState('success');
+  attResetTimer = setTimeout(() => resetAttendance(), 2500);
+}
+
+function showAttError(msg) {
+  document.getElementById('att_errorMsg').textContent = msg || 'Something went wrong';
+  setAttState('error');
+  attResetTimer = setTimeout(() => resetAttendance(), 3000);
 }
 
 function setLegacyMode(mode) {
