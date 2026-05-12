@@ -1179,7 +1179,9 @@ async function loadMasters() {
   } catch(e) {}
 
   try {
-    const ops = await sbGet('operators', 'status=eq.active&order=name.asc');
+    // HOTFIX: boot fetch points at operators_v0 (Scanner identity table with
+    // qr_code/role/line intact) until Step 4 rewires login to use employee_id flow.
+    const ops = await sbGet('operators_v0', 'is_active=eq.true&order=name.asc');
     operators = ops;
     buildManualSelect();
   } catch(e) {}
