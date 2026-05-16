@@ -782,12 +782,23 @@
       </div>
     </div>
 
+    <div class="sec-div">External Runs</div>
+    <div class="field">
+      <div class="seg-group" id="s_extStationGroup">
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Ext Inwarding" data-code="EXT_INW" data-shared="0" onclick="pickStation(this)">Ext Inwarding</div>
+        </div>
+      </div>
+    </div>
+
     <div class="field" id="s_lineField">
       <div class="sec-div">Line</div>
       <div class="seg-row">
         <div class="seg-btn" data-val="L1" onclick="pickLine(this)">L1</div>
         <div class="seg-btn" data-val="L2" onclick="pickLine(this)">L2</div>
         <div class="seg-btn" data-val="L3" onclick="pickLine(this)">L3</div>
+        <div class="seg-btn" data-val="L4" onclick="pickLine(this)">L4</div>
+        <div class="seg-btn" data-val="L5" onclick="pickLine(this)">L5</div>
       </div>
     </div>
 
@@ -1388,7 +1399,7 @@ function goToSetup() {
   document.getElementById('setupOpRole').textContent  = currentOperator.role;
 
   if (cfg.stationLabel) {
-    document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn').forEach(b => {
+    document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn, #s_extStationGroup .seg-btn').forEach(b => {
       b.classList.toggle('on', b.dataset.val === cfg.stationLabel);
     });
     const savedBtn = document.querySelector(`.seg-btn[data-val="${cfg.stationLabel}"]`);
@@ -1422,7 +1433,7 @@ function goToSetup() {
 }
 
 function pickStation(el) {
-  const allBtns = document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn');
+  const allBtns = document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn, #s_extStationGroup .seg-btn');
   // Toggle off if already selected
   if (el.classList.contains('on')) {
     el.classList.remove('on');
@@ -1471,10 +1482,11 @@ const STATION_DEFS = {
   REPAIR:     { label: 'Repair',          activity: 'REPAIR',     hint: 'SELECT MODE ABOVE' },
   LOOKUP:     { label: 'Lookup',          activity: 'LOOKUP',     hint: 'SCAN ANY UPC — LOT, BOX, OR REMOTE' },
   ATTENDANCE: { label: 'Attendance',      activity: 'ATTENDANCE', hint: 'SCAN OR TYPE EMPLOYEE ID' },
+  EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
 };
 
 async function saveSetup() {
-  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on, #s_legacyStationGroup .seg-btn.on, #s_utilityStationGroup .seg-btn.on');
+  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on, #s_legacyStationGroup .seg-btn.on, #s_utilityStationGroup .seg-btn.on, #s_extStationGroup .seg-btn.on');
   if (!stationEl) { showToast('Select a station', 'err'); return; }
 
   const stationCode = stationEl.dataset.code;
@@ -3814,27 +3826,32 @@ async function submitDefects() {
 // SCAN SUBMISSION (worker)
 // ══════════════════════════════════════════════════════
 async function submitScanWorker(barcode, act) {
+  // FEAT-016 Phase 2 — EXT_INW routes to its own SCANNER_ACTION (postExtInw),
+  // not the generic postScan. Payload mirrors postScan minus the activity tag
+  // (the worker action name itself implies the activity).
+  const isExtInw      = act === 'EXT_INW';
+  const workerAction  = isExtInw ? 'postExtInw' : 'postScan';
   const payload = {
     upc:          barcode,
     device_code:  cfg.deviceCode,
     operator_id:  operatorUUID || currentOperator?.id,
-    activity:     act,
     line:         cfg.line,
   };
+  if (!isExtInw) payload.activity = act;
 
   if (!isOnline) {
-    enqueue('postScan', payload);
+    enqueue(workerAction, payload);
     showToast('Queued — offline', 'warn');
     return null;
   }
 
-  const result = await workerPost('postScan', payload);
+  const result = await workerPost(workerAction, payload);
   if (!result.ok) {
     if (result.error && (result.error.includes('already been') || result.error.includes('Duplicate'))) {
       showReject('DUPLICATE', result.error);
       playErrBeep(); vibrate([100,50,100]);
     } else if (result.error && result.error.includes('Network error')) {
-      enqueue('postScan', payload);
+      enqueue(workerAction, payload);
       showToast('Queued — no connection', 'warn');
     } else {
       showReject('SCAN FAILED', result.error || 'Unknown error');
