@@ -108,6 +108,13 @@
     }
     .op-item:active{background:var(--surface)}
     .op-item-role{font-size:10px;color:var(--muted)}
+    /* FIX_SUPERVISOR_NAME_NULL: in supervisor sign-in mode, top-align the panel and
+       let the name list fill remaining screen height with its own scroll, so the
+       CONFIRM PIN button never scrolls away. */
+    #loginScreen.sup-mode{justify-content:flex-start}
+    #loginScreen.sup-mode .login-wrap{flex:1;min-height:0;width:100%}
+    #loginScreen.sup-mode #supPinPanel.show{display:flex;flex-direction:column;flex:1;min-height:0;max-height:none;overflow:visible}
+    #loginScreen.sup-mode #supList{flex:1;min-height:0;max-height:none;overflow-y:auto}
 
     /* ══════════════════════════════════
        SETUP SCREEN
@@ -700,7 +707,7 @@
              style="width:100%;padding:12px;font-size:18px;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);text-align:center;letter-spacing:0.3em;box-sizing:border-box">
       <button onclick="submitSupervisorPin()"
               style="width:100%;margin-top:8px;padding:12px;background:var(--yellow);color:#000;border:none;border-radius:6px;font-weight:700;font-size:13px;font-family:var(--cond);letter-spacing:0.08em;cursor:pointer">CONFIRM PIN</button>
-      <div id="supList" style="display:none;margin-top:12px;max-height:200px;overflow-y:auto"></div>
+      <div id="supList" style="display:none;margin-top:12px;overflow-y:auto"></div>
     </div>
   </div>
 </div>
@@ -1305,6 +1312,7 @@ function showSupervisorSignIn(opts) {
 
   // Make loginScreen visible if it isn't already, hide others
   document.getElementById('loginScreen').classList.add('active');
+  document.getElementById('loginScreen').classList.add('sup-mode');
   const setupEl   = document.getElementById('setupScreen');
   const scannerEl = document.getElementById('scannerScreen');
   if (setupEl)   setupEl.classList.remove('active');
@@ -1347,6 +1355,7 @@ function showOperatorSignIn() {
   supervisorList      = [];
 
   document.getElementById('loginScreen').classList.add('active');
+  document.getElementById('loginScreen').classList.remove('sup-mode');
   const setupEl   = document.getElementById('setupScreen');
   const scannerEl = document.getElementById('scannerScreen');
   if (setupEl)   setupEl.classList.remove('active');
@@ -1401,11 +1410,16 @@ async function submitSupervisorPin() {
 // FEAT-022 — supervisor selected from PIN-path list → proceed to setup.
 function chooseSupervisorFromPin(id, name) {
   pendingSupervisorId = id;
+  // FIX_SUPERVISOR_NAME_NULL: goToSetup reads currentOperator.name/.role — populate
+  // from the supervisor list so it doesn't crash on null. Mirrors loginOperator().
+  const sup = (supervisorList || []).find(s => s.id === id) || { id, name, role: 'supervisor' };
+  currentOperator = sup;
+  if (!operatorUUID) operatorUUID = sup.id;
   if (loginScanner) {
     try { loginScanner.stop(); } catch(e) {}
     loginScanner = null;
   }
-  document.getElementById('loginStatus').textContent = `Supervisor: ${name}`;
+  document.getElementById('loginStatus').textContent = `Supervisor: ${sup.name || name}`;
   document.getElementById('loginStatus').className   = 'login-status ok';
   vibrate([50, 30, 50]);
   playSuccessBeep();
