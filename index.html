@@ -791,6 +791,15 @@
       </div>
     </div>
 
+    <div class="sec-div">Store Stations</div>
+    <div class="field">
+      <div class="seg-group" id="s_storeStationGroup">
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Store Issue" data-code="STORE_ISSUE" data-shared="1" onclick="pickStation(this)">Store Issue</div>
+        </div>
+      </div>
+    </div>
+
     <div class="field" id="s_lineField">
       <div class="sec-div">Line</div>
       <div class="seg-row">
@@ -1399,7 +1408,7 @@ function goToSetup() {
   document.getElementById('setupOpRole').textContent  = currentOperator.role;
 
   if (cfg.stationLabel) {
-    document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn, #s_extStationGroup .seg-btn').forEach(b => {
+    document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn, #s_extStationGroup .seg-btn, #s_storeStationGroup .seg-btn').forEach(b => {
       b.classList.toggle('on', b.dataset.val === cfg.stationLabel);
     });
     const savedBtn = document.querySelector(`.seg-btn[data-val="${cfg.stationLabel}"]`);
@@ -1433,7 +1442,7 @@ function goToSetup() {
 }
 
 function pickStation(el) {
-  const allBtns = document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn, #s_extStationGroup .seg-btn');
+  const allBtns = document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn, #s_extStationGroup .seg-btn, #s_storeStationGroup .seg-btn');
   // Toggle off if already selected
   if (el.classList.contains('on')) {
     el.classList.remove('on');
@@ -1483,10 +1492,11 @@ const STATION_DEFS = {
   LOOKUP:     { label: 'Lookup',          activity: 'LOOKUP',     hint: 'SCAN ANY UPC — LOT, BOX, OR REMOTE' },
   ATTENDANCE: { label: 'Attendance',      activity: 'ATTENDANCE', hint: 'SCAN OR TYPE EMPLOYEE ID' },
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
+  STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN THEN SCAN BAG QR' },
 };
 
 async function saveSetup() {
-  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on, #s_legacyStationGroup .seg-btn.on, #s_utilityStationGroup .seg-btn.on, #s_extStationGroup .seg-btn.on');
+  const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on, #s_legacyStationGroup .seg-btn.on, #s_utilityStationGroup .seg-btn.on, #s_extStationGroup .seg-btn.on, #s_storeStationGroup .seg-btn.on');
   if (!stationEl) { showToast('Select a station', 'err'); return; }
 
   const stationCode = stationEl.dataset.code;
@@ -1630,11 +1640,12 @@ function bootScanner() {
     cfg.stationCode === 'LEGACY_REG' ? '' : 'none';
   document.getElementById('repairRunPanel').style.display =
     cfg.stationCode === 'REPAIR' ? '' : 'none';
-  if (cfg.stationCode === 'DTK')        { setupDtkStation();        }
-  if (cfg.stationCode === 'ALLOC')      { setupAllocStation();      }
-  if (cfg.stationCode === 'PACK')       { setupPackStation();       }
-  if (cfg.stationCode === 'LEGACY_REG') { setupLegacyRegStation();  }
-  if (cfg.stationCode === 'REPAIR')     { setupRepairStation();     }
+  if (cfg.stationCode === 'DTK')         { setupDtkStation();         }
+  if (cfg.stationCode === 'ALLOC')       { setupAllocStation();       }
+  if (cfg.stationCode === 'PACK')        { setupPackStation();        }
+  if (cfg.stationCode === 'LEGACY_REG')  { setupLegacyRegStation();   }
+  if (cfg.stationCode === 'REPAIR')      { setupRepairStation();      }
+  if (cfg.stationCode === 'STORE_ISSUE') { setupStoreIssueStation();  }
 
   // ATTENDANCE — hide camera/shift bar; show dedicated panel with typed input
   const isAttendance = cfg.stationCode === 'ATTENDANCE';
@@ -2293,6 +2304,197 @@ async function doPackScan(barcode) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+// STORE_ISSUE station (FEAT-020)
+// Pick bags against a production run before Garage issues it.
+// Setup: select a Submitted/Picking run → derive BOM (worker)
+//        → enter scan mode, scan bag QRs (BAG-…)
+// ════════════════════════════════════════════════════════════════
+let storePickRun    = null;  // { id, run_no, product, run_type, status }
+let storePickLines  = [];    // [{ id, part_code, part_name, required_qty, scanned_qty, is_void }]
+let storePickableRuns = [];  // list cached for the selector
+
+async function setupStoreIssueStation() {
+  storePickRun   = null;
+  storePickLines = [];
+
+  // Clear other station selectors if leftover in DOM
+  ['packShipmentBar','packDirectBar','packBoxBar','allocChannelBar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+
+  try {
+    const res = await workerPost('getPickableRuns', { device_code: cfg.deviceCode });
+    if (!res.ok) throw new Error(res.error || 'Failed to load runs');
+    storePickableRuns = res.data || [];
+  } catch (e) {
+    storePickableRuns = [];
+    showReject('LOAD FAILED', e.message);
+  }
+  renderStoreRunSelector();
+  renderStoreProgressBar();
+}
+
+function renderStoreRunSelector() {
+  const existing = document.getElementById('storeRunBar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id        = 'storeRunBar';
+  bar.className = 'pack-shipment-bar';
+  bar.style.position = 'relative';
+
+  const label = storePickRun
+    ? `${storePickRun.run_no} · ${storePickRun.product}`
+    : 'Select Run';
+  const isActive = !!storePickRun;
+
+  const items = storePickableRuns.map(r => {
+    const status = r.status === 'Picking' ? '<span style="color:var(--yellow);font-weight:700;margin-left:6px">• PICKING</span>' : '';
+    return `<div class="pack-ship-item" onclick="selectStoreRun('${r.id}')">
+      <div>
+        <div class="pack-ship-name">${r.run_no}${status}</div>
+        <div class="pack-ship-meta">${r.product}${r.line_no ? ' · ' + r.line_no : ''}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  bar.innerHTML = `
+    <div id="storeRunSelected" class="pack-shipment-selected ${isActive ? 'active' : ''}"
+         onclick="toggleStoreRunList()">
+      <span id="storeRunLabel">${label}</span>
+      <span style="font-size:10px;color:var(--muted)">▼</span>
+    </div>
+    <div id="storeRunList" class="pack-shipment-list">
+      ${items || '<div style="padding:14px;font-size:11px;color:var(--muted)">No runs available for picking</div>'}
+    </div>`;
+
+  const camWrap = document.querySelector('.camera-wrap');
+  if (camWrap) camWrap.parentNode.insertBefore(bar, camWrap);
+}
+
+function toggleStoreRunList() {
+  const list = document.getElementById('storeRunList');
+  if (list) list.classList.toggle('show');
+}
+
+async function selectStoreRun(runId) {
+  const run = storePickableRuns.find(r => String(r.id) === String(runId));
+  if (!run) return;
+  toggleStoreRunList();
+  await startPickSession(run);
+}
+
+async function startPickSession(run) {
+  showToast(`Starting pick for ${run.run_no}…`, 'ok');
+  let res;
+  try {
+    res = await workerPost('startRunPick', {
+      device_code: cfg.deviceCode,
+      run_id:      run.id,
+    });
+  } catch (e) {
+    showReject('START FAILED', e.message);
+    return;
+  }
+  if (!res.ok) {
+    showReject('START FAILED', res.error || 'Unknown error');
+    return;
+  }
+  storePickRun   = res.data;
+  storePickLines = res.data.pick_lines || [];
+  renderStoreRunSelector();
+  renderStoreProgressBar();
+  const partsCount = storePickLines.filter(l => !l.is_void).length;
+  showToast(`✓ ${run.run_no} — ${partsCount} parts to pick`, 'ok');
+}
+
+function renderStoreProgressBar() {
+  const existing = document.getElementById('storeProgressBar');
+  if (existing) existing.remove();
+  if (!storePickRun || !storePickLines.length) return;
+
+  const bar = document.createElement('div');
+  bar.id = 'storeProgressBar';
+  bar.style.cssText = 'padding:6px 14px;background:var(--surface);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--text2);flex-shrink:0';
+
+  const active = storePickLines.filter(l => !l.is_void);
+  const done   = active.filter(l => (l.scanned_qty || 0) >= l.required_qty).length;
+  const total  = active.length;
+  const pct    = total > 0 ? Math.round((done / total) * 100) : 0;
+
+  bar.innerHTML = `<strong style="color:var(--yellow)">${done}/${total}</strong> parts picked · <span style="color:var(--text3)">${pct}%</span>`;
+
+  const runBar = document.getElementById('storeRunBar');
+  if (runBar && runBar.parentNode) {
+    runBar.parentNode.insertBefore(bar, runBar.nextSibling);
+  }
+}
+
+async function doStoreIssueScan(barcode) {
+  if (!storePickRun) {
+    showReject('NO RUN SELECTED', 'Select a run above before scanning');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+  if (!isOnline) {
+    showReject('OFFLINE', 'Store issue requires a live connection');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  // Bag QR format: BAG-... — guard against accidental UPC/EAN scans
+  if (!/^BAG-/i.test(barcode)) {
+    showReject('WRONG BARCODE', 'Scan a bag QR (BAG-…)');
+    playErrBeep(); vibrate([100,50,100]);
+    addLog({ barcode, status:'err', tag:'PICK', label:'WRONG FORMAT' });
+    return;
+  }
+
+  let res;
+  try {
+    res = await workerPost('postRunPick', {
+      device_code: cfg.deviceCode,
+      run_id:      storePickRun.id,
+      bag_id:      barcode,
+    });
+  } catch (e) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('SCAN ERROR', e.message);
+    addLog({ barcode, status:'err', tag:'PICK', label:'NET ERR' });
+    return;
+  }
+
+  if (!res.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('PICK FAILED', res.error || 'Unknown error');
+    addLog({ barcode, status:'err', tag:'PICK', label:'PICK ERR' });
+    return;
+  }
+
+  const d = res.data;
+  // Update local state
+  const idx = storePickLines.findIndex(l => l.part_code === d.part_code);
+  if (idx !== -1) storePickLines[idx].scanned_qty = d.scanned_qty;
+  renderStoreProgressBar();
+
+  flash('ok'); vibrate([50]); playSuccessBeep();
+
+  const over = d.scanned_qty > d.required_qty;
+  const done = d.scanned_qty >= d.required_qty;
+  let label = `PICK ✓ ${d.part_code} ${d.qty} pcs [${d.scanned_qty}/${d.required_qty}]`;
+  if (done && !over) label += ' ✓';
+  if (over)          label += ' ⚠ OVER';
+  addLog({ barcode, status: over ? 'pending' : 'ok', tag:'PICK', label });
+
+  if (d.pick_complete) {
+    showToast(`ALL PARTS PICKED — ${storePickRun.run_no} READY TO ISSUE`, 'ok');
+  } else {
+    showToast(`✓ ${d.part_code} ${d.scanned_qty}/${d.required_qty}`, 'ok');
+  }
+}
+
 // ── ALLOC station setup ──────────────────────────────────────────
 async function setupAllocStation() {
   await loadDispatchChannels();
@@ -2853,6 +3055,12 @@ async function processBarcode(barcode, act) {
       return;
     }
     await doPackScan(barcode);
+    return;
+  }
+
+  // ── STORE_ISSUE — store picking station (FEAT-020) ──
+  if (act === 'STORE_ISSUE') {
+    await doStoreIssueScan(barcode);
     return;
   }
 
