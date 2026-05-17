@@ -1827,7 +1827,7 @@ async function saveSetup() {
       statusEl.style.color = 'var(--text2)';
       const setupRes = await workerPost('supervisorSetupDevice', {
         device_code:            cfg.deviceCode,
-        supervisor_operator_id: pendingSupervisorId,
+        supervisor_user_id: pendingSupervisorId,
         station:                cfg.stationCode,
         line:                   cfg.line,
       });
