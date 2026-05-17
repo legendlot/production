@@ -682,11 +682,13 @@
 <!-- ══════════════════════════════════
      LOGIN SCREEN
 ══════════════════════════════════ -->
-<div id="loginScreen" class="screen active">
+<div id="loginScreen" class="screen">
   <div class="login-wrap">
     <div class="login-logo">Legend of Toys</div>
-    <div class="login-title">Operator<br>Sign In</div>
-    <div class="login-sub">SCAN YOUR ID CARD TO CONTINUE</div>
+    <!-- FEAT-022: title/sub set dynamically (operator vs supervisor sign-in) -->
+    <div class="login-title" id="loginTitle">Operator<br>Sign In</div>
+    <div class="login-sub"   id="loginSub">SCAN YOUR ID CARD TO CONTINUE</div>
+    <div class="login-banner" id="loginBanner" style="display:none;margin:0 0 12px;padding:10px 14px;border-radius:6px;background:rgba(222,42,42,.15);border:1px solid rgba(222,42,42,.35);color:#ff7070;font-size:11px;font-family:var(--mono);letter-spacing:0.04em;text-transform:uppercase;line-height:1.4"></div>
     <div class="login-cam-wrap" id="loginCamWrap">
       <div id="loginReader"></div>
       <div class="login-frame">
@@ -702,10 +704,21 @@
         <div class="cam-start-label">Tap to start camera</div>
       </div>
     </div>
-    <div class="login-hint">Point camera at your QR ID card</div>
+    <div class="login-hint" id="loginHint">Point camera at your QR ID card</div>
     <div class="login-status" id="loginStatus"></div>
-    <button class="login-manual" onclick="toggleManualSelect()">Select name manually ↓</button>
+    <!-- Operator-mode fallback: PIN-gated manual list (FEAT-022) -->
+    <button class="login-manual" id="loginManualBtn" onclick="gateManualSelect()">Select name manually ↓</button>
     <div class="manual-select" id="manualSelect"></div>
+    <!-- Supervisor-mode fallback: PIN entry + supervisor name picker -->
+    <button class="login-manual" id="supPinBtn" style="display:none" onclick="toggleSupPinPanel()">Enter PIN instead ↓</button>
+    <div class="manual-select" id="supPinPanel" style="padding:10px 0">
+      <input type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="12" id="supPinField"
+             placeholder="Supervisor PIN"
+             style="width:100%;padding:12px;font-size:18px;font-family:var(--mono);background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);text-align:center;letter-spacing:0.3em;box-sizing:border-box">
+      <button onclick="submitSupervisorPin()"
+              style="width:100%;margin-top:8px;padding:12px;background:var(--yellow);color:#000;border:none;border-radius:6px;font-weight:700;font-size:13px;font-family:var(--cond);letter-spacing:0.08em;cursor:pointer">CONFIRM PIN</button>
+      <div id="supList" style="display:none;margin-top:12px;max-height:200px;overflow-y:auto"></div>
+    </div>
   </div>
 </div>
 
@@ -1122,6 +1135,11 @@ let defectMaster    = {};
 let operators       = [];
 let rtdTally        = {};
 
+// FEAT-022 — supervisor / device-setup state
+let supervisorMode      = false;   // true when login screen is in "supervisor sign-in" mode
+let pendingSupervisorId = null;    // operators_v0.id of the supervisor authenticating this setup
+let supervisorList      = [];      // returned by verifySupervisorPin for the PIN path
+
 // QC_PASS state
 let pendingQcPassCar     = null;
 let pendingQcPassProduct = null;
@@ -1234,6 +1252,11 @@ window.addEventListener('load', async () => {
   pkgChannel   = cfg.pkgChannel || 'ecom';
 
   loadMasters();
+  // FEAT-022 — start with a defensive supervisor-locked default; routeBootScreen
+  // will flip to operator mode if getDeviceStatus reports an active setup. This
+  // avoids a blank flash and keeps the locked state the safe failure mode.
+  showSupervisorSignIn({ reason: 'not_setup' });
+  routeBootScreen();
 
   window.addEventListener('online',  onOnline);
   window.addEventListener('offline', onOffline);
@@ -1241,6 +1264,195 @@ window.addEventListener('load', async () => {
     navigator.serviceWorker.register('./sw.js').catch(() => {});
   }
 });
+
+// FEAT-022 — decide whether to show operator or supervisor sign-in on boot.
+// Calls getDeviceStatus when we have a deviceCode in cfg; otherwise demands
+// supervisor setup.
+async function routeBootScreen() {
+  if (!cfg.deviceCode) {
+    showSupervisorSignIn({ reason: 'not_setup' });
+    return;
+  }
+  let res;
+  try {
+    res = await workerPost('getDeviceStatus', { device_code: cfg.deviceCode });
+  } catch (e) {
+    // Network blip on boot — trust the cached cfg if its supervisor setup
+    // hasn't expired locally; otherwise demand re-setup.
+    if (cfg.isSupervisorSetup && cfg.setupExpiresAt && Date.now() < new Date(cfg.setupExpiresAt).getTime()) {
+      showOperatorSignIn();
+    } else {
+      showSupervisorSignIn({ reason: 'offline' });
+    }
+    return;
+  }
+  if (!res || !res.ok) {
+    showSupervisorSignIn({ reason: 'device_error', message: res && res.error });
+    return;
+  }
+  const status = res.data || {};
+  if (status.setup_expired) {
+    showSupervisorSignIn({ reason: 'expired' });
+    return;
+  }
+  if (!status.is_setup) {
+    showSupervisorSignIn({ reason: 'not_setup' });
+    return;
+  }
+  // Active setup — refresh local cfg with the effective station/line (which may
+  // have been updated by another supervisor mid-shift) and proceed to operator login.
+  cfg.stationCode      = status.station;
+  cfg.line             = status.line;
+  cfg.isSupervisorSetup = true;
+  cfg.setupExpiresAt   = status.setup_expires_at;
+  // Refresh stationLabel from STATION_DEFS so the topbar shows correct text
+  if (typeof STATION_DEFS !== 'undefined' && STATION_DEFS[status.station]) {
+    cfg.stationLabel = STATION_DEFS[status.station].label;
+  }
+  localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+  showOperatorSignIn();
+}
+
+// FEAT-022 — switch the login screen to supervisor mode.
+function showSupervisorSignIn(opts) {
+  opts = opts || {};
+  supervisorMode      = true;
+  pendingSupervisorId = null;
+  supervisorList      = [];
+
+  // Make loginScreen visible if it isn't already, hide others
+  document.getElementById('loginScreen').classList.add('active');
+  const setupEl   = document.getElementById('setupScreen');
+  const scannerEl = document.getElementById('scannerScreen');
+  if (setupEl)   setupEl.classList.remove('active');
+  if (scannerEl) scannerEl.classList.remove('active');
+
+  document.getElementById('loginTitle').innerHTML = 'Supervisor<br>Sign In';
+  document.getElementById('loginSub').textContent =
+    opts.reason === 'expired'
+      ? 'SHIFT SETUP EXPIRED — SCAN SUPERVISOR QR OR ENTER PIN'
+      : 'DEVICE NEEDS SETUP — SCAN SUPERVISOR QR OR ENTER PIN';
+  document.getElementById('loginHint').textContent = 'Point camera at supervisor QR ID';
+
+  const banner = document.getElementById('loginBanner');
+  const msgMap = {
+    expired:      '🔒 DEVICE LOCKED — Shift setup expired. Supervisor sign-in required to begin the next shift.',
+    not_setup:    'This device has not been set up for the current shift.',
+    offline:      'Could not reach the worker. Reconnect or set up to continue.',
+    device_error: opts.message ? ('Device error: ' + opts.message) : 'Device not recognised. Please contact your administrator.',
+  };
+  const msg = msgMap[opts.reason] || '';
+  if (msg) { banner.textContent = msg; banner.style.display = ''; }
+  else     { banner.textContent = '';  banner.style.display = 'none'; }
+
+  // Toggle button visibility: hide operator manual list, show supervisor PIN entry
+  document.getElementById('loginManualBtn').style.display = 'none';
+  document.getElementById('manualSelect').classList.remove('show');
+  document.getElementById('supPinBtn').style.display = '';
+  document.getElementById('supPinPanel').classList.remove('show');
+  document.getElementById('supList').style.display = 'none';
+  document.getElementById('supList').innerHTML = '';
+  const pinField = document.getElementById('supPinField');
+  if (pinField) pinField.value = '';
+
+  document.getElementById('loginStatus').textContent = '';
+  document.getElementById('loginStatus').className   = 'login-status';
+}
+
+// FEAT-022 — switch the login screen to (default) operator mode.
+function showOperatorSignIn() {
+  supervisorMode      = false;
+  pendingSupervisorId = null;
+  supervisorList      = [];
+
+  document.getElementById('loginScreen').classList.add('active');
+  const setupEl   = document.getElementById('setupScreen');
+  const scannerEl = document.getElementById('scannerScreen');
+  if (setupEl)   setupEl.classList.remove('active');
+  if (scannerEl) scannerEl.classList.remove('active');
+
+  document.getElementById('loginTitle').innerHTML = 'Operator<br>Sign In';
+  document.getElementById('loginSub').textContent = 'SCAN YOUR ID CARD TO CONTINUE';
+  document.getElementById('loginHint').textContent = 'Point camera at your QR ID card';
+
+  const banner = document.getElementById('loginBanner');
+  banner.textContent = '';
+  banner.style.display = 'none';
+
+  document.getElementById('loginManualBtn').style.display = '';
+  document.getElementById('manualSelect').classList.remove('show');
+  document.getElementById('supPinBtn').style.display = 'none';
+  document.getElementById('supPinPanel').classList.remove('show');
+  document.getElementById('supList').style.display = 'none';
+  document.getElementById('supList').innerHTML = '';
+
+  document.getElementById('loginStatus').textContent = '';
+  document.getElementById('loginStatus').className   = 'login-status';
+}
+
+// FEAT-022 — toggle the supervisor PIN entry panel.
+function toggleSupPinPanel() {
+  const panel = document.getElementById('supPinPanel');
+  panel.classList.toggle('show');
+  if (panel.classList.contains('show')) {
+    setTimeout(() => { const f = document.getElementById('supPinField'); if (f) f.focus(); }, 50);
+  }
+}
+
+// FEAT-022 — verify the supervisor PIN and surface the active-supervisor list.
+async function submitSupervisorPin() {
+  const status = document.getElementById('loginStatus');
+  const pin = (document.getElementById('supPinField').value || '').trim();
+  if (!pin) { status.textContent = 'Enter a PIN'; status.className = 'login-status err'; return; }
+  status.textContent = 'Verifying…';
+  status.className = 'login-status';
+  const res = await workerPost('verifySupervisorPin', { pin });
+  if (!res.ok) {
+    status.textContent = res.error || 'Invalid PIN';
+    status.className = 'login-status err';
+    return;
+  }
+  supervisorList = (res.data && res.data.supervisors) || [];
+  const list = document.getElementById('supList');
+  if (!supervisorList.length) {
+    list.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text2);font-size:11px">No active supervisors found. Promote at least one operator (is_supervisor=true) before using PIN sign-in.</div>';
+    list.style.display = '';
+    return;
+  }
+  list.innerHTML = supervisorList.map((s) => {
+    const safeName = (s.name || '').replace(/"/g, '&quot;');
+    return `<div class="op-item" onclick="chooseSupervisorFromPin('${s.id}', &quot;${safeName}&quot;)"><div>${s.name || '—'}</div><div class="op-item-role">${s.role || ''}${s.line ? ' · ' + s.line : ''}</div></div>`;
+  }).join('');
+  list.style.display = '';
+  status.textContent = 'Select your name to continue';
+  status.className = 'login-status ok';
+}
+
+// FEAT-022 — supervisor selected from PIN-path list → proceed to setup.
+function chooseSupervisorFromPin(id, name) {
+  pendingSupervisorId = id;
+  if (loginScanner) {
+    try { loginScanner.stop(); } catch(e) {}
+    loginScanner = null;
+  }
+  document.getElementById('loginStatus').textContent = `Supervisor: ${name}`;
+  document.getElementById('loginStatus').className   = 'login-status ok';
+  vibrate([50, 30, 50]);
+  playSuccessBeep();
+  setTimeout(() => goToSetup(), 500);
+}
+
+// FEAT-022 — PIN-gate the operator manual-select fallback.
+async function gateManualSelect() {
+  const pin = prompt('Enter supervisor PIN to use manual login:');
+  if (!pin) return;
+  const res = await workerPost('verifySupervisorPin', { pin });
+  if (!res.ok) {
+    alert('Incorrect PIN. Please try again or use your QR card.');
+    return;
+  }
+  toggleManualSelect();
+}
 
 async function loadMasters() {
   try {
@@ -1333,6 +1545,14 @@ async function onLoginScan(raw) {
   const status = document.getElementById('loginStatus');
 
   if (!cfg.deviceCode) {
+    // No deviceCode yet — only the supervisor flow is meaningful; the operator
+    // local lookup never had supervisor metadata.
+    if (supervisorMode) {
+      status.textContent = 'Device code not set — start in setup screen';
+      status.className = 'login-status err';
+      setTimeout(() => startLoginCamera(), 2500);
+      return;
+    }
     const op = operators.find(o => o.qr_code === raw);
     if (op) { loginOperator(op); return; }
     status.textContent = 'Set device code in settings first';
@@ -1349,11 +1569,38 @@ async function onLoginScan(raw) {
   });
 
   if (!result.ok) {
-    const op = operators.find(o => o.qr_code === raw);
-    if (op) { loginOperator(op); return; }
+    // Local fallback only meaningful for operator mode (no supervisor flag locally)
+    if (!supervisorMode) {
+      const op = operators.find(o => o.qr_code === raw);
+      if (op) { loginOperator(op); return; }
+    }
     status.textContent = result.error || 'Login failed';
     status.className = 'login-status err';
     setTimeout(() => startLoginCamera(), 2000);
+    return;
+  }
+
+  // FEAT-022 — supervisor mode: require is_supervisor=true; jump straight to setup
+  if (supervisorMode) {
+    if (!result.data.is_supervisor) {
+      status.textContent = 'Not a supervisor QR — use a supervisor card or PIN';
+      status.className = 'login-status err';
+      setTimeout(() => startLoginCamera(), 2500);
+      return;
+    }
+    pendingSupervisorId = result.data.operator_id;
+    operatorUUID    = result.data.operator_id;
+    currentOperator = {
+      id:   result.data.operator_id,
+      name: result.data.operator_name,
+      role: result.data.operator_role,
+      line: result.data.operator_line,
+    };
+    status.textContent = `Supervisor: ${result.data.operator_name}`;
+    status.className   = 'login-status ok';
+    vibrate([50, 30, 50]);
+    playSuccessBeep();
+    setTimeout(() => goToSetup(), 500);
     return;
   }
 
@@ -1563,11 +1810,44 @@ async function saveSetup() {
       camFacing:    camEl ? camEl.dataset.val : 'environment',
       torchEnabled: document.getElementById('s_torch').checked,
       pkgChannel:   pkgChannel,
+      // FEAT-022 — populated below by supervisorSetupDevice; carry stale values otherwise
+      isSupervisorSetup: cfg.isSupervisorSetup || false,
+      setupExpiresAt:    cfg.setupExpiresAt    || null,
     };
 
     localStorage.setItem('lot_cfg', JSON.stringify(cfg));
     localStorage.setItem('lot_volume', document.getElementById('s_volume').value);
     statusEl.textContent = '';
+
+    // FEAT-022 — when a supervisor is finalizing setup, write the activation to the
+    // DB before the operator session starts. Mid-shift back-path edits skip the
+    // worker call (pendingSupervisorId is null) and only update cfg locally.
+    if (pendingSupervisorId) {
+      statusEl.textContent = 'Activating device…';
+      statusEl.style.color = 'var(--text2)';
+      const setupRes = await workerPost('supervisorSetupDevice', {
+        device_code:            cfg.deviceCode,
+        supervisor_operator_id: pendingSupervisorId,
+        station:                cfg.stationCode,
+        line:                   cfg.line,
+      });
+      if (!setupRes.ok) {
+        statusEl.textContent = 'Setup failed: ' + (setupRes.error || 'unknown error');
+        statusEl.style.color = 'var(--red)';
+        return;
+      }
+      const setupData = setupRes.data || {};
+      cfg.isSupervisorSetup = true;
+      cfg.setupExpiresAt    = setupData.setup_expires_at || null;
+      localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+      pendingSupervisorId = null;
+      statusEl.textContent = '';
+    } else if (!cfg.isSupervisorSetup) {
+      // Back-path with no prior supervisor setup — log and let it through so we
+      // don't break mid-shift reconfiguration for devices that haven't been
+      // migrated yet. Worker still trusts the device row as it stands.
+      console.warn('[FEAT-022] saveSetup called without pendingSupervisorId; skipping supervisorSetupDevice worker call.');
+    }
 
     startSession();
     bootScanner();
@@ -4183,9 +4463,8 @@ function switchOperator() {
   operatorUUID    = null;
   currentSession  = null;
   document.getElementById('setupScreen').classList.remove('active');
-  document.getElementById('loginScreen').classList.add('active');
-  document.getElementById('loginStatus').textContent = '';
-  document.getElementById('loginStatus').className   = 'login-status';
+  // FEAT-022 — return to operator-mode sign-in (not supervisor mode)
+  showOperatorSignIn();
   startLoginCamera();
 }
 
