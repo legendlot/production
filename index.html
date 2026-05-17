@@ -689,28 +689,11 @@
     <div class="login-title" id="loginTitle">Operator<br>Sign In</div>
     <div class="login-sub"   id="loginSub">SCAN YOUR ID CARD TO CONTINUE</div>
     <div class="login-banner" id="loginBanner" style="display:none;margin:0 0 12px;padding:10px 14px;border-radius:6px;background:rgba(222,42,42,.15);border:1px solid rgba(222,42,42,.35);color:#ff7070;font-size:11px;font-family:var(--mono);letter-spacing:0.04em;text-transform:uppercase;line-height:1.4"></div>
-    <div class="login-cam-wrap" id="loginCamWrap">
-      <div id="loginReader"></div>
-      <div class="login-frame">
-        <div class="lf-inner">
-          <div class="lf-corner tl"></div>
-          <div class="lf-corner tr"></div>
-          <div class="lf-corner br"></div>
-          <div class="lf-corner bl"></div>
-        </div>
-      </div>
-      <div class="cam-start-overlay" id="loginCamOverlay" onclick="startLoginCamera()">
-        <div class="cam-start-icon">📷</div>
-        <div class="cam-start-label">Tap to start camera</div>
-      </div>
-    </div>
-    <div class="login-hint" id="loginHint">Point camera at your QR ID card</div>
     <div class="login-status" id="loginStatus"></div>
     <!-- Operator-mode fallback: PIN-gated manual list (FEAT-022) -->
     <button class="login-manual" id="loginManualBtn" onclick="gateManualSelect()">Select name manually ↓</button>
     <div class="manual-select" id="manualSelect"></div>
-    <!-- Supervisor-mode fallback: PIN entry + supervisor name picker -->
-    <button class="login-manual" id="supPinBtn" style="display:none" onclick="toggleSupPinPanel()">Enter PIN instead ↓</button>
+    <!-- Supervisor-mode: PIN entry + supervisor name picker (always visible in sup mode) -->
     <div class="manual-select" id="supPinPanel" style="padding:10px 0">
       <input type="tel" inputmode="numeric" pattern="[0-9]*" maxlength="12" id="supPinField"
              placeholder="Supervisor PIN"
@@ -1330,9 +1313,8 @@ function showSupervisorSignIn(opts) {
   document.getElementById('loginTitle').innerHTML = 'Supervisor<br>Sign In';
   document.getElementById('loginSub').textContent =
     opts.reason === 'expired'
-      ? 'SHIFT SETUP EXPIRED — SCAN SUPERVISOR QR OR ENTER PIN'
-      : 'DEVICE NEEDS SETUP — SCAN SUPERVISOR QR OR ENTER PIN';
-  document.getElementById('loginHint').textContent = 'Point camera at supervisor QR ID';
+      ? 'SHIFT SETUP EXPIRED — ENTER SUPERVISOR PIN'
+      : 'DEVICE NEEDS SETUP — ENTER SUPERVISOR PIN';
 
   const banner = document.getElementById('loginBanner');
   const msgMap = {
@@ -1345,15 +1327,14 @@ function showSupervisorSignIn(opts) {
   if (msg) { banner.textContent = msg; banner.style.display = ''; }
   else     { banner.textContent = '';  banner.style.display = 'none'; }
 
-  // Toggle button visibility: hide operator manual list, show supervisor PIN entry
+  // Hide operator manual list, force supervisor PIN panel open (no toggle button — PIN is the only path)
   document.getElementById('loginManualBtn').style.display = 'none';
   document.getElementById('manualSelect').classList.remove('show');
-  document.getElementById('supPinBtn').style.display = '';
-  document.getElementById('supPinPanel').classList.remove('show');
+  document.getElementById('supPinPanel').classList.add('show');
   document.getElementById('supList').style.display = 'none';
   document.getElementById('supList').innerHTML = '';
   const pinField = document.getElementById('supPinField');
-  if (pinField) pinField.value = '';
+  if (pinField) { pinField.value = ''; setTimeout(() => pinField.focus(), 50); }
 
   document.getElementById('loginStatus').textContent = '';
   document.getElementById('loginStatus').className   = 'login-status';
@@ -1372,8 +1353,7 @@ function showOperatorSignIn() {
   if (scannerEl) scannerEl.classList.remove('active');
 
   document.getElementById('loginTitle').innerHTML = 'Operator<br>Sign In';
-  document.getElementById('loginSub').textContent = 'SCAN YOUR ID CARD TO CONTINUE';
-  document.getElementById('loginHint').textContent = 'Point camera at your QR ID card';
+  document.getElementById('loginSub').textContent = 'SELECT YOUR NAME TO CONTINUE';
 
   const banner = document.getElementById('loginBanner');
   banner.textContent = '';
@@ -1381,22 +1361,12 @@ function showOperatorSignIn() {
 
   document.getElementById('loginManualBtn').style.display = '';
   document.getElementById('manualSelect').classList.remove('show');
-  document.getElementById('supPinBtn').style.display = 'none';
   document.getElementById('supPinPanel').classList.remove('show');
   document.getElementById('supList').style.display = 'none';
   document.getElementById('supList').innerHTML = '';
 
   document.getElementById('loginStatus').textContent = '';
   document.getElementById('loginStatus').className   = 'login-status';
-}
-
-// FEAT-022 — toggle the supervisor PIN entry panel.
-function toggleSupPinPanel() {
-  const panel = document.getElementById('supPinPanel');
-  panel.classList.toggle('show');
-  if (panel.classList.contains('show')) {
-    setTimeout(() => { const f = document.getElementById('supPinField'); if (f) f.focus(); }, 50);
-  }
 }
 
 // FEAT-022 — verify the supervisor PIN and surface the active-supervisor list.
@@ -1415,7 +1385,7 @@ async function submitSupervisorPin() {
   supervisorList = (res.data && res.data.supervisors) || [];
   const list = document.getElementById('supList');
   if (!supervisorList.length) {
-    list.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text2);font-size:11px">No active supervisors found. Promote at least one operator (is_supervisor=true) before using PIN sign-in.</div>';
+    list.innerHTML = '<div style="padding:10px;text-align:center;color:var(--text2);font-size:11px">No active supervisors found. Ensure at least one admin-tier user exists in users_profile.</div>';
     list.style.display = '';
     return;
   }
@@ -1476,143 +1446,8 @@ async function loadMasters() {
 // ══════════════════════════════════════════════════════
 // LOGIN
 // ══════════════════════════════════════════════════════
-function startLoginCamera() {
-  const overlay = document.getElementById('loginCamOverlay');
-  if (overlay) overlay.classList.add('hidden');
-
-  const readerEl = document.getElementById('loginReader');
-  readerEl.innerHTML = '';
-
-  const video = document.createElement('video');
-  video.setAttribute('playsinline', '');
-  video.setAttribute('autoplay', '');
-  video.setAttribute('muted', '');
-  video.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover';
-  readerEl.appendChild(video);
-
-  const canvas = document.createElement('canvas');
-  canvas.style.display = 'none';
-  readerEl.appendChild(canvas);
-
-  navigator.mediaDevices.getUserMedia({
-    video: { facingMode: 'environment' }, audio: false
-  }).then(stream => {
-    video.srcObject = stream;
-    video.play();
-    loginScanner = { stream, stop: () => { stream.getTracks().forEach(t => t.stop()); video.srcObject = null; } };
-
-    const hints = new Map();
-    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [ZXing.BarcodeFormat.QR_CODE]);
-    const reader = new ZXing.BrowserMultiFormatReader(hints);
-    let loginLoopActive = true;
-    const ctx = canvas.getContext('2d');
-
-    function loginLoop() {
-      if (!loginLoopActive) return;
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        canvas.width  = video.videoWidth  || 320;
-        canvas.height = video.videoHeight || 240;
-        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-        try {
-          const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-          const binaryBitmap    = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
-          const result = reader.decodeBitmap(binaryBitmap);
-          if (result) {
-            loginLoopActive = false;
-            if (loginScanner) { loginScanner.stop(); loginScanner = null; }
-            onLoginScan(result.getText());
-            return;
-          }
-        } catch(e) {}
-      }
-      requestAnimationFrame(loginLoop);
-    }
-    video.addEventListener('playing', () => loginLoop());
-
-  }).catch(e => {
-    if (overlay) overlay.classList.remove('hidden');
-    document.getElementById('loginStatus').textContent = 'Camera unavailable — use manual select below';
-    document.getElementById('loginStatus').className = 'login-status err';
-    document.getElementById('manualSelect').classList.add('show');
-  });
-}
-
-async function onLoginScan(raw) {
-  if (loginScanner) {
-    try { loginScanner.stop(); } catch(e) {}
-    loginScanner = null;
-  }
-  const status = document.getElementById('loginStatus');
-
-  if (!cfg.deviceCode) {
-    // No deviceCode yet — only the supervisor flow is meaningful; the operator
-    // local lookup never had supervisor metadata.
-    if (supervisorMode) {
-      status.textContent = 'Device code not set — start in setup screen';
-      status.className = 'login-status err';
-      setTimeout(() => startLoginCamera(), 2500);
-      return;
-    }
-    const op = operators.find(o => o.qr_code === raw);
-    if (op) { loginOperator(op); return; }
-    status.textContent = 'Set device code in settings first';
-    status.className = 'login-status err';
-    setTimeout(() => startLoginCamera(), 2500);
-    return;
-  }
-
-  status.textContent = 'Verifying...';
-  status.className = 'login-status';
-
-  const result = await workerPost('scannerLogin', {
-    qr_code: raw, device_code: cfg.deviceCode
-  });
-
-  if (!result.ok) {
-    // Local fallback only meaningful for operator mode (no supervisor flag locally)
-    if (!supervisorMode) {
-      const op = operators.find(o => o.qr_code === raw);
-      if (op) { loginOperator(op); return; }
-    }
-    status.textContent = result.error || 'Login failed';
-    status.className = 'login-status err';
-    setTimeout(() => startLoginCamera(), 2000);
-    return;
-  }
-
-  // FEAT-022 — supervisor mode: require is_supervisor=true; jump straight to setup
-  if (supervisorMode) {
-    if (!result.data.is_supervisor) {
-      status.textContent = 'Not a supervisor QR — use a supervisor card or PIN';
-      status.className = 'login-status err';
-      setTimeout(() => startLoginCamera(), 2500);
-      return;
-    }
-    pendingSupervisorId = result.data.operator_id;
-    operatorUUID    = result.data.operator_id;
-    currentOperator = {
-      id:   result.data.operator_id,
-      name: result.data.operator_name,
-      role: result.data.operator_role,
-      line: result.data.operator_line,
-    };
-    status.textContent = `Supervisor: ${result.data.operator_name}`;
-    status.className   = 'login-status ok';
-    vibrate([50, 30, 50]);
-    playSuccessBeep();
-    setTimeout(() => goToSetup(), 500);
-    return;
-  }
-
-  operatorUUID = result.data.operator_id;
-  currentOperator = {
-    id:   result.data.operator_id,
-    name: result.data.operator_name,
-    role: result.data.operator_role,
-    line: result.data.operator_line,
-  };
-  loginOperator(currentOperator);
-}
+// QR camera login removed 2026-05-17 (SUPERVISOR_LOGIN_SIMPLIFY).
+// Operator login is PIN-gated manual select; supervisor login is PIN + name picker.
 
 function loginOperator(op) {
   currentOperator = op;
@@ -4465,7 +4300,6 @@ function switchOperator() {
   document.getElementById('setupScreen').classList.remove('active');
   // FEAT-022 — return to operator-mode sign-in (not supervisor mode)
   showOperatorSignIn();
-  startLoginCamera();
 }
 
 // ══════════════════════════════════════════════════════
