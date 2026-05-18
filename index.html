@@ -993,8 +993,8 @@
 
   <div class="act-strip" id="actStrip" style="display:none"></div>
 
-  <div id="att_cameraHint" style="display:none; text-align:center; font-size:0.85rem; color:#aaa; padding:4px 0; font-family:var(--mono); letter-spacing:.04em">
-    Hold QR card up to camera · or type below
+  <div id="att_cameraHint" style="display:none; text-align:center; font-size:0.85rem; color:#aaa; padding:4px 0 2px; font-family:var(--mono); letter-spacing:.04em">
+    Scan QR card to clock in / out
   </div>
 
   <div class="camera-wrap">
@@ -1778,16 +1778,33 @@ function bootScanner() {
   if (cfg.stationCode === 'REPAIR')      { setupRepairStation();      }
   if (cfg.stationCode === 'STORE_ISSUE') { setupStoreIssueStation();  }
 
-  // ATTENDANCE — camera scans operator QR cards; typed input remains as
-  // a fallback for damaged/legacy IDs. Shift bar is hidden since attendance
-  // has no shift selection.
+  // ATTENDANCE — camera scans operator QR cards; the typed input collapses
+  // behind a toggle so the soft keyboard doesn't pre-empt the camera.
+  // Shift bar is hidden since attendance has no shift selection.
   const isAttendance = cfg.stationCode === 'ATTENDANCE';
   document.getElementById('attendancePanel').style.display = isAttendance ? '' : 'none';
   document.querySelector('.camera-wrap').style.display     = '';
   document.querySelector('.shift-bar').style.display       = isAttendance ? 'none' : '';
   const _attHint = document.getElementById('att_cameraHint');
   if (_attHint) _attHint.style.display = isAttendance ? '' : 'none';
-  if (isAttendance) setupAttendanceStation();
+  if (isAttendance) {
+    setupAttendanceStation();
+    const attIdle  = document.getElementById('att_idle');
+    const attInput = document.getElementById('att_input');
+    if (attIdle && !document.getElementById('att_typeToggle')) {
+      const toggle = document.createElement('div');
+      toggle.id = 'att_typeToggle';
+      toggle.style.cssText = 'text-align:center; margin-top:8px; font-size:0.8rem; color:#888; cursor:pointer; font-family:var(--mono); letter-spacing:.04em';
+      toggle.textContent = '⌨ Type ID instead';
+      toggle.onclick = () => {
+        const willShow = attIdle.style.display === 'none';
+        attIdle.style.display = willShow ? '' : 'none';
+        if (willShow && attInput) setTimeout(() => attInput.focus(), 50);
+      };
+      attIdle.parentNode.insertBefore(toggle, attIdle.nextSibling);
+    }
+    if (attIdle) attIdle.style.display = 'none';
+  }
 
   // Tally — show at PKG_OUT
   document.getElementById('tallyPanel').classList.toggle('show', cfg.activity === 'PKG_OUT');
@@ -1855,7 +1872,9 @@ function setupAttendanceStation() {
     _attBound = true;
   }
   input.value = '';
-  setTimeout(() => input.focus(), 50);
+  // On ATTENDANCE, the camera is the primary surface — never auto-focus the
+  // text field (would open the soft keyboard on mobile).
+  if (cfg.stationCode !== 'ATTENDANCE') setTimeout(() => input.focus(), 50);
 }
 
 function setAttState(state) {
@@ -1872,7 +1891,13 @@ function resetAttendance() {
   setAttState('idle');
   const input = document.getElementById('att_input');
   input.value = '';
-  setTimeout(() => input.focus(), 50);
+  if (cfg.stationCode === 'ATTENDANCE') {
+    // Keep the typed input collapsed; camera is the primary surface.
+    const attIdle = document.getElementById('att_idle');
+    if (attIdle) attIdle.style.display = 'none';
+  } else {
+    setTimeout(() => input.focus(), 50);
+  }
 }
 
 async function submitAttendanceLookup() {
