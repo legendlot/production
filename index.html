@@ -993,6 +993,10 @@
 
   <div class="act-strip" id="actStrip" style="display:none"></div>
 
+  <div id="att_cameraHint" style="display:none; text-align:center; font-size:0.85rem; color:#aaa; padding:4px 0; font-family:var(--mono); letter-spacing:.04em">
+    Hold QR card up to camera · or type below
+  </div>
+
   <div class="camera-wrap">
     <div id="reader"></div>
 
@@ -1774,11 +1778,15 @@ function bootScanner() {
   if (cfg.stationCode === 'REPAIR')      { setupRepairStation();      }
   if (cfg.stationCode === 'STORE_ISSUE') { setupStoreIssueStation();  }
 
-  // ATTENDANCE — hide camera/shift bar; show dedicated panel with typed input
+  // ATTENDANCE — camera scans operator QR cards; typed input remains as
+  // a fallback for damaged/legacy IDs. Shift bar is hidden since attendance
+  // has no shift selection.
   const isAttendance = cfg.stationCode === 'ATTENDANCE';
   document.getElementById('attendancePanel').style.display = isAttendance ? '' : 'none';
-  document.querySelector('.camera-wrap').style.display     = isAttendance ? 'none' : '';
+  document.querySelector('.camera-wrap').style.display     = '';
   document.querySelector('.shift-bar').style.display       = isAttendance ? 'none' : '';
+  const _attHint = document.getElementById('att_cameraHint');
+  if (_attHint) _attHint.style.display = isAttendance ? '' : 'none';
   if (isAttendance) setupAttendanceStation();
 
   // Tally — show at PKG_OUT
@@ -1818,6 +1826,18 @@ function normalizeEmployeeId(raw) {
   const v = (raw || '').trim().toUpperCase();
   if (/^\d{4}$/.test(v)) return 'LOT-FACT-' + v;
   return v;
+}
+
+// Route a camera-scanned QR card payload into the existing typed-input pipeline.
+// onScan calls this when the device is configured for ATTENDANCE; ignores
+// scans while a lookup/confirm/error is already on screen.
+function handleAttendanceScan(scanned) {
+  if (typeof attState !== 'undefined' && attState !== 'idle') return;
+  const normalized = normalizeEmployeeId((scanned || '').trim());
+  if (!normalized) return;
+  const input = document.getElementById('att_input');
+  if (input) input.value = normalized;
+  submitAttendanceLookup();
 }
 
 function setupAttendanceStation() {
@@ -3144,6 +3164,12 @@ function onScan(raw) {
 
   const barcode = raw.replace(/\s+/g, '').trim();
   const act     = cfg.activity || 'INW';
+
+  // ATTENDANCE — scanned operator QR card → clock-in/out flow
+  if (cfg.stationCode === 'ATTENDANCE') {
+    handleAttendanceScan(barcode);
+    return;
+  }
 
   // LOOKUP — ad hoc unit/box lookup, no production writes
   if (cfg.stationCode === 'LOOKUP') {
