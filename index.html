@@ -1127,7 +1127,7 @@ let rtdTally        = {};
 
 // FEAT-022 — supervisor / device-setup state
 let supervisorMode      = false;   // true when login screen is in "supervisor sign-in" mode
-let pendingSupervisorId = null;    // operators_v0.id of the supervisor authenticating this setup
+let pendingSupervisorId = null;    // store.users_profile.id of the supervisor authenticating this setup
 let supervisorList      = [];      // returned by verifySupervisorPin for the PIN path
 
 // QC_PASS state
@@ -1449,9 +1449,7 @@ async function loadMasters() {
   } catch(e) {}
 
   try {
-    // HOTFIX: boot fetch points at operators_v0 (Scanner identity table with
-    // qr_code/role/line intact) until Step 4 rewires login to use employee_id flow.
-    const ops = await sbGet('operators_v0', 'is_active=eq.true&order=name.asc');
+    const ops = await sbGet('operators', 'status=eq.active&select=id,name,employee_id,department&order=name.asc');
     operators = ops;
     buildManualSelect();
   } catch(e) {}
@@ -1480,7 +1478,7 @@ function buildManualSelect() {
   operators.forEach(op => {
     const div = document.createElement('div');
     div.className = 'op-item';
-    div.innerHTML = `<div>${op.name}</div><div class="op-item-role">${op.role}</div>`;
+    div.innerHTML = `<div>${op.name}</div><div class="op-item-role">${op.department || ''}</div>`;
     div.onclick = () => loginOperator(op);
     el.appendChild(div);
   });
