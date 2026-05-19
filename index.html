@@ -909,6 +909,9 @@
       <div class="device-station" id="tb_station">—</div>
     </div>
     <div class="topbar-right">
+      <button id="dispatchChangeOpBtn"
+              style="display:none;background:none;border:1px solid #444;color:#aaa;font-size:11px;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;letter-spacing:0.05em"
+              onclick="clearDispatchOperator()">⇄ CHANGE OP</button>
       <div class="queue-pill" id="queuePill">0 queued</div>
       <div class="top-btn" id="shiftDisplay" onclick="cycleShift()" title="Shift">REG</div>
       <div class="top-btn" onclick="requestSettings()">⚙</div>
@@ -1384,21 +1387,6 @@ async function routeBootScreen() {
     cfg.stationLabel = STATION_DEFS[status.station].label;
   }
   localStorage.setItem('lot_cfg', JSON.stringify(cfg));
-
-  // CC_TASK_DISPATCH_OPERATOR_GATE — D1/D2 devices need an additional per-shift
-  // operator QR scan before the scanner UI opens. If a valid dispatch operator
-  // session is cached locally (expires at 1 AM IST), skip the gate and go
-  // straight to the scanner.
-  if (isDispatchDevice()) {
-    if (dispatchOpSessionValid() && restoreDispatchOperator()) {
-      document.getElementById('loginScreen').classList.remove('active');
-      document.getElementById('dispatchOpGate').classList.remove('active');
-      bootScanner();
-      return;
-    }
-    showDispatchOpGate();
-    return;
-  }
   showOperatorSignIn();
 }
 
@@ -1483,8 +1471,9 @@ function showOperatorSignIn() {
 let dispatchOpScanner = null;
 let dispatchOpBusy    = false;
 
-function isDispatchDevice() {
-  return cfg.line === 'D1' || cfg.line === 'D2';
+const DISPATCH_STATION_CODES = new Set(['PACK', 'DTK', 'ALLOC', 'DOUT', 'PKG_OUT']);
+function isDispatchStation() {
+  return DISPATCH_STATION_CODES.has(cfg.stationCode);
 }
 
 function dispatchOpSessionValid() {
@@ -1673,6 +1662,19 @@ function dispatchOpResetToSupervisor() {
   stopDispatchOpCamera();
   document.getElementById('dispatchOpGate').classList.remove('active');
   showSupervisorSignIn({ reason: 'not_setup' });
+}
+
+// Topbar "⇄ CHANGE OP" — clear the cached dispatch operator and bounce back
+// through bootScanner so the gate is shown again to the next operator.
+function clearDispatchOperator() {
+  cfg.dispatchOperatorId     = null;
+  cfg.dispatchOperatorName   = null;
+  cfg.dispatchOperatorEmpId  = null;
+  cfg.dispatchOperatorDept   = null;
+  cfg.dispatchOperatorExpiry = null;
+  localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+  document.getElementById('scannerScreen').classList.remove('active');
+  bootScanner();
 }
 
 // FEAT-022 — verify the supervisor PIN and surface the active-supervisor list.
@@ -2030,12 +2032,31 @@ async function startSession() {
 // SCANNER BOOT
 // ══════════════════════════════════════════════════════
 function bootScanner() {
+  // ── DISPATCH OPERATOR GATE (PACK/DTK/ALLOC/DOUT/PKG_OUT) ──
+  // The supervisor pre-sets the station; an operator must scan their QR card
+  // each shift before scans are accepted. Cached session lives in lot_cfg and
+  // expires at 1 AM IST. Single hook covers fresh-launch + post-reload paths.
+  if (isDispatchStation()) {
+    if (!dispatchOpSessionValid()) {
+      showDispatchOpGate();
+      return; // re-entered from #dopStartBtn after a successful scan
+    }
+    restoreDispatchOperator();
+  }
+
   document.getElementById('setupScreen').classList.remove('active');
+  document.getElementById('dispatchOpGate').classList.remove('active');
   document.getElementById('scannerScreen').classList.add('active');
 
   const stationDef = STATION_DEFS[cfg.stationCode] || {};
   document.getElementById('tb_line').textContent    = cfg.line + ' · ' + currentShift;
   document.getElementById('tb_station').textContent = stationDef.label || cfg.stationCode;
+
+  // ── Dispatch: Change Operator button — only show on dispatch stations
+  const changeOpBtn = document.getElementById('dispatchChangeOpBtn');
+  if (changeOpBtn) {
+    changeOpBtn.style.display = isDispatchStation() ? 'inline-block' : 'none';
+  }
 
   const initials = currentOperator
     ? currentOperator.name.split(' ').map(n=>n[0]).join('').slice(0,2).toUpperCase()
