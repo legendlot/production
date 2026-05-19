@@ -853,6 +853,51 @@
 </div>
 
 <!-- ══════════════════════════════════
+     DISPATCH OPERATOR GATE (D1/D2 only)
+══════════════════════════════════ -->
+<div id="dispatchOpGate" class="screen">
+  <div class="login-wrap" style="padding:24px 16px;gap:14px;align-items:center">
+    <div class="login-logo">Legend of Toys</div>
+    <div class="login-title">Dispatch<br>Operator</div>
+    <div class="login-sub" id="dopSub">SCAN YOUR QR CARD TO START SHIFT</div>
+    <div class="login-banner" id="dopBanner"
+         style="display:none;margin:0 0 10px;padding:10px 14px;border-radius:6px;background:rgba(222,42,42,.15);border:1px solid rgba(222,42,42,.35);color:#ff7070;font-size:11px;font-family:var(--mono);letter-spacing:0.04em;text-transform:uppercase;line-height:1.4"></div>
+
+    <!-- Camera viewfinder -->
+    <div id="dopCameraWrap"
+         style="width:100%;max-width:360px;aspect-ratio:1/1;position:relative;background:#000;border-radius:6px;overflow:hidden">
+      <div id="dopReader" style="position:absolute;inset:0"></div>
+    </div>
+
+    <!-- Confirmed state (hidden until scan succeeds) -->
+    <div id="dopConfirmed" style="display:none;text-align:center;width:100%;max-width:360px">
+      <div id="dopName" style="font-size:22px;color:var(--yellow);font-weight:700;letter-spacing:0.02em;font-family:var(--cond)"></div>
+      <div id="dopMeta" style="font-size:12px;color:#888;margin-top:4px;letter-spacing:0.1em;text-transform:uppercase;font-family:var(--mono)"></div>
+      <button id="dopStartBtn"
+              style="margin-top:16px;width:100%;padding:14px;background:var(--yellow);color:#000;border:none;border-radius:6px;font-weight:700;font-size:14px;font-family:var(--cond);letter-spacing:0.1em;cursor:pointer">
+        START SCANNING →
+      </button>
+    </div>
+
+    <!-- Manual fallback -->
+    <button id="dopManualToggle"
+            style="background:none;border:none;color:#888;font-size:12px;font-family:var(--mono);letter-spacing:0.04em;cursor:pointer;margin-top:4px">
+      ⌨ Type ID instead
+    </button>
+    <div id="dopManualWrap" style="display:none;width:100%;max-width:360px">
+      <input id="dopManualInput" type="text" inputmode="text" placeholder="LOT-FACT-XXXX or 4-digit code"
+             style="width:100%;padding:12px;background:var(--surface);border:1px solid var(--border);color:var(--text);font-size:14px;font-family:var(--mono);border-radius:6px;box-sizing:border-box;letter-spacing:0.06em" />
+      <button id="dopManualSubmit"
+              style="width:100%;margin-top:8px;padding:12px;background:var(--surface);color:var(--text);border:1px solid var(--border);border-radius:6px;font-family:var(--cond);letter-spacing:0.08em;cursor:pointer">
+        SUBMIT
+      </button>
+    </div>
+
+    <button class="btn-secondary" onclick="dispatchOpResetToSupervisor()" style="margin-top:6px">← Supervisor sign-in</button>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
      SCANNER SCREEN
 ══════════════════════════════════ -->
 <div id="scannerScreen" class="screen">
@@ -1252,6 +1297,41 @@ window.addEventListener('load', async () => {
   showSupervisorSignIn({ reason: 'not_setup' });
   routeBootScreen();
 
+  // CC_TASK_DISPATCH_OPERATOR_GATE — wire up gate buttons / manual fallback.
+  const dopStartBtn = document.getElementById('dopStartBtn');
+  if (dopStartBtn) {
+    dopStartBtn.addEventListener('click', () => {
+      stopDispatchOpCamera();
+      document.getElementById('dispatchOpGate').classList.remove('active');
+      bootScanner();
+    });
+  }
+  const dopManualToggle = document.getElementById('dopManualToggle');
+  if (dopManualToggle) {
+    dopManualToggle.addEventListener('click', () => {
+      const wrap = document.getElementById('dopManualWrap');
+      const willShow = wrap.style.display === 'none' || wrap.style.display === '';
+      wrap.style.display = willShow ? 'block' : 'none';
+      if (willShow) setTimeout(() => document.getElementById('dopManualInput').focus(), 50);
+    });
+  }
+  const dopManualSubmit = document.getElementById('dopManualSubmit');
+  if (dopManualSubmit) {
+    dopManualSubmit.addEventListener('click', () => {
+      const val = document.getElementById('dopManualInput').value.trim();
+      if (val) submitDispatchOpLogin(normalizeEmployeeId(val));
+    });
+  }
+  const dopManualInput = document.getElementById('dopManualInput');
+  if (dopManualInput) {
+    dopManualInput.addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        const val = e.target.value.trim();
+        if (val) submitDispatchOpLogin(normalizeEmployeeId(val));
+      }
+    });
+  }
+
   window.addEventListener('online',  onOnline);
   window.addEventListener('offline', onOffline);
   if ('serviceWorker' in navigator) {
@@ -1304,6 +1384,21 @@ async function routeBootScreen() {
     cfg.stationLabel = STATION_DEFS[status.station].label;
   }
   localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+
+  // CC_TASK_DISPATCH_OPERATOR_GATE — D1/D2 devices need an additional per-shift
+  // operator QR scan before the scanner UI opens. If a valid dispatch operator
+  // session is cached locally (expires at 1 AM IST), skip the gate and go
+  // straight to the scanner.
+  if (isDispatchDevice()) {
+    if (dispatchOpSessionValid() && restoreDispatchOperator()) {
+      document.getElementById('loginScreen').classList.remove('active');
+      document.getElementById('dispatchOpGate').classList.remove('active');
+      bootScanner();
+      return;
+    }
+    showDispatchOpGate();
+    return;
+  }
   showOperatorSignIn();
 }
 
@@ -1380,6 +1475,204 @@ function showOperatorSignIn() {
 
   document.getElementById('loginStatus').textContent = '';
   document.getElementById('loginStatus').className   = 'login-status';
+}
+
+// ══════════════════════════════════════════════════════
+// CC_TASK_DISPATCH_OPERATOR_GATE — D1/D2 per-shift operator QR scan
+// ══════════════════════════════════════════════════════
+let dispatchOpScanner = null;
+let dispatchOpBusy    = false;
+
+function isDispatchDevice() {
+  return cfg.line === 'D1' || cfg.line === 'D2';
+}
+
+function dispatchOpSessionValid() {
+  if (!cfg.dispatchOperatorId || !cfg.dispatchOperatorExpiry) return false;
+  return Date.now() < cfg.dispatchOperatorExpiry;
+}
+
+// Restore the cached dispatch operator into runtime state (currentOperator)
+// when the session is still valid. Called from the routeBootScreen branch
+// that skips the gate.
+function restoreDispatchOperator() {
+  if (!dispatchOpSessionValid()) return false;
+  currentOperator = {
+    id:           cfg.dispatchOperatorId,
+    name:         cfg.dispatchOperatorName,
+    employee_id:  cfg.dispatchOperatorEmpId,
+    department:   cfg.dispatchOperatorDept || '',
+    role:         cfg.dispatchOperatorDept || '',
+  };
+  operatorUUID = cfg.dispatchOperatorId;
+  return true;
+}
+
+function showDispatchOpGate() {
+  document.getElementById('loginScreen').classList.remove('active');
+  document.getElementById('setupScreen').classList.remove('active');
+  document.getElementById('scannerScreen').classList.remove('active');
+  document.getElementById('dispatchOpGate').classList.add('active');
+
+  document.getElementById('dopConfirmed').style.display = 'none';
+  document.getElementById('dopCameraWrap').style.display = '';
+  document.getElementById('dopManualWrap').style.display = 'none';
+  document.getElementById('dopBanner').style.display = 'none';
+  document.getElementById('dopBanner').textContent = '';
+  document.getElementById('dopSub').textContent = 'SCAN YOUR QR CARD TO START SHIFT';
+  const manualInput = document.getElementById('dopManualInput');
+  if (manualInput) manualInput.value = '';
+
+  dispatchOpBusy = false;
+  startDispatchOpCamera();
+}
+
+function startDispatchOpCamera() {
+  stopDispatchOpCamera();
+  const readerEl = document.getElementById('dopReader');
+  if (!readerEl) return;
+  readerEl.innerHTML = '';
+
+  const video = document.createElement('video');
+  video.setAttribute('playsinline', '');
+  video.setAttribute('autoplay', '');
+  video.setAttribute('muted', '');
+  video.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;object-fit:cover';
+  readerEl.appendChild(video);
+
+  const canvas = document.createElement('canvas');
+  canvas.style.display = 'none';
+  readerEl.appendChild(canvas);
+
+  const facing = cfg.camFacing || 'environment';
+
+  navigator.mediaDevices.getUserMedia({
+    video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+    audio: false
+  }).then(stream => {
+    video.srcObject = stream;
+    video.play();
+
+    const hints = new Map();
+    hints.set(ZXing.DecodeHintType.POSSIBLE_FORMATS, [
+      ZXing.BarcodeFormat.QR_CODE,
+      ZXing.BarcodeFormat.CODE_128,
+      ZXing.BarcodeFormat.CODE_39,
+      ZXing.BarcodeFormat.DATA_MATRIX
+    ]);
+    const reader = new ZXing.BrowserMultiFormatReader(hints);
+    let active = true;
+
+    video.addEventListener('playing', () => {
+      canvas.width  = video.videoWidth  || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext('2d');
+      function loop() {
+        if (!active) return;
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+          canvas.width  = video.videoWidth;
+          canvas.height = video.videoHeight;
+          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+          try {
+            const lum  = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+            const bmp  = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(lum));
+            const r    = reader.decodeBitmap(bmp);
+            if (r) handleDispatchOpScan(r.getText());
+          } catch(e) {}
+        }
+        requestAnimationFrame(loop);
+      }
+      loop();
+    });
+
+    dispatchOpScanner = { stream, stop: () => {
+      active = false;
+      try { stream.getTracks().forEach(t => t.stop()); } catch(e) {}
+      video.srcObject = null;
+    }};
+  }).catch(e => {
+    const banner = document.getElementById('dopBanner');
+    banner.textContent = 'Camera error: ' + (e.message || e);
+    banner.style.display = '';
+  });
+}
+
+function stopDispatchOpCamera() {
+  if (dispatchOpScanner) {
+    try { dispatchOpScanner.stop(); } catch(e) {}
+    dispatchOpScanner = null;
+  }
+}
+
+function handleDispatchOpScan(rawText) {
+  if (dispatchOpBusy) return;
+  const empId = normalizeEmployeeId(rawText);
+  if (!empId) return;
+  submitDispatchOpLogin(empId);
+}
+
+async function submitDispatchOpLogin(empId) {
+  if (!empId || dispatchOpBusy) return;
+  dispatchOpBusy = true;
+  document.getElementById('dopSub').textContent = 'VERIFYING…';
+  document.getElementById('dopBanner').style.display = 'none';
+
+  const res = await workerPost('loginDispatchOperator', {
+    device_code: cfg.deviceCode,
+    employee_id: empId,
+  });
+
+  if (!res || !res.ok) {
+    const banner = document.getElementById('dopBanner');
+    banner.textContent = (res && res.error) ? res.error : ('Not found: ' + empId);
+    banner.style.display = '';
+    document.getElementById('dopSub').textContent = 'SCAN YOUR QR CARD TO START SHIFT';
+    dispatchOpBusy = false;
+    return;
+  }
+
+  const data = res.data || res;
+  cfg.dispatchOperatorId    = data.operator_id;
+  cfg.dispatchOperatorName  = data.operator_name;
+  cfg.dispatchOperatorEmpId = data.employee_id;
+  cfg.dispatchOperatorDept  = data.department || '';
+  cfg.dispatchOperatorExpiry = data.expires_at
+    ? new Date(data.expires_at).getTime()
+    : setupExpiryClientUTC();
+  localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+
+  currentOperator = {
+    id:          data.operator_id,
+    name:        data.operator_name,
+    employee_id: data.employee_id,
+    department:  data.department || '',
+    role:        data.department || '',
+  };
+  operatorUUID = data.operator_id;
+
+  stopDispatchOpCamera();
+  document.getElementById('dopCameraWrap').style.display = 'none';
+  document.getElementById('dopManualWrap').style.display = 'none';
+  document.getElementById('dopSub').textContent = 'SIGNED IN — TAP TO START';
+  document.getElementById('dopName').textContent = data.operator_name;
+  document.getElementById('dopMeta').textContent =
+    [(data.department || '').toUpperCase(), data.line, data.station].filter(Boolean).join(' · ');
+  document.getElementById('dopConfirmed').style.display = '';
+  vibrate([60, 40, 60]);
+  playSuccessBeep();
+}
+
+// 1 AM IST as UTC ms, client-side fallback if worker did not return expires_at.
+function setupExpiryClientUTC() {
+  const IST_OFFSET_MS = 5.5 * 60 * 60 * 1000;
+  const ist = new Date(Date.now() + IST_OFFSET_MS);
+  return Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 19, 30, 0);
+}
+
+function dispatchOpResetToSupervisor() {
+  stopDispatchOpCamera();
+  document.getElementById('dispatchOpGate').classList.remove('active');
+  showSupervisorSignIn({ reason: 'not_setup' });
 }
 
 // FEAT-022 — verify the supervisor PIN and surface the active-supervisor list.
