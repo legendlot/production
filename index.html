@@ -775,12 +775,12 @@
     <div class="field">
       <div class="seg-group" id="s_dispatchStationGroup">
         <div class="seg-row">
-          <div class="seg-btn" data-val="Dispatch In"  data-code="DTK"   data-shared="1" onclick="pickStation(this)">Dispatch In</div>
-          <div class="seg-btn" data-val="Allocate"     data-code="ALLOC" data-shared="1" onclick="pickStation(this)">Allocate</div>
+          <div class="seg-btn" data-val="Dispatch In"  data-code="DTK"   data-line-group="dispatch" onclick="pickStation(this)">Dispatch In</div>
+          <div class="seg-btn" data-val="Allocate"     data-code="ALLOC" data-line-group="dispatch" onclick="pickStation(this)">Allocate</div>
         </div>
         <div class="seg-row">
-          <div class="seg-btn" data-val="Dispatch Out" data-code="DOUT"  data-shared="1" onclick="pickStation(this)">Dispatch Out</div>
-          <div class="seg-btn" data-val="Dispatch Pack" data-code="PACK" data-shared="1" onclick="pickStation(this)">Pack</div>
+          <div class="seg-btn" data-val="Dispatch Out" data-code="DOUT"  data-line-group="dispatch" onclick="pickStation(this)">Dispatch Out</div>
+          <div class="seg-btn" data-val="Dispatch Pack" data-code="PACK" data-line-group="dispatch" onclick="pickStation(this)">Pack</div>
         </div>
       </div>
     </div>
@@ -811,6 +811,15 @@
         <div class="seg-btn" data-val="L3" onclick="pickLine(this)">L3</div>
         <div class="seg-btn" data-val="L4" onclick="pickLine(this)">L4</div>
         <div class="seg-btn" data-val="L5" onclick="pickLine(this)">L5</div>
+      </div>
+    </div>
+
+    <!-- DISPATCH LINE FIELD — shown when a dispatch station (PACK/DTK/ALLOC/DOUT) is selected -->
+    <div class="field" id="s_dispatchLineField" style="display:none">
+      <div class="sec-div">Dispatch Line</div>
+      <div class="seg-row">
+        <div class="seg-btn" data-val="D1" onclick="pickDispatchLine(this)">D1</div>
+        <div class="seg-btn" data-val="D2" onclick="pickDispatchLine(this)">D2</div>
       </div>
     </div>
 
@@ -1804,17 +1813,32 @@ function goToSetup() {
     document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn, #s_extStationGroup .seg-btn, #s_storeStationGroup .seg-btn').forEach(b => {
       b.classList.toggle('on', b.dataset.val === cfg.stationLabel);
     });
-    const savedBtn = document.querySelector(`.seg-btn[data-val="${cfg.stationLabel}"]`);
+    const savedBtn  = document.querySelector(`.seg-btn[data-val="${cfg.stationLabel}"]`);
+    const lField    = document.getElementById('s_lineField');
+    const dField    = document.getElementById('s_dispatchLineField');
     if (savedBtn) {
-      const isShared = savedBtn.dataset.shared === '1';
-      document.getElementById('s_lineField').style.display = isShared ? 'none' : '';
+      const lineGroup = savedBtn.dataset.lineGroup || '';
+      const isShared  = savedBtn.dataset.shared === '1' && !lineGroup;
+      if (lineGroup === 'dispatch') {
+        lField.style.display = 'none';
+        dField.style.display = '';
+      } else if (isShared) {
+        lField.style.display = 'none';
+        dField.style.display = 'none';
+      } else {
+        lField.style.display = '';
+        dField.style.display = 'none';
+      }
     }
   }
 
   if (cfg.line && cfg.line !== 'SHARED') {
-    document.querySelectorAll('#s_lineField .seg-btn').forEach(b => {
-      b.classList.toggle('on', b.dataset.val === cfg.line);
-    });
+    // Restore selection into whichever picker matches the saved line value.
+    const lBtn = document.querySelector(`#s_lineField .seg-btn[data-val="${cfg.line}"]`);
+    const dBtn = document.querySelector(`#s_dispatchLineField .seg-btn[data-val="${cfg.line}"]`);
+    document.querySelectorAll('#s_lineField .seg-btn, #s_dispatchLineField .seg-btn').forEach(b => b.classList.remove('on'));
+    if (lBtn) lBtn.classList.add('on');
+    if (dBtn) dBtn.classList.add('on');
   }
 
   document.querySelectorAll('.seg-btn[data-val="environment"], .seg-btn[data-val="user"]').forEach(b => {
@@ -1836,20 +1860,39 @@ function goToSetup() {
 
 function pickStation(el) {
   const allBtns = document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn, #s_extStationGroup .seg-btn, #s_storeStationGroup .seg-btn');
+  const lField = document.getElementById('s_lineField');
+  const dField = document.getElementById('s_dispatchLineField');
   // Toggle off if already selected
   if (el.classList.contains('on')) {
     el.classList.remove('on');
-    document.getElementById('s_lineField').style.display = '';
+    lField.style.display = '';
+    dField.style.display = 'none';
     document.getElementById('legacyRegPanel').style.display = 'none';
     return;
   }
   allBtns.forEach(b => b.classList.remove('on'));
   el.classList.add('on');
-  const isShared = el.dataset.shared === '1';
-  document.getElementById('s_lineField').style.display = isShared ? 'none' : '';
-  if (isShared) {
+
+  // Three-way line-picker visibility — keyed on data-line-group with data-shared fallback.
+  //   data-line-group="dispatch" → D-line picker (D1, D2)
+  //   data-shared="1"           → no line picker (LOOKUP, ATTENDANCE, PKG_OUT, RTO_IN, STORE_ISSUE, LEGACY_REG)
+  //   default (production)      → L-line picker (L1–L5)
+  const lineGroup = el.dataset.lineGroup || '';
+  const isShared  = el.dataset.shared === '1' && !lineGroup;
+  if (lineGroup === 'dispatch') {
+    lField.style.display = 'none';
+    dField.style.display = '';
     document.querySelectorAll('#s_lineField .seg-btn').forEach(b => b.classList.remove('on'));
+  } else if (isShared) {
+    lField.style.display = 'none';
+    dField.style.display = 'none';
+    document.querySelectorAll('#s_lineField .seg-btn, #s_dispatchLineField .seg-btn').forEach(b => b.classList.remove('on'));
+  } else {
+    lField.style.display = '';
+    dField.style.display = 'none';
+    document.querySelectorAll('#s_dispatchLineField .seg-btn').forEach(b => b.classList.remove('on'));
   }
+
   // Hide legacy panel unless legacy reg is selected
   document.getElementById('legacyRegPanel').style.display =
     el.dataset.code === 'LEGACY_REG' ? '' : 'none';
@@ -1859,6 +1902,11 @@ function pickStation(el) {
 
 function pickLine(el) {
   document.querySelectorAll('#s_lineField .seg-btn').forEach(b => b.classList.remove('on'));
+  el.classList.add('on');
+}
+
+function pickDispatchLine(el) {
+  document.querySelectorAll('#s_dispatchLineField .seg-btn').forEach(b => b.classList.remove('on'));
   el.classList.add('on');
 }
 
@@ -1893,12 +1941,21 @@ async function saveSetup() {
   if (!stationEl) { showToast('Select a station', 'err'); return; }
 
   const stationCode = stationEl.dataset.code;
-  const isShared    = stationEl.dataset.shared === '1';
-  const lineEl      = document.querySelector('#s_lineField .seg-btn.on');
+  const lineGroup   = stationEl.dataset.lineGroup || '';
+  const isShared    = stationEl.dataset.shared === '1' && !lineGroup;
 
-  if (!isShared && !lineEl) { showToast('Select a line', 'err'); return; }
-
-  const line = isShared ? 'SHARED' : lineEl.dataset.val;
+  let line;
+  if (lineGroup === 'dispatch') {
+    const dLineEl = document.querySelector('#s_dispatchLineField .seg-btn.on');
+    if (!dLineEl) { showToast('Select a dispatch line', 'err'); return; }
+    line = dLineEl.dataset.val;
+  } else if (isShared) {
+    line = 'SHARED';
+  } else {
+    const lineEl = document.querySelector('#s_lineField .seg-btn.on');
+    if (!lineEl) { showToast('Select a line', 'err'); return; }
+    line = lineEl.dataset.val;
+  }
 
   const statusEl = document.getElementById('setupStatus');
   statusEl.textContent = 'Looking up device...';
