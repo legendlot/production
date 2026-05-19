@@ -1480,7 +1480,7 @@ function showOperatorSignIn() {
 let dispatchOpScanner = null;
 let dispatchOpBusy    = false;
 
-const DISPATCH_STATION_CODES = new Set(['PACK', 'DTK', 'ALLOC', 'DOUT', 'PKG_OUT']);
+const DISPATCH_STATION_CODES = new Set(['PACK', 'DTK', 'ALLOC', 'DOUT']);
 function isDispatchStation() {
   return DISPATCH_STATION_CODES.has(cfg.stationCode);
 }
