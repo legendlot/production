@@ -3022,17 +3022,25 @@ async function doStoreIssueScan(barcode) {
   if (idx !== -1) storePickLines[idx].scanned_qty = d.scanned_qty;
   renderStoreProgressBar();
 
-  flash('ok'); vibrate([50]); playSuccessBeep();
-
-  const over = d.scanned_qty > d.required_qty;
+  // Soft policy: server always counts the scan. over_target is an audit/UI flag,
+  // not a rejection. Worker logs to scan_violations; we surface a yellow warning
+  // toast + double haptic so the operator notices.
+  const over = !!d.over_target || d.scanned_qty > d.required_qty;
   const done = d.scanned_qty >= d.required_qty;
+
+  flash(over ? 'pending' : 'ok');
+  vibrate(over ? [60, 50, 60] : [50]);
+  playSuccessBeep();
+
   let label = `PICK ✓ ${d.part_code} ${d.qty} pcs [${d.scanned_qty}/${d.required_qty}]`;
   if (done && !over) label += ' ✓';
-  if (over)          label += ' ⚠ OVER';
+  if (over)          label += ` ⚠ OVER +${d.scanned_qty - d.required_qty}`;
   addLog({ barcode, status: over ? 'pending' : 'ok', tag:'PICK', label });
 
-  if (d.pick_complete) {
+  if (d.pick_complete && !over) {
     showToast(`ALL PARTS PICKED — ${storePickRun.run_no} READY TO ISSUE`, 'ok');
+  } else if (over) {
+    showToast(`⚠ OVER PICK — ${d.part_code} ${d.scanned_qty}/${d.required_qty} (logged)`, 'warn');
   } else {
     showToast(`✓ ${d.part_code} ${d.scanned_qty}/${d.required_qty}`, 'ok');
   }
