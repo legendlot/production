@@ -3223,7 +3223,7 @@ function buildLookupBoxHTML(data, barcode) {
     unitRows = '<div style="padding:12px 0;color:var(--muted);font-size:11px;text-align:center">No units recorded</div>';
   }
 
-  const printers = ['L1', 'L2', 'L3', 'DISPATCH'];
+  const printers = ['L1', 'L2', 'L3', 'D1', 'D2'];
   let printerBtns = '';
   for (const p of printers) {
     const sel = lookupPrinter === p ? ' selected' : '';
@@ -3301,7 +3301,7 @@ function buildLookupUnitHTML(data, barcode) {
   let pkgReprintSection = '';
   if (data.pkg_scan) {
     const ps = data.pkg_scan;
-    const printers = ['L1', 'L2', 'L3', 'DISPATCH'];
+    const printers = ['L1', 'L2', 'L3', 'D1', 'D2'];
     let printerBtns = '';
     for (const p of printers) {
       const sel = lookupPrinter === p ? ' selected' : '';
@@ -3331,7 +3331,7 @@ function buildLookupUnitHTML(data, barcode) {
     const bRef = data.box.box_ref || '';
     const bCount = data.box.unit_count || 0;
     const bModel = data.box.fulfillment_model || '—';
-    const printers = ['L1', 'L2', 'L3', 'DISPATCH'];
+    const printers = ['L1', 'L2', 'L3', 'D1', 'D2'];
     let printerBtns = '';
     for (const p of printers) {
       const sel = lookupPrinter === p ? ' selected' : '';
