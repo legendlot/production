@@ -401,6 +401,38 @@
       font-family:'JetBrains Mono',monospace;width:100%;
     }
 
+    /* ── RTO UPC OVERLAY ── */
+    .rto-upc-overlay{
+      display:none;position:absolute;inset:0;z-index:50;
+      background:rgba(8,8,8,0.97);
+      flex-direction:column;align-items:center;justify-content:center;
+      gap:16px;padding:32px 24px;
+    }
+    .rto-upc-overlay.show{display:flex}
+    .rto-upc-icon{font-size:48px;line-height:1}
+    .rto-upc-label{
+      font-size:10px;color:var(--teal);letter-spacing:0.18em;
+      text-transform:uppercase;text-align:center;
+    }
+    .rto-upc-code{
+      font-size:28px;font-weight:900;color:var(--yellow);
+      letter-spacing:0.06em;background:var(--surface);
+      border:2px solid var(--teal);padding:16px 24px;
+      border-radius:10px;text-align:center;width:100%;
+      word-break:break-all;
+    }
+    .rto-upc-meta{
+      font-size:11px;color:var(--text2);text-align:center;
+      letter-spacing:0.04em;
+    }
+    .rto-upc-done{
+      margin-top:8px;padding:16px 40px;
+      background:var(--teal);color:#000;
+      font-weight:900;font-size:13px;letter-spacing:0.1em;
+      border:none;border-radius:12px;cursor:pointer;
+      font-family:'JetBrains Mono',monospace;width:100%;
+    }
+
     /* ── MODALS ── */
     .modal-backdrop{
       display:none;position:fixed;inset:0;z-index:100;
@@ -1090,6 +1122,15 @@
       <div class="pkg-result-sub" id="pkgPrintStatus">🖨 Sending to printer...</div>
       <button id="pkgReprintBtn" onclick="retryPrint()" style="width:100%;padding:13px;background:var(--surface2);color:var(--text2);font-weight:700;font-size:12px;letter-spacing:0.1em;border:1px solid var(--border2);border-radius:10px;cursor:pointer;font-family:'JetBrains Mono',monospace">🖨 REPRINT LABEL</button>
       <button class="pkg-result-done" onclick="clearPkgResult()">NEXT UNIT →</button>
+    </div>
+
+    <!-- RTO_IN minted UPC overlay — shown after registerLegacyUnit mints a fresh LOT UPC -->
+    <div class="rto-upc-overlay" id="rtoUpcOverlay">
+      <div class="rto-upc-icon">✅</div>
+      <div class="rto-upc-label">MINTED LOT UPC — WRITE THIS DOWN:</div>
+      <div class="rto-upc-code" id="rtoUpcCode">—</div>
+      <div class="rto-upc-meta" id="rtoUpcMeta"></div>
+      <button class="rto-upc-done" onclick="clearRtoUpcOverlay()">NEXT SCAN →</button>
     </div>
 
     <!-- PACK result overlay -->
@@ -3759,7 +3800,17 @@ async function processBarcode(barcode, act) {
         ? `${r.product} ${r.model} ${r.color} — EXISTING UNIT RTO_IN`
         : `${r.product} ${r.model} ${r.color} — NEW UNIT → ${r.car_upc}`;
       addLog({ barcode, status:'ok', tag:'RTO_IN', label });
-      document.getElementById('scanHint').textContent = 'RTO RECORDED';
+      if (!r.found_existing && r.car_upc) {
+        // New unit: show minted LOT UPC prominently so operator can write it down
+        document.getElementById('rtoUpcCode').textContent = r.car_upc;
+        document.getElementById('rtoUpcMeta').textContent =
+          [r.product, r.model, r.color].filter(Boolean).join(' · ');
+        document.getElementById('rtoUpcOverlay').classList.add('show');
+        document.getElementById('scanHint').textContent = 'RTO RECORDED';
+      } else {
+        // Existing unit re-recorded — no new UPC, plain hint is sufficient
+        document.getElementById('scanHint').textContent = 'RTO RECORDED';
+      }
     } catch(e) {
       addLog({ barcode, status:'err', tag:'RTO_IN', label:'NETWORK ERROR' });
       document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
@@ -4108,6 +4159,13 @@ function clearPkgResult() {
   pkgResultShowing = false;
   pkgInFlight      = false;
   document.getElementById('pkgResult').classList.remove('show');
+  // Reset debounce so next scan isn't suppressed
+  lastBarcode = '';
+  lastScanTs  = 0;
+}
+
+function clearRtoUpcOverlay() {
+  document.getElementById('rtoUpcOverlay').classList.remove('show');
   // Reset debounce so next scan isn't suppressed
   lastBarcode = '';
   lastScanTs  = 0;
