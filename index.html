@@ -1016,6 +1016,17 @@
         RETAIL
       </button>
     </div>
+    <div id="legacyPrinterToggle" style="display:none;display:flex;gap:8px;margin-bottom:10px">
+      <div style="flex:0 0 auto;align-self:center;font-size:10px;color:var(--text3);font-family:var(--mono);letter-spacing:.08em">PRINT TO</div>
+      <button id="legacyPrintD1" onclick="setLegacyPrinterLine('D1')"
+        style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer">
+        D1
+      </button>
+      <button id="legacyPrintD2" onclick="setLegacyPrinterLine('D2')"
+        style="flex:1;padding:6px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer">
+        D2
+      </button>
+    </div>
     <div id="legacyModeHint" style="font-size:11px;color:var(--text3);font-family:var(--mono);text-align:center;padding:6px 0">
       SELECT MODE ABOVE
     </div>
@@ -2231,12 +2242,16 @@ function buildActivityUI() {}
 
 let _legacyMode    = null; // 'dispatch' | 'store'
 let _legacyChan    = 'E';  // 'E' | 'R' — for dispatch mode
+let _legacyPrintLine = 'D1'; // 'D1' | 'D2' — sticker destination for dispatch mode
 
 function setupLegacyRegStation() {
   document.getElementById('legacyRegPanel').style.display = '';
-  // Restore persisted mode
-  const saved = localStorage.getItem('legacyRegMode');
-  if (saved) setLegacyMode(saved);
+  // Restore persisted mode + printer line
+  const savedMode = localStorage.getItem('legacyRegMode');
+  const savedLine = localStorage.getItem('legacyRegPrintLine');
+  if (savedLine === 'D1' || savedLine === 'D2') _legacyPrintLine = savedLine;
+  setLegacyPrinterLine(_legacyPrintLine);
+  if (savedMode) setLegacyMode(savedMode);
 }
 
 // ── ATTENDANCE station (Manpower Step 4) ──────────────────────────────────
@@ -2373,8 +2388,10 @@ function setLegacyMode(mode) {
   document.getElementById('legacyModeDispatch').style.color      = mode === 'dispatch' ? '#000'          : 'var(--text)';
   document.getElementById('legacyModeStore').style.background    = mode === 'store'    ? 'var(--yellow)' : 'var(--bg3)';
   document.getElementById('legacyModeStore').style.color         = mode === 'store'    ? '#000'          : 'var(--text)';
-  const chanToggle = document.getElementById('legacyChannelToggle');
-  chanToggle.style.display = mode === 'dispatch' ? 'flex' : 'none';
+  const chanToggle    = document.getElementById('legacyChannelToggle');
+  const printerToggle = document.getElementById('legacyPrinterToggle');
+  chanToggle.style.display    = mode === 'dispatch' ? 'flex' : 'none';
+  printerToggle.style.display = mode === 'dispatch' ? 'flex' : 'none';
   document.getElementById('legacyModeHint').textContent =
     mode === 'dispatch' ? 'SCAN EAN FROM BOX EXTERIOR' :
     mode === 'store'    ? 'SCAN LEGACY QR FROM CAR BASE' : 'SELECT MODE ABOVE';
@@ -2387,6 +2404,16 @@ function setLegacyChan(chan) {
   document.getElementById('legacyChanE').style.color      = chan === 'E' ? '#fff'        : 'var(--text)';
   document.getElementById('legacyChanR').style.background = chan === 'R' ? 'var(--blue)' : 'var(--bg3)';
   document.getElementById('legacyChanR').style.color      = chan === 'R' ? '#fff'        : 'var(--text)';
+}
+
+function setLegacyPrinterLine(line) {
+  if (line !== 'D1' && line !== 'D2') return;
+  _legacyPrintLine = line;
+  localStorage.setItem('legacyRegPrintLine', line);
+  document.getElementById('legacyPrintD1').style.background = line === 'D1' ? 'var(--yellow)' : 'var(--bg3)';
+  document.getElementById('legacyPrintD1').style.color      = line === 'D1' ? '#000'          : 'var(--text)';
+  document.getElementById('legacyPrintD2').style.background = line === 'D2' ? 'var(--yellow)' : 'var(--bg3)';
+  document.getElementById('legacyPrintD2').style.color      = line === 'D2' ? '#000'          : 'var(--text)';
 }
 
 let _legacyBusy = false;
@@ -2409,6 +2436,7 @@ async function handleLegacyRegScan(barcode) {
           mode:         _legacyMode,
           scan:         barcode,
           channel_type: _legacyChan,
+          print_line:   _legacyMode === 'dispatch' ? _legacyPrintLine : null,
           operator_id:  operatorUUID || currentOperator?.id || null,
           device_code:  cfg.deviceCode,
         }
