@@ -3556,8 +3556,21 @@ function startMainCamera() {
 
   const facing = cfg.camFacing || 'environment';
 
+  // Enhanced-scan opt-in: dispatch stations (PACK / DTK / ALLOC / DOUT) get
+  // higher resolution + continuous autofocus to better handle faded thermal
+  // labels. Production stations (INW / QC / PKG / PKG_OUT / etc.) keep the
+  // existing 1280×720 path byte-for-byte. Set `localStorage.scannerLegacy = '1'`
+  // on a device to force the legacy path even at dispatch stations (kill-switch
+  // without redeploy).
+  const _enhScan = DISPATCH_STATION_CODES.has(cfg.stationCode)
+                   && localStorage.getItem('scannerLegacy') !== '1';
+  const _videoConstraints = _enhScan
+    ? { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 },
+        advanced: [{ focusMode: 'continuous' }] }
+    : { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } };
+
   navigator.mediaDevices.getUserMedia({
-    video: { facingMode: facing, width: { ideal: 1280 }, height: { ideal: 720 } },
+    video: _videoConstraints,
     audio: false
   }).then(stream => {
     video.srcObject = stream;
@@ -3606,18 +3619,62 @@ function scanFrame(reader, video, canvas) {
   scanLoopActive = true;
   const ctx = canvas.getContext('2d');
 
+  // Same opt-in as startMainCamera: enhanced decode path is dispatch-only and
+  // honours the same `scannerLegacy` kill-switch. Non-dispatch stations run
+  // the original full-frame ZXing path unchanged.
+  const _enhScan = DISPATCH_STATION_CODES.has(cfg.stationCode)
+                   && localStorage.getItem('scannerLegacy') !== '1';
+
+  // Try the native BarcodeDetector first when available (Chrome Android,
+  // ChromeOS, recent Chrome desktop). Far better on damaged / faded thermals
+  // than ZXing-JS. Falls back to ZXing if the API is missing or throws.
+  let detector = null;
+  if (_enhScan && typeof window.BarcodeDetector !== 'undefined') {
+    try {
+      detector = new window.BarcodeDetector({
+        formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'data_matrix']
+      });
+    } catch (e) { detector = null; }
+  }
+  let _bdBusy = false; // guard so async detects don't pile up
+
   function loop() {
     if (!scanLoopActive) return;
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
-      canvas.width  = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-      try {
-        const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
-        const binaryBitmap    = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
-        const result = reader.decodeBitmap(binaryBitmap);
-        if (result) onScan(result.getText());
-      } catch(e) {}
+      const vw = video.videoWidth, vh = video.videoHeight;
+      if (_enhScan && vw && vh) {
+        // ROI: central 60% of the frame. Lens is sharpest near centre and
+        // small barcodes off-axis tend to decode poorly anyway. Operator
+        // is implicitly nudged to centre the label.
+        const roiW = Math.floor(vw * 0.6);
+        const roiH = Math.floor(vh * 0.6);
+        const roiX = Math.floor((vw - roiW) / 2);
+        const roiY = Math.floor((vh - roiH) / 2);
+        canvas.width  = roiW;
+        canvas.height = roiH;
+        ctx.drawImage(video, roiX, roiY, roiW, roiH, 0, 0, roiW, roiH);
+      } else {
+        canvas.width  = vw;
+        canvas.height = vh;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      }
+
+      if (detector && !_bdBusy) {
+        _bdBusy = true;
+        detector.detect(canvas).then(codes => {
+          _bdBusy = false;
+          if (codes && codes.length && codes[0] && codes[0].rawValue) {
+            onScan(codes[0].rawValue);
+          }
+        }).catch(() => { _bdBusy = false; });
+      } else if (!detector) {
+        try {
+          const luminanceSource = new ZXing.HTMLCanvasElementLuminanceSource(canvas);
+          const binaryBitmap    = new ZXing.BinaryBitmap(new ZXing.HybridBinarizer(luminanceSource));
+          const result = reader.decodeBitmap(binaryBitmap);
+          if (result) onScan(result.getText());
+        } catch(e) {}
+      }
     }
     requestAnimationFrame(loop);
   }
