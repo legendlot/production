@@ -3955,14 +3955,12 @@ function startMainCamera() {
 
   const facing = cfg.camFacing || 'environment';
 
-  // Enhanced-scan opt-in: dispatch stations (PACK / DTK / ALLOC / DOUT) get
-  // higher resolution + continuous autofocus to better handle faded thermal
-  // labels. Production stations (INW / QC / PKG / PKG_OUT / etc.) keep the
-  // existing 1280×720 path byte-for-byte. Set `localStorage.scannerLegacy = '1'`
-  // on a device to force the legacy path even at dispatch stations (kill-switch
-  // without redeploy).
-  const _enhScan = DISPATCH_STATION_CODES.has(cfg.stationCode)
-                   && localStorage.getItem('scannerLegacy') !== '1';
+  // Enhanced-scan path: 1080p capture + continuous autofocus to better handle
+  // faded thermal labels. Applies to every station after Session 71 rollout
+  // (was dispatch-only — PACK / DTK / ALLOC / DOUT — during the dispatch-pilot
+  // window). Set `localStorage.scannerLegacy = '1'` on a device to force the
+  // legacy 1280×720 + plain-ZXing path without a redeploy.
+  const _enhScan = localStorage.getItem('scannerLegacy') !== '1';
   const _videoConstraints = _enhScan
     ? { facingMode: facing, width: { ideal: 1920 }, height: { ideal: 1080 },
         advanced: [{ focusMode: 'continuous' }] }
@@ -4018,11 +4016,11 @@ function scanFrame(reader, video, canvas) {
   scanLoopActive = true;
   const ctx = canvas.getContext('2d');
 
-  // Same opt-in as startMainCamera: enhanced decode path is dispatch-only and
-  // honours the same `scannerLegacy` kill-switch. Non-dispatch stations run
-  // the original full-frame ZXing path unchanged.
-  const _enhScan = DISPATCH_STATION_CODES.has(cfg.stationCode)
-                   && localStorage.getItem('scannerLegacy') !== '1';
+  // Same gate as startMainCamera: enhanced decode path applies to every
+  // station (Session 71 rollout) and honours the `scannerLegacy` per-device
+  // kill-switch. Setting `localStorage.scannerLegacy='1'` reverts that
+  // tablet to the original full-frame ZXing path.
+  const _enhScan = localStorage.getItem('scannerLegacy') !== '1';
 
   // Try the native BarcodeDetector first when available (Chrome Android,
   // ChromeOS, recent Chrome desktop). Far better on damaged / faded thermals
