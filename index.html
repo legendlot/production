@@ -815,6 +815,9 @@
           <div class="seg-btn" data-val="Dispatch Out" data-code="DOUT"  data-line-group="dispatch" onclick="pickStation(this)">Dispatch Out</div>
           <div class="seg-btn" data-val="Dispatch Pack" data-code="PACK" data-line-group="dispatch" onclick="pickStation(this)">Pack</div>
         </div>
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Restock" data-code="RESTOCK" data-line-group="dispatch" onclick="pickStation(this)">Restock</div>
+        </div>
       </div>
     </div>
 
@@ -1128,6 +1131,38 @@
         style="width:100%;padding:10px;border-radius:6px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer">
         ✓ DONE — CLOSE SHIPMENT
       </button>
+    </div>
+  </div>
+
+  <!-- ── RESTOCK panel (Session 72) — reason picker for unit restock ── -->
+  <div id="restockPanel" style="display:none;margin-bottom:12px">
+    <div style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:10px">
+      <div style="font-size:10px;color:var(--text3);font-family:var(--mono);letter-spacing:.05em;margin-bottom:6px">REASON FOR RESTOCK</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+        <button class="restock-reason on" data-val="orders_cancelled" onclick="setRestockReason(this)"
+          style="padding:8px;border-radius:5px;border:1px solid var(--border2);background:var(--yellow);color:#000;font-family:var(--mono);font-size:11px;font-weight:700;cursor:pointer">
+          ORDER CANCELLED
+        </button>
+        <button class="restock-reason" data-val="unsold_inventory" onclick="setRestockReason(this)"
+          style="padding:8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg2);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer">
+          UNSOLD INVENTORY
+        </button>
+        <button class="restock-reason" data-val="sample_return" onclick="setRestockReason(this)"
+          style="padding:8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg2);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer">
+          SAMPLE RETURN
+        </button>
+        <button class="restock-reason" data-val="other" onclick="setRestockReason(this)"
+          style="padding:8px;border-radius:5px;border:1px solid var(--border2);background:var(--bg2);color:var(--text);font-family:var(--mono);font-size:11px;cursor:pointer">
+          OTHER
+        </button>
+      </div>
+      <div id="restockNoteWrap" style="display:none;margin-top:4px">
+        <input id="restockNoteInput" type="text" placeholder="Reason note (required for 'Other')"
+          style="width:100%;box-sizing:border-box;padding:8px;border-radius:5px;border:1px solid #DE2A2A;background:var(--bg2);color:var(--text);font-family:var(--mono);font-size:12px">
+      </div>
+      <div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:8px;text-align:center;border-top:1px solid var(--border2);padding-top:6px">
+        ⚠ Courier-touched returns must go through RTO_IN, not Restock
+      </div>
     </div>
   </div>
 
@@ -2086,6 +2121,7 @@ const STATION_DEFS = {
   ATTENDANCE: { label: 'Attendance',      activity: 'ATTENDANCE', hint: 'SCAN OR TYPE EMPLOYEE ID' },
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
   STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN THEN SCAN BAG QR' },
+  RESTOCK:    { label: 'Restock',          activity: 'RESTOCK',     hint: 'PICK REASON, SCAN LOT UPC — UNUSED UNITS ONLY' },
 };
 
 async function saveSetup() {
@@ -2296,6 +2332,8 @@ function bootScanner() {
     cfg.stationCode === 'REPAIR' ? '' : 'none';
   document.getElementById('retInPanel').style.display =
     cfg.stationCode === 'RET_IN' ? '' : 'none';
+  document.getElementById('restockPanel').style.display =
+    cfg.stationCode === 'RESTOCK' ? '' : 'none';
   if (cfg.stationCode === 'DTK')         { setupDtkStation();         }
   if (cfg.stationCode === 'ALLOC')       { setupAllocStation();       }
   if (cfg.stationCode === 'PACK')        { setupPackStation();        }
@@ -2303,6 +2341,7 @@ function bootScanner() {
   if (cfg.stationCode === 'REPAIR')      { setupRepairStation();      }
   if (cfg.stationCode === 'STORE_ISSUE') { setupStoreIssueStation();  }
   if (cfg.stationCode === 'RET_IN')      { setupRetInStation();       }
+  if (cfg.stationCode === 'RESTOCK')     { setupRestockStation();     }
 
   // ATTENDANCE — camera scans operator QR cards; the typed input collapses
   // behind a toggle so the soft keyboard doesn't pre-empt the camera.
@@ -2870,6 +2909,56 @@ async function closeRetInShipment() {
   _retInScans = [];
   renderRetInLog();
   refreshRetInUi();
+}
+
+// ════════════════════════════════════════════════════════════════
+// RESTOCK STATION (Session 72)
+// ════════════════════════════════════════════════════════════════
+let _restockReason = 'orders_cancelled';
+
+function setupRestockStation() {
+  // Restore saved reason (persists across device reloads / sessions)
+  const saved = localStorage.getItem('restockReason');
+  const VALID = ['orders_cancelled','unsold_inventory','sample_return','other'];
+  _restockReason = VALID.includes(saved) ? saved : 'orders_cancelled';
+  // Apply visual selection
+  document.querySelectorAll('.restock-reason').forEach(btn => {
+    if (btn.dataset.val === _restockReason) {
+      btn.style.background = 'var(--yellow)';
+      btn.style.color      = '#000';
+      btn.style.fontWeight = '700';
+      btn.classList.add('on');
+    } else {
+      btn.style.background = 'var(--bg2)';
+      btn.style.color      = 'var(--text)';
+      btn.style.fontWeight = '';
+      btn.classList.remove('on');
+    }
+  });
+  const noteWrap = document.getElementById('restockNoteWrap');
+  if (noteWrap) noteWrap.style.display = _restockReason === 'other' ? '' : 'none';
+  const noteInput = document.getElementById('restockNoteInput');
+  if (noteInput) noteInput.value = '';
+}
+
+function setRestockReason(btn) {
+  _restockReason = btn.dataset.val;
+  localStorage.setItem('restockReason', _restockReason);
+  document.querySelectorAll('.restock-reason').forEach(b => {
+    if (b === btn) {
+      b.style.background = 'var(--yellow)';
+      b.style.color      = '#000';
+      b.style.fontWeight = '700';
+      b.classList.add('on');
+    } else {
+      b.style.background = 'var(--bg2)';
+      b.style.color      = 'var(--text)';
+      b.style.fontWeight = '';
+      b.classList.remove('on');
+    }
+  });
+  const noteWrap = document.getElementById('restockNoteWrap');
+  if (noteWrap) noteWrap.style.display = _restockReason === 'other' ? '' : 'none';
 }
 
 // ── DTK station setup ────────────────────────────────────────────
@@ -5140,15 +5229,32 @@ async function submitScanWorker(barcode, act) {
   // FEAT-016 Phase 2 — EXT_INW routes to its own SCANNER_ACTION (postExtInw),
   // not the generic postScan. Payload mirrors postScan minus the activity tag
   // (the worker action name itself implies the activity).
-  const isExtInw      = act === 'EXT_INW';
-  const workerAction  = isExtInw ? 'postExtInw' : 'postScan';
+  // Session 72 — RESTOCK routes to postRestock and includes the reason picker
+  //              state captured at the scan moment.
+  const isExtInw   = act === 'EXT_INW';
+  const isRestock  = act === 'RESTOCK';
+  let workerAction = 'postScan';
+  if (isExtInw)  workerAction = 'postExtInw';
+  if (isRestock) workerAction = 'postRestock';
   const payload = {
     upc:          barcode,
     device_code:  cfg.deviceCode,
     operator_id:  operatorUUID || currentOperator?.id,
     line:         cfg.line,
   };
-  if (!isExtInw) payload.activity = act;
+  if (!isExtInw && !isRestock) payload.activity = act;
+
+  if (isRestock) {
+    payload.reason = _restockReason || 'orders_cancelled';
+    const noteEl = document.getElementById('restockNoteInput');
+    const note   = (noteEl?.value || '').trim();
+    if (payload.reason === 'other' && !note) {
+      showReject('REASON NOTE REQUIRED', 'Enter a reason note before scanning when reason is "Other".');
+      playErrBeep(); vibrate([100,50,100]);
+      return null;
+    }
+    if (note) payload.reason_note = note;
+  }
 
   if (!isOnline) {
     enqueue(workerAction, payload);
