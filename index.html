@@ -3574,9 +3574,15 @@ async function doStoreIssueScan(barcode) {
   }
 
   const d = res.data;
-  // Update local state
-  const idx = storePickLines.findIndex(l => l.part_code === d.part_code);
-  if (idx !== -1) storePickLines[idx].scanned_qty = d.scanned_qty;
+  // B-1: prefer full-array refresh from server. Catches Garage-side voids and
+  // any line-level changes without an extra getRunPickStatus call. Falls back
+  // to point-update if the worker is older.
+  if (Array.isArray(d.pick_lines)) {
+    storePickLines = d.pick_lines;
+  } else {
+    const idx = storePickLines.findIndex(l => l.part_code === d.part_code);
+    if (idx !== -1) storePickLines[idx].scanned_qty = d.scanned_qty;
+  }
   renderStoreProgressBar();
 
   // Soft policy: server always counts the scan. over_target is an audit/UI flag,
