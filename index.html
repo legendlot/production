@@ -3509,8 +3509,11 @@ function setRepackHint(text) {
 async function doRepackInScan(barcode) {
   if (!repackRun) { showReject('NO RUN SELECTED', 'Select a repack run above first'); playErrBeep(); vibrate([100,50,100]); return; }
   if (!isOnline)  { showReject('OFFLINE', 'Repack requires a live connection'); playErrBeep(); vibrate([100,50,100]); return; }
-  if (!/^BOX-\d+$/i.test(barcode)) {
-    showReject('WRONG BARCODE', 'Scan the OLD box label (BOX-XXXXX)');
+  // Old-box label format depends on the box's fulfillment model: bulk boxes
+  // carry a BOX-XXXXX label; unit boxes (~99% of dispatch) carry the car's
+  // PKG batch label (LOT-XXXXXXXX-E/R). Accept both (same as Dispatch Out).
+  if (!/^BOX-\d+$/i.test(barcode) && !/^LOT-\d+(-[ER])?$/i.test(barcode)) {
+    showReject('WRONG BARCODE', 'Scan the OLD box label (BOX-XXXXX or LOT-XXXXXXXX)');
     playErrBeep(); vibrate([100,50,100]);
     addLog({ barcode, status:'err', tag:'REPACK_IN', label:'WRONG FORMAT' });
     return;
