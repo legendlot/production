@@ -3534,7 +3534,8 @@ async function doRepackInScan(barcode) {
   flash('ok'); vibrate([50,30,50]); playSuccessBeep();
   const skip = d.skipped_out_of_scope ? ` · ${d.skipped_out_of_scope} out-of-scope skipped` : '';
   addLog({ barcode, status:'ok', tag:'REPACK_IN', label:`FREED ${d.freed_count}${skip}` });
-  showToast(`✓ ${d.freed_count} unit${d.freed_count !== 1 ? 's' : ''} freed — repack into ${d.to_channel} boxes at Repack Out`, 'ok');
+  const fromCh = d.from_channel ? ` (was ${d.from_channel})` : '';
+  showToast(`✓ ${d.freed_count} unit${d.freed_count !== 1 ? 's' : ''} freed${fromCh} — now scan at Repack Out`, 'ok');
 }
 
 // REPACK_OUT — acts EXACTLY like PKG: two-scan car+remote pair-verify on
