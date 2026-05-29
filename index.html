@@ -818,6 +818,10 @@
         <div class="seg-row">
           <div class="seg-btn" data-val="Restock" data-code="RESTOCK" data-line-group="dispatch" onclick="pickStation(this)">Restock</div>
         </div>
+        <div class="seg-row">
+          <div class="seg-btn" data-val="Repack In"  data-code="REPACK_IN"  data-line-group="dispatch" onclick="pickStation(this)">Repack In</div>
+          <div class="seg-btn" data-val="Repack Out" data-code="REPACK_OUT" data-line-group="dispatch" onclick="pickStation(this)">Repack Out</div>
+        </div>
       </div>
     </div>
 
@@ -1666,7 +1670,7 @@ function showOperatorSignIn() {
 let dispatchOpScanner = null;
 let dispatchOpBusy    = false;
 
-const DISPATCH_STATION_CODES = new Set(['PACK', 'DTK', 'ALLOC', 'DOUT']);
+const DISPATCH_STATION_CODES = new Set(['PACK', 'DTK', 'ALLOC', 'DOUT', 'REPACK_IN', 'REPACK_OUT']);
 function isDispatchStation() {
   return DISPATCH_STATION_CODES.has(cfg.stationCode);
 }
@@ -2122,6 +2126,8 @@ const STATION_DEFS = {
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
   STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN THEN SCAN BAG QR' },
   RESTOCK:    { label: 'Restock',          activity: 'RESTOCK',     hint: 'PICK REASON, SCAN LOT UPC — UNUSED UNITS ONLY' },
+  REPACK_IN:  { label: 'Repack In',        activity: 'REPACK_IN',   hint: 'SELECT RUN THEN SCAN OLD BOX LABEL' },
+  REPACK_OUT: { label: 'Repack Out',       activity: 'REPACK_OUT',  hint: 'SELECT RUN, SCAN CAR THEN DEST BOX' },
 };
 
 async function saveSetup() {
@@ -2322,7 +2328,7 @@ function bootScanner() {
   // DTK / ALLOC station setup
   // Remove all injected station UI elements before setting up new station
   ['packModeToggle','packShipmentSelector','packDirectSelector',
-   'allocChannelBar','dtkPanel'].forEach(id => {
+   'allocChannelBar','dtkPanel','repackRunBar','repackProgressBar'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.remove();
   });
@@ -2342,6 +2348,8 @@ function bootScanner() {
   if (cfg.stationCode === 'STORE_ISSUE') { setupStoreIssueStation();  }
   if (cfg.stationCode === 'RET_IN')      { setupRetInStation();       }
   if (cfg.stationCode === 'RESTOCK')     { setupRestockStation();     }
+  if (cfg.stationCode === 'REPACK_IN' ||
+      cfg.stationCode === 'REPACK_OUT')  { setupRepackStation();       }
 
   // ATTENDANCE — camera scans operator QR cards; the typed input collapses
   // behind a toggle so the soft keyboard doesn't pre-empt the camera.
@@ -3405,6 +3413,191 @@ async function doPackScan(barcode) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// REPACK_IN / REPACK_OUT stations (Channel Swap — Session 86)
+// Both share a run picker (Open/In Progress repack runs via device-auth
+// getRepackableRuns). REPACK_IN: select run → scan the OLD box label
+// (BOX-XXXXX) → worker frees every in-scope unit in that box. REPACK_OUT:
+// select run → scan car LOT-UPC → scan destination box label → worker
+// re-packs into the dest-channel box and queues the new sticker.
+// ════════════════════════════════════════════════════════════════
+let repackRun        = null;   // selected run { id, run_no, product, variant_model, colour, from_channel, to_channel, target_qty, repacked }
+let repackableRuns   = [];     // cached list for the selector
+let pendingRepackCar = null;   // REPACK_OUT: car scanned, awaiting dest box
+
+async function loadRepackableRuns() {
+  try {
+    const res = await workerPost('getRepackableRuns', { device_code: cfg.deviceCode });
+    if (!res.ok) { repackableRuns = []; showReject('LOAD FAILED', res.error || 'Failed to load runs'); return; }
+    repackableRuns = res.data || [];
+  } catch (e) {
+    repackableRuns = [];
+    showReject('LOAD FAILED', e.message);
+  }
+}
+
+async function setupRepackStation() {
+  repackRun = null;
+  pendingRepackCar = null;
+  // Clear any leftover selectors from a prior station
+  ['storeRunBar','storeProgressBar','packShipmentBar','packDirectBar',
+   'packBoxBar','allocChannelBar','repackRunBar','repackProgressBar'].forEach(id => {
+    const el = document.getElementById(id); if (el) el.remove();
+  });
+  await loadRepackableRuns();
+  renderRepackRunSelector();
+}
+
+function renderRepackRunSelector() {
+  const existing = document.getElementById('repackRunBar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id = 'repackRunBar';
+  bar.className = 'pack-shipment-bar';
+  bar.style.position = 'relative';
+
+  const label    = repackRun ? `${repackRun.run_no} · ${repackRun.product}` : 'Select Repack Run';
+  const isActive = !!repackRun;
+
+  const items = repackableRuns.map(r => {
+    const variant = [r.variant_model, r.colour].filter(Boolean).join(' ');
+    const prog    = `${r.repacked || 0}/${r.target_qty}`;
+    return `<div class="pack-ship-item" onclick="selectRepackRun('${r.id}')">
+      <div>
+        <div class="pack-ship-name">${r.run_no} <span style="color:var(--muted);font-weight:600">${r.from_channel}→${r.to_channel}</span></div>
+        <div class="pack-ship-meta">${r.product}${variant ? ' · ' + variant : ''} · ${prog}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  bar.innerHTML = `
+    <div id="repackRunSelected" class="pack-shipment-selected ${isActive ? 'active' : ''}"
+         onclick="toggleRepackRunList()">
+      <span id="repackRunLabel">${label}</span>
+      <span style="font-size:10px;color:var(--muted)">▼</span>
+    </div>
+    <div id="repackRunList" class="pack-shipment-list">
+      ${items || '<div style="padding:14px;font-size:11px;color:var(--muted)">No open repack runs</div>'}
+    </div>`;
+
+  const camWrap = document.querySelector('.camera-wrap');
+  if (camWrap) camWrap.parentNode.insertBefore(bar, camWrap);
+}
+
+function toggleRepackRunList() {
+  const list = document.getElementById('repackRunList');
+  if (list) list.classList.toggle('show');
+}
+
+function selectRepackRun(runId) {
+  const run = repackableRuns.find(r => String(r.id) === String(runId));
+  if (!run) return;
+  repackRun = run;
+  pendingRepackCar = null;
+  toggleRepackRunList();
+  renderRepackRunSelector();
+  const variant = [run.variant_model, run.colour].filter(Boolean).join(' ');
+  showToast(`✓ ${run.run_no} — ${run.from_channel}→${run.to_channel} ${run.product}${variant ? ' ' + variant : ''}`, 'ok');
+}
+
+function setRepackHint(text) {
+  const h = document.getElementById('scanHint');
+  if (h) h.textContent = text;
+}
+
+// REPACK_IN — scan the OLD box label; worker frees every in-scope unit in it.
+async function doRepackInScan(barcode) {
+  if (!repackRun) { showReject('NO RUN SELECTED', 'Select a repack run above first'); playErrBeep(); vibrate([100,50,100]); return; }
+  if (!isOnline)  { showReject('OFFLINE', 'Repack requires a live connection'); playErrBeep(); vibrate([100,50,100]); return; }
+  if (!/^BOX-\d+$/i.test(barcode)) {
+    showReject('WRONG BARCODE', 'Scan the OLD box label (BOX-XXXXX)');
+    playErrBeep(); vibrate([100,50,100]);
+    addLog({ barcode, status:'err', tag:'REPACK_IN', label:'WRONG FORMAT' });
+    return;
+  }
+  const res = await workerPost('postRepackIn', {
+    device_code: cfg.deviceCode,
+    box_ref:     barcode,
+    run_id:      repackRun.id,
+    operator_id: operatorUUID || currentOperator?.id || null,
+  });
+  if (!res.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('REPACK IN FAILED', res.error || 'Unknown error');
+    addLog({ barcode, status:'err', tag:'REPACK_IN', label:'ERR' });
+    return;
+  }
+  const d = res.data;
+  flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+  const skip = d.skipped_out_of_scope ? ` · ${d.skipped_out_of_scope} out-of-scope skipped` : '';
+  addLog({ barcode, status:'ok', tag:'REPACK_IN', label:`FREED ${d.freed_count}${skip}` });
+  showToast(`✓ ${d.freed_count} unit${d.freed_count !== 1 ? 's' : ''} freed — repack into ${d.to_channel} boxes at Repack Out`, 'ok');
+}
+
+// REPACK_OUT — two scans: car LOT-UPC, then destination box label.
+async function doRepackOutScan(barcode) {
+  if (!repackRun) { showReject('NO RUN SELECTED', 'Select a repack run above first'); playErrBeep(); vibrate([100,50,100]); return; }
+  if (!isOnline)  { showReject('OFFLINE', 'Repack requires a live connection'); playErrBeep(); vibrate([100,50,100]); return; }
+  if (pkgResultShowing) return;
+
+  const isLotUpc = /^LOT-\d+$/.test(barcode);
+  const isBox    = /^BOX-\d+$/i.test(barcode);
+
+  // First scan — the car
+  if (!pendingRepackCar) {
+    if (!isLotUpc) {
+      showReject('SCAN CAR FIRST', 'Scan the car LOT-UPC, then the destination box');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'REPACK_OUT', label:'EXPECTED CAR' });
+      return;
+    }
+    pendingRepackCar = barcode;
+    flash('ok'); vibrate([50]); playSuccessBeep();
+    setRepackHint(`CAR ${barcode} — SCAN DEST ${(repackRun.to_channel || '').toUpperCase()} BOX`);
+    addLog({ barcode, status:'pending', tag:'REPACK_OUT', label:'CAR ✓ — SCAN DEST BOX' });
+    showToast('✓ Car scanned — now scan the destination box', 'ok');
+    return;
+  }
+
+  // Second scan — the destination box
+  if (!isBox) {
+    showReject('SCAN DEST BOX', `Scan the destination ${repackRun.to_channel} box (BOX-XXXXX) for ${pendingRepackCar}`);
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+  const carUpc = pendingRepackCar;
+  const res = await workerPost('postRepackOut', {
+    device_code: cfg.deviceCode,
+    car_upc:     carUpc,
+    box_ref:     barcode,
+    run_id:      repackRun.id,
+    operator_id: operatorUUID || currentOperator?.id || null,
+  });
+  pendingRepackCar = null;
+  setRepackHint('');
+  if (!res.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('REPACK OUT FAILED', res.error || 'Unknown error');
+    addLog({ barcode: carUpc, status:'err', tag:'REPACK_OUT', label:'ERR' });
+    return;
+  }
+  const d = res.data;
+  flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+  addLog({ barcode: carUpc, status:'ok', tag:'REPACK_OUT', label:`REPACK ✓ ${d.repacked_count || ''}/${d.target_qty || ''}` });
+  // Keep the cached run progress current for the selector
+  if (repackRun && typeof d.repacked_count === 'number') {
+    repackRun.repacked = d.repacked_count;
+    const r = repackableRuns.find(x => String(x.id) === String(repackRun.id));
+    if (r) r.repacked = d.repacked_count;
+  }
+  if (d.run_completed) {
+    showToast(`✓ ${d.run_no} COMPLETE — ${d.repacked_count}/${d.target_qty}`, 'ok');
+  }
+  // Reuse the PKG result overlay to surface the new sticker + reprint button
+  showPkgResult({ batch_label: d.new_batch_label, channel: d.channel_type, product: d.product, model: d.model, color: d.color });
+}
+
+// ════════════════════════════════════════════════════════════════
 // STORE_ISSUE station (FEAT-020)
 // Pick bags against a production run before Garage issues it.
 // Setup: select a Submitted/Picking run → derive BOM (worker)
@@ -4236,6 +4429,18 @@ async function processBarcode(barcode, act) {
   // ── STORE_ISSUE — store picking station (FEAT-020) ──
   if (act === 'STORE_ISSUE') {
     await doStoreIssueScan(barcode);
+    return;
+  }
+
+  // ── REPACK_IN — scan the old box label (Channel Swap) ──
+  if (act === 'REPACK_IN') {
+    await doRepackInScan(barcode);
+    return;
+  }
+
+  // ── REPACK_OUT — scan car then destination box (Channel Swap) ──
+  if (act === 'REPACK_OUT') {
+    await doRepackOutScan(barcode);
     return;
   }
 
