@@ -1,0 +1,20 @@
+<p class="lead">The Repair station tracks units through a structured repair run: starting a repair, then passing or scrapping the unit. You set the mode, pick the run, and scan.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Station</div><div class="g-val"><span class="mono">REPAIR</span> &middot; lines L1 to L5.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">The unit&rsquo;s LOT UPC.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Modes</div><div class="g-val">Start / Pass / Scrap.</div></div>
+</div>
+
+<h2 class="sec">The flow</h2>
+<ol class="steps">
+  <li><span class="s-title">Pick a mode:</span> <strong>Start</strong> (begin repairing), <strong>Pass</strong> (repaired), or <strong>Scrap</strong> (cannot fix). Start also needs a repair run chosen from the dropdown.</li>
+  <li><span class="s-title">Scan the unit&rsquo;s LOT UPC.</span> The hint changes with the mode (&ldquo;Scan unit to start repair&rdquo;, &ldquo;Scan repaired unit&rdquo;, &ldquo;Scan unit to scrap&rdquo;).</li>
+  <li><span class="s-title">See the confirmation:</span> &ldquo;In Repair&rdquo;, &ldquo;Repaired&rdquo;, or &ldquo;Scrapped&rdquo;.</li>
+</ol>
+
+<div class="callout note">
+  <div class="c-title">&#9432; Mode first, run for Start</div>
+  <p>If you scan without choosing a mode you get &ldquo;Select mode&rdquo;; if you choose Start without a run you get &ldquo;Select run&rdquo;. The repair runs themselves are created by the team in Garage; this station just records each unit&rsquo;s progress through one.</p>
+</div>

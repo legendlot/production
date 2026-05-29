@@ -1,0 +1,20 @@
+<p class="lead">QC Fail records a unit that did not pass, along with exactly which defects were found. The unit then goes to the workshop for repair.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Station</div><div class="g-val"><span class="mono">QC_FAIL</span> &middot; lines L1 to L5.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">The unit&rsquo;s LOT UPC.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Offline</div><div class="g-val">Queues and syncs later.</div></div>
+</div>
+
+<h2 class="sec">The flow</h2>
+<ol class="steps">
+  <li><span class="s-title">Scan the unit&rsquo;s LOT UPC.</span> An orange flash fires and the <strong>Select Defects</strong> list slides up.</li>
+  <li><span class="s-title">Tap every defect that applies.</span> Defects are grouped and tagged by severity (Critical, Major, Minor, Cosmetic), and the list only shows defects valid for that part (car or remote).</li>
+  <li><span class="s-title">Tap Log Defects.</span> The button stays disabled until at least one defect is ticked. A red flash and buzz confirm the fail was logged (failing is meant to feel like a negative signal).</li>
+</ol>
+
+<div class="callout note">
+  <div class="c-title">&#9432; At least one defect is required</div>
+  <p>You cannot log a fail with no defect selected. Recording the real defects is what feeds the quality reports and the workshop&rsquo;s repair list, so pick all that apply rather than the first one you see.</p>
+</div>

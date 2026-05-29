@@ -1,0 +1,19 @@
+<p class="lead">Repack moves units from one sales channel to another (for example Retail to Ecom). Two stations work as a pair: <strong>Repack In</strong> frees the units from their old box, and <strong>Repack Out</strong> re-packs them to the new channel with a fresh label. Both pick a repack run first.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Stations</div><div class="g-val"><span class="mono">REPACK_IN</span> / <span class="mono">REPACK_OUT</span> &middot; L1 to L5.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">Old box in; car (+remote) out.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Offline</div><div class="g-val">Needs a live connection.</div></div>
+</div>
+
+<h2 class="sec">Repack In</h2>
+<p>Select the repack run, then scan the <strong>old box label</strong> (a <span class="mono">BOX-XXXXX</span>, or the unit&rsquo;s existing batch label). The system frees every in-scope unit in that box and tells you how many: &ldquo;N units freed, now scan at Repack Out&rdquo;.</p>
+
+<h2 class="sec">Repack Out</h2>
+<p>This works exactly like Packaging: pick the destination channel (Ecom or Retail), scan the car (then the remote if prompted), and a new label prints. Progress shows &ldquo;repacked / target&rdquo;, and &ldquo;[run] complete&rdquo; when the run is done. From here the unit re-enters the normal dispatch flow.</p>
+
+<div class="callout note">
+  <div class="c-title">&#9432; Run first, then scan</div>
+  <p>Both stations need a repack run selected before scanning (else &ldquo;No run selected&rdquo;). Repack In takes the old box label; Repack Out takes the car UPC and behaves just like PKG, so the same &ldquo;car first, channel set before scanning&rdquo; rules apply.</p>
+</div>

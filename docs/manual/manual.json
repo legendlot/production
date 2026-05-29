@@ -1,0 +1,67 @@
+{
+  "title": "Scanner",
+  "title_accent": "Floor Guide",
+  "subtitle": "The self-serve guide to every station on the Legend of Toys production-floor scanner.",
+  "version": "1.0.0",
+  "date": "2026-05-29",
+  "app_url": "scanner.legendoftoys.com",
+  "owner": "Legend of Toys",
+  "roles": {
+    "op":  { "label": "Operator",   "name": "Operator",   "desc": "Floor staff who scan units at a station through the shift." },
+    "sup": { "label": "Supervisor", "name": "Supervisor", "desc": "Sets up the device for a shift with the supervisor PIN and runs station/line setup." }
+  },
+  "parts": [
+    {
+      "part": "Getting Started",
+      "subtitle": "What the scanner is, how scans give feedback, signing in, and setting a device up for the shift.",
+      "chapters": [
+        { "id": "intro", "title": "How the Scanner Works", "file": "gs-intro.html",  "roles": ["op","sup"] },
+        { "id": "login", "title": "Signing In",            "file": "gs-login.html",  "roles": ["op","sup"] },
+        { "id": "setup", "title": "Device Setup",          "file": "gs-setup.html",  "roles": ["sup","op"] }
+      ]
+    },
+    {
+      "part": "Production",
+      "subtitle": "The assembly-line stations: inward, quality check, workshop and packing.",
+      "chapters": [
+        { "id": "inw",    "title": "Assembly (INW)",        "file": "prod-inw.html",    "roles": ["op"] },
+        { "id": "qcpass", "title": "QC Pass",               "file": "prod-qcpass.html", "roles": ["op"] },
+        { "id": "qcfail", "title": "QC Fail",               "file": "prod-qcfail.html", "roles": ["op"] },
+        { "id": "wks",    "title": "Workshop",              "file": "prod-wks.html",    "roles": ["op"] },
+        { "id": "pkg",    "title": "Packaging (PKG)",       "file": "prod-pkg.html",    "roles": ["op"] }
+      ]
+    },
+    {
+      "part": "Dispatch",
+      "subtitle": "The dispatch-floor stations that move finished units out the door.",
+      "chapters": [
+        { "id": "pkgout",  "title": "PKG Out",       "file": "disp-pkgout.html",  "roles": ["op"] },
+        { "id": "dtk",     "title": "Dispatch In",   "file": "disp-dtk.html",     "roles": ["op"] },
+        { "id": "alloc",   "title": "Allocate",      "file": "disp-alloc.html",   "roles": ["op"] },
+        { "id": "pack",    "title": "Pack",          "file": "disp-pack.html",    "roles": ["op"] },
+        { "id": "dout",    "title": "Dispatch Out",  "file": "disp-dout.html",    "roles": ["op"] },
+        { "id": "restock", "title": "Restock",       "file": "disp-restock.html", "roles": ["op"] }
+      ]
+    },
+    {
+      "part": "Store & Returns",
+      "subtitle": "Picking parts for the store, receiving returns, and channel-swap repacks.",
+      "chapters": [
+        { "id": "storeissue", "title": "Store Issue",       "file": "sr-storeissue.html", "roles": ["op"] },
+        { "id": "retin",      "title": "Returns Intake",    "file": "sr-retin.html",      "roles": ["op"] },
+        { "id": "repack",     "title": "Repack (Channel Swap)", "file": "sr-repack.html", "roles": ["op"] }
+      ]
+    },
+    {
+      "part": "Repair, Outsourced & Utilities",
+      "subtitle": "Repair runs, inwarding outsourced units, registering legacy units, lookup and attendance.",
+      "chapters": [
+        { "id": "repair",     "title": "Repair",            "file": "more-repair.html",     "roles": ["op"] },
+        { "id": "extinw",     "title": "Outsourced Inward", "file": "more-extinw.html",     "roles": ["op"] },
+        { "id": "legacy",     "title": "Legacy Registration","file": "more-legacy.html",    "roles": ["op","sup"] },
+        { "id": "lookup",     "title": "Lookup",            "file": "more-lookup.html",     "roles": ["op"] },
+        { "id": "attendance", "title": "Attendance",        "file": "more-attendance.html", "roles": ["op"] }
+      ]
+    }
+  ]
+}

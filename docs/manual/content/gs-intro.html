@@ -1,0 +1,44 @@
+<p class="lead">The Scanner is the handheld app that records the physical work on the production floor. At every station, an operator scans a barcode and the system updates instantly: a unit is inwarded, passed, packed, dispatched. This guide walks through every station. This first chapter covers the things that are true everywhere, so learn it once and the rest is easy.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">What it&rsquo;s for</div><div class="g-val">Recording floor work, scan by scan.</div></div>
+  <div class="g-cell"><div class="g-lbl">Runs on</div><div class="g-val">An Android device at each station.</div></div>
+  <div class="g-cell"><div class="g-lbl">One device</div><div class="g-val">One station, one line, per shift.</div></div>
+  <div class="g-cell"><div class="g-lbl">Where</div><div class="g-val">scanner.legendoftoys.com</div></div>
+</div>
+
+<h2 class="sec">Starting the camera</h2>
+<p>The camera does <strong>not</strong> start on its own. Every time the scan screen opens you will see a <strong>Tap to start camera</strong> button: tap it, then hold the barcode in the middle of the yellow frame. Holding the same code twice within two seconds does nothing (the scanner ignores rapid duplicates).</p>
+
+<h2 class="sec">What a scan tells you</h2>
+<p>Every station gives the same three signals, so you always know what happened without reading the screen closely:</p>
+<table class="tbl">
+  <thead><tr><th>Result</th><th>What you see and hear</th></tr></thead>
+  <tbody>
+    <tr><td><strong style="color:#1a8f43">Success</strong></td><td>Green flash, a rising triple beep, a short buzz, and a green tick line in the log. The scan worked.</td></tr>
+    <tr><td><strong style="color:#c01f1f">Reject</strong></td><td>Red flash, a falling buzz, and a full-screen red <strong>REJECT</strong> panel with the reason and &ldquo;RESCAN THE CODE&rdquo;. It clears itself after a moment.</td></tr>
+    <tr><td><strong style="color:#c2570a">Pending / warning</strong></td><td>Orange flash and an orange message: the scan was counted but something needs your attention (for example an over-pick, or a scan queued while offline).</td></tr>
+  </tbody>
+</table>
+
+<div class="callout warn">
+  <div class="c-title">&#9888; Working offline</div>
+  <p>If the device loses connection you will see an orange <strong>OFFLINE</strong> bar and a <strong>queued</strong> count. Many scans (Assembly, QC Fail, Outsourced Inward, Restock) are saved and sync automatically when the connection returns. But the stations that need live data: <strong>QC Pass, Packaging, Pack, Store Issue, Repack, Workshop and the dispatch stations</strong>, will reject with &ldquo;OFFLINE&rdquo; until you are back online.</p>
+</div>
+
+<h2 class="sec">The barcodes you will scan</h2>
+<table class="tbl">
+  <thead><tr><th>Code</th><th>Looks like</th><th>Used at</th></tr></thead>
+  <tbody>
+    <tr><td>Unit (car) UPC</td><td class="mono">LOT-XXXXXXXX</td><td>Assembly, QC, repair, restock.</td></tr>
+    <tr><td>Batch / dispatch label</td><td class="mono">LOT-XXXXXXXX-E</td><td>Packing onwards (the <span class="mono">-E</span> is Ecom, <span class="mono">-R</span> Retail).</td></tr>
+    <tr><td>Box label</td><td class="mono">BOX-XXXXX</td><td>Dispatch Out, Repack In.</td></tr>
+    <tr><td>Bag QR</td><td class="mono">BAG-&hellip;</td><td>Store Issue picking.</td></tr>
+    <tr><td>Employee card</td><td class="mono">LOT-FACT-XXXX</td><td>Attendance, dispatch sign-in.</td></tr>
+  </tbody>
+</table>
+
+<div class="callout note">
+  <div class="c-title">&#9432; Each station expects its own code</div>
+  <p>A station only accepts the barcode it is meant for. Scanning a box label at a unit station (or the wrong-format code anywhere) gives a <strong>WRONG BARCODE</strong> reject. If you keep getting rejected, check you are at the right station for the label in your hand.</p>
+</div>

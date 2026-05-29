@@ -1,0 +1,20 @@
+<p class="lead">Store Issue is where the store picks component bags against a production run before issuing it. You select the run, then scan the bag QRs as you pick them, and a progress bar tracks how much of the run is done.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Station</div><div class="g-val"><span class="mono">STORE_ISSUE</span> &middot; shared.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">Bag QRs (<span class="mono">BAG-&hellip;</span>).</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Offline</div><div class="g-val">Needs a live connection.</div></div>
+</div>
+
+<h2 class="sec">The flow</h2>
+<ol class="steps">
+  <li><span class="s-title">Select the run</span> from the dropdown (runs already being picked show &ldquo;Picking&rdquo;). A progress bar appears: &ldquo;X/Y parts picked&rdquo;.</li>
+  <li><span class="s-title">Scan each bag QR</span> as you pick it. A green tick logs the part and updates the progress.</li>
+  <li><span class="s-title">Finish.</span> When every part is done you see &ldquo;All parts picked, [run] ready to issue&rdquo;.</li>
+</ol>
+
+<div class="callout warn">
+  <div class="c-title">&#9888; Over-picking is allowed but flagged</div>
+  <p>If you scan more of a part than the run needs, it is still counted (so nothing is lost), but you get an orange <strong>OVER PICK</strong> warning so a supervisor can check it. You must select a run before scanning (else &ldquo;No run selected&rdquo;), and only bag QRs are accepted (else &ldquo;Scan a bag QR&rdquo;).</p>
+</div>

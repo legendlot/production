@@ -1,0 +1,20 @@
+<p class="lead">Assembly (INW) is where a freshly built unit is brought into the system for the first time. It is the simplest station: one scan per unit.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Station</div><div class="g-val"><span class="mono">INW</span> &middot; lines L1 to L5.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">The unit&rsquo;s LOT UPC.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Offline</div><div class="g-val">Queues and syncs later.</div></div>
+</div>
+
+<h2 class="sec">The flow</h2>
+<ol class="steps">
+  <li><span class="s-title">Read the hint.</span> The camera shows &ldquo;Scan LOT UPC&rdquo;.</li>
+  <li><span class="s-title">Scan the unit&rsquo;s UPC</span> (the <span class="mono">LOT-XXXXXXXX</span> code). A green flash and tick confirm it is inwarded.</li>
+  <li><span class="s-title">Move to the next unit.</span> The log shows your recent scans.</li>
+</ol>
+
+<div class="callout note">
+  <div class="c-title">&#9432; Two rejects you might see</div>
+  <p><strong>WRONG BARCODE</strong> means the code was not a <span class="mono">LOT-XXXXXXXX</span> UPC (you may have scanned a label or remote). <strong>DUPLICATE</strong> means the unit was already inwarded. Both are harmless: rescan the right code or move on.</p>
+</div>

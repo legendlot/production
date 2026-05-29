@@ -1,0 +1,20 @@
+<p class="lead">QC Pass marks a unit as having passed quality control. For products that ship with a remote, it also verifies that the car and its remote are a genuine pair before letting them through.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Station</div><div class="g-val"><span class="mono">QC_PASS</span> &middot; lines L1 to L5.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">Car first, then remote.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Offline</div><div class="g-val">Needs a live connection.</div></div>
+</div>
+
+<h2 class="sec">The flow</h2>
+<ol class="steps">
+  <li><span class="s-title">Scan the car&rsquo;s LOT UPC first.</span> The hint says &ldquo;Scan LOT UPC (car first)&rdquo;.</li>
+  <li><span class="s-title">If the product has a remote,</span> a green band appears: &ldquo;Now scan remote control&rdquo;. Scan the remote to confirm the pair. A single-piece product passes straight away.</li>
+  <li><span class="s-title">See &ldquo;Paired&rdquo;</span> and the green tick. The unit is QC-passed.</li>
+</ol>
+
+<div class="callout warn">
+  <div class="c-title">&#9888; Always car first, and watch for PAIRING FAILED</div>
+  <p>Scan the car before the remote. If you scan a remote that does not belong to that car you get <strong>PAIRING FAILED</strong>: find the correct remote and scan again, or tap <strong>Cancel</strong> to abandon a half-finished pair and start over. This station needs a live connection, so it rejects with &ldquo;OFFLINE&rdquo; if the device is offline.</p>
+</div>

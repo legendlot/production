@@ -1,0 +1,16 @@
+<p class="lead">Outsourced Inward (EXT_INW) brings in units that were built by an outside vendor rather than on the line. It works just like Assembly, but routes the units to their outsourced run.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Station</div><div class="g-val"><span class="mono">EXT_INW</span> &middot; lines L1 to L5.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">The unit&rsquo;s LOT UPC.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Offline</div><div class="g-val">Queues and syncs later.</div></div>
+</div>
+
+<h2 class="sec">The flow</h2>
+<p>Scan each vendor unit&rsquo;s LOT UPC (the hint reads &ldquo;Scan LOT UPC, outsourced vendor unit&rdquo;). A green tick confirms it is inwarded against the outsourced run. From there the unit flows through QC and packing like any other.</p>
+
+<div class="callout note">
+  <div class="c-title">&#9432; Use this only for outsourced runs</div>
+  <p>This is the receiving point for vendor-made units, kept separate from the line&rsquo;s own Assembly station so outsourced production is tracked on its own run. A non-LOT code gives &ldquo;WRONG BARCODE&rdquo;.</p>
+</div>

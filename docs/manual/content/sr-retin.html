@@ -1,0 +1,21 @@
+<p class="lead">Returns Intake (RET_IN) receives units coming back from customers and couriers. It is a two-step scan: first the shipping label to identify the channel, then each returned unit, with a disposition that says what happens to it next.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Station</div><div class="g-val"><span class="mono">RET_IN</span> &middot; shared.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">AWB first, then unit labels.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Modes</div><div class="g-val">Shipment or Individual.</div></div>
+</div>
+
+<h2 class="sec">The flow</h2>
+<ol class="steps">
+  <li><span class="s-title">Scan the AWB / shipping label.</span> This resolves the sales channel. If it cannot match one, a red picker asks you to choose the channel by hand.</li>
+  <li><span class="s-title">Set the disposition</span> for the unit you are about to scan: <strong>UDR</strong> (good, restockable), <strong>Repair</strong>, or <strong>Loss</strong>. For Repair and Loss you also pick the box condition; for Loss you must type a note (for example &ldquo;empty box&rdquo;).</li>
+  <li><span class="s-title">Scan each unit&rsquo;s batch label.</span> It is logged with its disposition. In Shipment mode the AWB stays set for many units; in Individual mode it clears after each.</li>
+  <li><span class="s-title">Close the shipment</span> with &ldquo;Done, close shipment&rdquo; when finished.</li>
+</ol>
+
+<div class="callout note">
+  <div class="c-title">&#9432; This is the courier-return path</div>
+  <p>Any unit that physically shipped and came back belongs here, not at Restock. A returned label has its <span class="mono">-E</span> / <span class="mono">-R</span> handled automatically. A &ldquo;Loss&rdquo; disposition always needs a note, and the unit&rsquo;s disposition here is what routes it to the UDR pool, the repair pool, or a loss write-off in Garage.</p>
+</div>

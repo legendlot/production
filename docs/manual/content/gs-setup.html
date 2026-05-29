@@ -1,0 +1,24 @@
+<p class="lead">Device Setup binds one physical device to one station and one line for the shift. A supervisor normally does this after signing in with the PIN. Setup lasts until 1 AM, when the device locks and needs setting up again for the next shift.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">What it&rsquo;s for</div><div class="g-val">Pointing a device at a station + line.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role sup">Supervisor</span> (+ <span class="role op">Operator</span> for dispatch sign-in)</div></div>
+  <div class="g-cell"><div class="g-lbl">Expires</div><div class="g-val">1 AM each day.</div></div>
+  <div class="g-cell"><div class="g-lbl">Change later</div><div class="g-val">The &#9881; button returns here.</div></div>
+</div>
+
+<h2 class="sec">Setting up a device</h2>
+<ol class="steps">
+  <li><span class="s-title">Pick the station.</span> Tap one station (tap again to deselect). Stations are grouped: Production, Dispatch, Store, External Runs, Legacy and Utilities.</li>
+  <li><span class="s-title">Pick the line.</span> Production stations ask for a line (L1 to L5); dispatch stations ask for D1 or D2; shared stations (Lookup, Attendance, PKG Out, Returns Intake) need no line.</li>
+  <li><span class="s-title">Set the options.</span> Choose the camera (back or front), whether the torch comes on while scanning, and the beep volume.</li>
+  <li><span class="s-title">Launch Scanner.</span> The device finds its station record and opens the scan screen.</li>
+</ol>
+
+<h2 class="sec">Dispatch stations: operators sign in too</h2>
+<p>The four dispatch stations (Pack, Dispatch In, Allocate, Dispatch Out) add one step: after the supervisor sets the device up, <strong>each operator scans their own QR ID card</strong> at the start of their shift before they can scan units (or types their ID with &ldquo;Type ID instead&rdquo;). The <strong>Change Op</strong> button in the top bar hands the device to the next person without redoing the whole setup.</p>
+
+<div class="callout warn">
+  <div class="c-title">&#9888; &ldquo;No active device found&rdquo;</div>
+  <p>If setup says no active device exists for that station and line, that station/line has no registered device: pick the correct line, or ask an admin to register the device. Both the supervisor setup and the dispatch operator sign-in expire at 1 AM, so the first task each morning is to set the device up again.</p>
+</div>

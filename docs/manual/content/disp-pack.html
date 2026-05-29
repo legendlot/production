@@ -1,0 +1,23 @@
+<p class="lead">Pack puts allocated units into shipment boxes. It works two ways: packing into a named shipment, or packing direct to a channel.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Station</div><div class="g-val"><span class="mono">PACK</span> &middot; lines D1 / D2.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">Batch labels into a box.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Offline</div><div class="g-val">Needs a live connection.</div></div>
+</div>
+
+<h2 class="sec">Shipment mode</h2>
+<ol class="steps">
+  <li><span class="s-title">Select the shipment</span> from the dropdown (it shows the channel and how full it is).</li>
+  <li><span class="s-title">Open or pick a box.</span> For bulk channels, pick an open box (or the box bar warns &ldquo;No open boxes&rdquo;, in which case boxes are added from the dashboard). For per-unit channels, each scan auto-creates and closes a box.</li>
+  <li><span class="s-title">Scan batch labels</span> to add units to the open box; <strong>Close</strong> the box when full to print its label.</li>
+</ol>
+
+<h2 class="sec">Direct mode</h2>
+<p>Pick a channel, then each scanned batch label auto-creates a box, packs it, closes it and prints, all in one go. Use this when you are not packing into a pre-built shipment.</p>
+
+<div class="callout note">
+  <div class="c-title">&#9432; What the rejects mean</div>
+  <p>&ldquo;No shipment&rdquo; or &ldquo;No channel&rdquo; means you have not made the selection at the top yet; &ldquo;No open box&rdquo; means you need to open or add a box first. As a dispatch station it needs a live connection and your shift QR sign-in.</p>
+</div>

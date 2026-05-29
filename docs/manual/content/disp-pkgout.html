@@ -1,0 +1,16 @@
+<p class="lead">PKG Out is the handover point as a packed unit leaves the line for dispatch. It tallies each unit by channel so you can see the session count building.</p>
+
+<div class="glance">
+  <div class="g-cell"><div class="g-lbl">Station</div><div class="g-val"><span class="mono">PKG_OUT</span> &middot; shared.</div></div>
+  <div class="g-cell"><div class="g-lbl">You scan</div><div class="g-val">The batch label.</div></div>
+  <div class="g-cell"><div class="g-lbl">Who</div><div class="g-val"><span class="role op">Operator</span></div></div>
+  <div class="g-cell"><div class="g-lbl">Shows</div><div class="g-val">The session tally.</div></div>
+</div>
+
+<h2 class="sec">The flow</h2>
+<p>Scan the batch label (<span class="mono">LOT-XXXXXXXX-E</span> or <span class="mono">-R</span>). A large channel badge flashes <strong>Ecom</strong> or <strong>Retail</strong>, and the <strong>Session Tally</strong> at the top counts up by Ecom, Retail and Returns. Undamaged returns coming back through show as &ldquo;Return&rdquo; and count separately.</p>
+
+<div class="callout note">
+  <div class="c-title">&#9432; Scan the right label</div>
+  <p>PKG Out expects a batch label with its channel suffix. A unit UPC or any other code gives &ldquo;WRONG BARCODE, expected LOT-XXXXXXXX-E or -R&rdquo;. This is a dispatch-floor station, so the operator signs in with their QR card at the start of the shift.</p>
+</div>
