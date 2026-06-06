@@ -2663,6 +2663,11 @@ function bootScanner() {
     .forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('active'); });
   document.getElementById('scannerScreen').classList.add('active');
 
+  // Reset the scan-history feed on each station entry — history is per station/session,
+  // not a global log shared across stations (S106 fix).
+  const _feed = document.getElementById('logFeed');
+  if (_feed) _feed.innerHTML = '<div class="log-empty">NO SCANS YET</div>';
+
   const stationDef = STATION_DEFS[cfg.stationCode] || {};
   document.getElementById('tb_line').textContent    = cfg.line + ' · ' + currentShift;
   document.getElementById('tb_station').textContent = stationDef.label || cfg.stationCode;
