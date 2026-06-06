@@ -2689,10 +2689,13 @@ function bootScanner() {
     document.getElementById('chRetail').classList.toggle('active', pkgChannel === 'retail');
   }
 
-  // DTK / ALLOC station setup
-  // Remove all injected station UI elements before setting up new station
-  ['packModeToggle','packShipmentSelector','packDirectSelector',
-   'allocChannelBar','dtkPanel','repackRunBar','repackProgressBar'].forEach(id => {
+  // Remove ALL injected station UI elements before setting up the new station.
+  // (Ids must match what the setup* functions actually create — otherwise stale
+  // panels from a prior station stack up, e.g. Store Issue's run selector + Pack's
+  // shipment selector showing under Returns Intake — S106 fix.)
+  ['packModeToggle','packDirectBar','packShipmentBar','packBoxBar',
+   'storeRunBar','storeProgressBar','repackRunBar','repackProgressBar',
+   'allocChannelBar','dtkPanel'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.remove();
   });
