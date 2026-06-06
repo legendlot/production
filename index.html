@@ -3103,9 +3103,10 @@ async function handleRetInScan(barcode) {
   const raw = (barcode || '').trim();
   // Scanning the RS-NNN shipment barcode binds the device to that shipment.
   if (/^RS-\d+$/i.test(raw)) {
+    const id = raw.toUpperCase();
+    if (id === _retInShipmentId) { showToast(`Already bound to ${id}`, 'ok'); return; } // ignore re-scan of the bound shipment
     _retInBusy = true;
     try {
-      const id = raw.toUpperCase();
       bindRetInShipment(id, _retInMetaFor(_retInShipments.find(x => x.shipment_id === id)));
     } finally { setTimeout(() => { _retInBusy = false; }, 500); }
     return;
