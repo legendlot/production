@@ -1,8 +1,11 @@
 // LOT Scanner — Service Worker
-const CACHE = 'lot-scanner-v1';
+const CACHE = 'lot-scanner-v2';
 const ASSETS = [
   './index.html',
   './manifest.json',
+  './scanner.svg',
+  './icons/icon-32.png',
+  './icons/icon-180.png',
   './icons/icon-192x192.png',
   './icons/icon-512x512.png',
 ];

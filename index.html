@@ -5,13 +5,18 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#080808">
+  <meta name="theme-color" content="#1f1f1f">
   <title>LOT Scanner</title>
   <link rel="manifest" href="manifest.json">
+  <link rel="icon" type="image/svg+xml" href="scanner.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/icon-32.png">
+  <link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png">
+  <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
   <link href="https://fonts.googleapis.com/css2?family=Tomorrow:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
   <style>
     :root {
+      /* Brand (shared with Garage/Redline) */
       --yellow: #F2CD1A;
       --blue: #213CE2;
       --red: #DE2A2A;
@@ -20,15 +25,35 @@
       --teal: #14b8a6;
       --purple: #8b5cf6;
       --sky: #0ea5e9;
-      --bg: #080808;
-      --surface: #111111;
-      --surface2: #181818;
-      --surface3: #222222;
-      --border: #2a2a2a;
-      --border2: #333333;
-      --text: #efefef;
-      --text2: #999;
-      --muted: #555;
+      /* Surface ramp — lifted to the Garage/Redline palette (was near-black) */
+      --bg: #1f1f1f;
+      --bg2: #2a2a2a;
+      --bg3: #333333;
+      --surface: #2a2a2a;
+      --surface2: #333333;
+      --surface3: #3c3c3c;
+      --s2: #333333;
+      --s3: #3c3c3c;
+      --border: #404040;
+      --border2: #4a4a4a;
+      --b1: #404040;
+      /* Text ramp — AA-conformant on --bg (fixes the old sub-AA greys) */
+      --text: #f5f5f5;
+      --text2: #b0b0b0;
+      --text3: #888888;
+      --muted: #888888;
+      --t1: #f5f5f5;
+      --t2: #b0b0b0;
+      --t3: #888888;
+      /* Fonts */
+      --mono: 'JetBrains Mono', ui-monospace, Menlo, monospace;
+      --cond: 'Tomorrow', system-ui, sans-serif;
+      --head: 'Tomorrow', system-ui, sans-serif;
+      /* Semantic state */
+      --state-warning: #fbbf24;
+      --state-error: #DE2A2A;
+      --state-success: #22c55e;
+      --state-info: #7b93ff;
     }
     *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
     html,body{height:100%;overflow:hidden;background:var(--bg)}
