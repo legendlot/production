@@ -63,6 +63,62 @@
     .screen{display:none;flex-direction:column;height:100%;overflow:hidden;position:relative}
     .screen.active{display:flex}
 
+    /* ══ S106 GUIDED NAVIGATION — touch-first, app-like ══ */
+    .nav-screen{background:var(--bg);align-items:center;justify-content:flex-start;overflow-y:auto}
+    .nav-wrap{width:100%;max-width:520px;display:flex;flex-direction:column;align-items:center;
+      padding:max(28px,env(safe-area-inset-top)) 20px 28px;gap:16px;min-height:100%}
+    .nav-logo{width:72px;height:72px;border-radius:18px;margin-top:8px}
+    .nav-title{font-family:var(--head);font-size:30px;font-weight:900;letter-spacing:.02em;color:var(--text);text-transform:uppercase;line-height:1}
+    .nav-title em{color:var(--yellow);font-style:normal}
+    .nav-title-sm{font-family:var(--head);font-size:22px;font-weight:800;color:var(--text);letter-spacing:.02em;margin-bottom:4px}
+    .nav-sub{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;text-align:center}
+    .nav-back{margin-top:auto;padding-top:16px;font-family:var(--mono);font-size:13px;color:var(--text3);letter-spacing:.04em;cursor:pointer;-webkit-tap-highlight-color:transparent}
+    .nav-back:active{color:var(--text)}
+
+    /* Department tiles */
+    .dept-grid{width:100%;display:flex;flex-direction:column;gap:14px;margin-top:8px}
+    .dept-tile{width:100%;min-height:88px;border-radius:16px;padding:18px 20px;cursor:pointer;
+      background:var(--surface);border:1px solid var(--border);display:flex;flex-direction:column;justify-content:center;gap:6px;
+      transition:transform .12s cubic-bezier(.22,1,.36,1),border-color .12s,background .12s}
+    .dept-tile:active{transform:scale(.97);background:var(--surface2)}
+    .dept-tile-name{font-family:var(--head);font-size:24px;font-weight:800;letter-spacing:.02em;color:var(--text)}
+    .dept-tile-sub{font-family:var(--mono);font-size:12px;color:var(--text3);letter-spacing:.03em}
+    .dept-tile.prod{border-left:5px solid var(--green)}
+    .dept-tile.store{border-left:5px solid var(--sky)}
+    .dept-tile.dispatch{border-left:5px solid var(--orange)}
+    .dept-tile.attend{border-left:5px solid var(--yellow)}
+
+    /* PIN keypad */
+    .pin-head{text-align:center;display:flex;flex-direction:column;gap:6px;margin-top:24px}
+    .pin-dept{font-family:var(--head);font-size:26px;font-weight:800;color:var(--yellow);letter-spacing:.02em}
+    .pin-dots{display:flex;gap:16px;margin:24px 0 8px}
+    .pin-dots.shake{animation:pinShake .4s}
+    @keyframes pinShake{10%,90%{transform:translateX(-2px)}30%,70%{transform:translateX(5px)}50%{transform:translateX(-7px)}}
+    .pin-dot{width:16px;height:16px;border-radius:50%;border:2px solid var(--border2);background:transparent;transition:background .1s,border-color .1s}
+    .pin-dot.filled{background:var(--yellow);border-color:var(--yellow)}
+    .pin-error{font-family:var(--mono);font-size:12px;color:var(--red);letter-spacing:.04em;min-height:16px}
+    .keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;width:100%;max-width:340px;margin-top:12px}
+    .key{aspect-ratio:1.6/1;display:flex;align-items:center;justify-content:center;font-family:var(--mono);font-size:26px;font-weight:600;
+      color:var(--text);background:var(--surface);border:1px solid var(--border);border-radius:14px;cursor:pointer;-webkit-tap-highlight-color:transparent;user-select:none;
+      transition:transform .08s,background .08s}
+    .key:active{transform:scale(.94);background:var(--surface3)}
+    .key-ghost{background:transparent;border-color:transparent;color:var(--text3);font-size:22px}
+    .key-ghost:active{background:var(--surface2)}
+
+    /* Category tiles */
+    .cat-grid{width:100%;display:flex;flex-direction:column;gap:12px;margin-top:4px}
+    .cat-tile{width:100%;min-height:72px;border-radius:14px;padding:16px 18px;cursor:pointer;background:var(--surface);border:1px solid var(--border);
+      display:flex;flex-direction:column;gap:5px;transition:transform .12s,background .12s}
+    .cat-tile:active{transform:scale(.97);background:var(--surface2)}
+    .cat-tile-name{font-family:var(--head);font-size:20px;font-weight:700;letter-spacing:.02em;color:var(--text)}
+    .cat-tile-sub{font-family:var(--mono);font-size:11px;color:var(--text3);letter-spacing:.02em;line-height:1.4}
+
+    /* Logout button (scanner top bar) */
+    .logout-btn{background:transparent;border:1px solid var(--border2);color:var(--text2);font-family:var(--mono);font-size:12px;
+      letter-spacing:.05em;padding:6px 12px;border-radius:8px;cursor:pointer;text-transform:uppercase}
+    .logout-btn:active{background:var(--surface2);color:var(--text)}
+    .nav-station-btn{min-height:48px}
+
     /* ══════════════════════════════════
        OPERATOR LOGIN SCREEN
     ══════════════════════════════════ */
@@ -746,6 +802,59 @@
 <!-- ══════════════════════════════════
      LOGIN SCREEN
 ══════════════════════════════════ -->
+<!-- ══════════════════════════════════
+     SCREEN 1 — DEPARTMENT SELECT (S106)
+══════════════════════════════════ -->
+<div id="deptSelect" class="screen nav-screen">
+  <div class="nav-wrap">
+    <img src="scanner.svg" class="nav-logo" alt="LOT Scanner">
+    <div class="nav-title">LOT <em>Scanner</em></div>
+    <div class="nav-sub">SELECT YOUR DEPARTMENT</div>
+    <div class="dept-grid">
+      <div class="dept-tile prod"     onclick="pickDepartment('production')"><div class="dept-tile-name">Production</div><div class="dept-tile-sub">Assembly · QC · Packaging · Repair</div></div>
+      <div class="dept-tile store"    onclick="pickDepartment('store')"><div class="dept-tile-name">Store</div><div class="dept-tile-sub">Issue · Returns · Direct Issue</div></div>
+      <div class="dept-tile dispatch" onclick="pickDepartment('dispatch')"><div class="dept-tile-name">Dispatch</div><div class="dept-tile-sub">Dispatch In · Allocate · Pack · Out</div></div>
+      <div class="dept-tile attend"   onclick="pickDepartment('attendance')"><div class="dept-tile-name">Attendance</div><div class="dept-tile-sub">Clock in / out — open to all</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     SCREEN 2 — DEPARTMENT PIN (keypad)
+══════════════════════════════════ -->
+<div id="deptPin" class="screen nav-screen">
+  <div class="nav-wrap">
+    <div class="pin-head">
+      <div class="nav-sub">ENTER PIN FOR</div>
+      <div class="pin-dept" id="pinDeptLabel">—</div>
+    </div>
+    <div class="pin-dots" id="pinDots">
+      <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+      <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+    </div>
+    <div class="pin-error" id="pinError" style="display:none">Incorrect PIN — try again</div>
+    <div class="keypad">
+      <div class="key" onclick="pinKey(1)">1</div><div class="key" onclick="pinKey(2)">2</div><div class="key" onclick="pinKey(3)">3</div>
+      <div class="key" onclick="pinKey(4)">4</div><div class="key" onclick="pinKey(5)">5</div><div class="key" onclick="pinKey(6)">6</div>
+      <div class="key" onclick="pinKey(7)">7</div><div class="key" onclick="pinKey(8)">8</div><div class="key" onclick="pinKey(9)">9</div>
+      <div class="key key-ghost" onclick="showDeptSelect()">✕</div><div class="key" onclick="pinKey(0)">0</div><div class="key key-ghost" onclick="pinBackspace()">⌫</div>
+    </div>
+    <div class="nav-back" onclick="showDeptSelect()">← Back to departments</div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════
+     SCREEN 3 — CATEGORY SELECT
+══════════════════════════════════ -->
+<div id="categorySelect" class="screen nav-screen">
+  <div class="nav-wrap">
+    <div class="nav-sub" id="catDeptLabel">—</div>
+    <div class="nav-title-sm">Choose a task</div>
+    <div class="cat-grid" id="catGrid"></div>
+    <div class="nav-back" onclick="logoutToDeptSelect()">← Log out</div>
+  </div>
+</div>
+
 <div id="loginScreen" class="screen">
   <div class="login-wrap">
     <div class="login-logo">Legend of Toys</div>
@@ -773,120 +882,25 @@
      SETUP SCREEN
 ══════════════════════════════════ -->
 <div id="setupScreen" class="screen">
-  <div class="setup-hero">
-    <div class="setup-op-badge">
-      <div class="op-avatar" id="setupAvatar">—</div>
-      <div>
-        <div class="op-name-label" id="setupOpName">Operator</div>
-        <div class="op-role-label" id="setupOpRole">—</div>
-      </div>
+  <div class="setup-hero" style="display:flex;align-items:center;justify-content:space-between;gap:12px">
+    <div class="nav-back" style="margin:0;font-size:22px;padding:0" onclick="showCategorySelect()">←</div>
+    <div style="text-align:center;flex:1">
+      <div class="nav-sub" id="setupDeptLabel" style="font-size:11px">—</div>
+      <div class="setup-headline" style="font-size:20px;margin-top:2px">Set up <em>station</em></div>
     </div>
-    <div class="setup-headline">Device<br><em>Setup</em></div>
+    <div class="logout-btn" onclick="logoutToDeptSelect()">Log&nbsp;out</div>
   </div>
 
   <div class="setup-body">
-    <div class="sec-div">Production Station</div>
-    <div class="field">
-      <div class="seg-group" id="s_stationGroup">
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Assembly"  data-code="INW"     data-shared="0" onclick="pickStation(this)">Assembly</div>
-          <div class="seg-btn" data-val="QC Pass"   data-code="QC_PASS" data-shared="0" onclick="pickStation(this)">QC Pass</div>
-        </div>
-        <div class="seg-row">
-          <div class="seg-btn" data-val="QC Fail"   data-code="QC_FAIL" data-shared="0" onclick="pickStation(this)">QC Fail</div>
-          <div class="seg-btn" data-val="Workshop"  data-code="WKS"     data-shared="0" onclick="pickStation(this)">Workshop</div>
-        </div>
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Packaging" data-code="PKG"     data-shared="0" onclick="pickStation(this)">Packaging</div>
-          <div class="seg-btn" data-val="PKG Out"   data-code="PKG_OUT" data-shared="1" onclick="pickStation(this)">PKG Out</div>
-        </div>
-        <div class="seg-row">
-          <div class="seg-btn" data-val="RTO In" data-code="RTO_IN" data-shared="1" onclick="pickStation(this)">RTO In</div>
-          <div class="seg-btn" data-val="Returns Intake" data-code="RET_IN" data-shared="1" onclick="pickStation(this)">Returns Intake</div>
-        </div>
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Repair" data-code="REPAIR" data-shared="0" onclick="pickStation(this)">Repair</div>
-        </div>
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Repack In"  data-code="REPACK_IN"  data-shared="0" onclick="pickStation(this)">Repack In</div>
-          <div class="seg-btn" data-val="Repack Out" data-code="REPACK_OUT" data-shared="0" onclick="pickStation(this)">Repack Out</div>
-        </div>
-      </div>
+    <!-- S106 — station + line are rendered dynamically from the chosen category -->
+    <div class="field" id="s_stationSection">
+      <div class="sec-div">Station</div>
+      <div class="seg-group" id="s_stationDynamic"></div>
     </div>
 
-    <div class="sec-div">Legacy Registration</div>
-    <div class="field">
-      <div class="seg-group" id="s_legacyStationGroup">
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Legacy Reg" data-code="LEGACY_REG" data-shared="1" onclick="pickStation(this)">Legacy Reg</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="sec-div">Utilities</div>
-    <div class="field">
-      <div class="seg-group" id="s_utilityStationGroup">
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Lookup" data-code="LOOKUP" data-shared="1" onclick="pickStation(this)">Lookup</div>
-          <div class="seg-btn" data-val="Attendance" data-code="ATTENDANCE" data-shared="1" onclick="pickStation(this)">Attendance</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="sec-div">Dispatch Station</div>
-    <div class="field">
-      <div class="seg-group" id="s_dispatchStationGroup">
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Dispatch In"  data-code="DTK"   data-line-group="dispatch" onclick="pickStation(this)">Dispatch In</div>
-          <div class="seg-btn" data-val="Allocate"     data-code="ALLOC" data-line-group="dispatch" onclick="pickStation(this)">Allocate</div>
-        </div>
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Dispatch Out" data-code="DOUT"  data-line-group="dispatch" onclick="pickStation(this)">Dispatch Out</div>
-          <div class="seg-btn" data-val="Dispatch Pack" data-code="PACK" data-line-group="dispatch" onclick="pickStation(this)">Pack</div>
-        </div>
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Restock" data-code="RESTOCK" data-line-group="dispatch" onclick="pickStation(this)">Restock</div>
-          <div class="seg-btn" data-val="DSP Issue" data-code="DSP_ISSUE" data-line-group="dispatch" onclick="pickStation(this)">DSP Issue</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="sec-div">External Runs</div>
-    <div class="field">
-      <div class="seg-group" id="s_extStationGroup">
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Ext Inwarding" data-code="EXT_INW" data-shared="0" onclick="pickStation(this)">Ext Inwarding</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="sec-div">Store Stations</div>
-    <div class="field">
-      <div class="seg-group" id="s_storeStationGroup">
-        <div class="seg-row">
-          <div class="seg-btn" data-val="Store Issue" data-code="STORE_ISSUE" data-shared="1" onclick="pickStation(this)">Store Issue</div>
-        </div>
-      </div>
-    </div>
-
-    <div class="field" id="s_lineField">
-      <div class="sec-div">Line</div>
-      <div class="seg-row">
-        <div class="seg-btn" data-val="L1" onclick="pickLine(this)">L1</div>
-        <div class="seg-btn" data-val="L2" onclick="pickLine(this)">L2</div>
-        <div class="seg-btn" data-val="L3" onclick="pickLine(this)">L3</div>
-        <div class="seg-btn" data-val="L4" onclick="pickLine(this)">L4</div>
-        <div class="seg-btn" data-val="L5" onclick="pickLine(this)">L5</div>
-      </div>
-    </div>
-
-    <!-- DISPATCH LINE FIELD — shown when a dispatch station (PACK/DTK/ALLOC/DOUT) is selected -->
-    <div class="field" id="s_dispatchLineField" style="display:none">
-      <div class="sec-div">Dispatch Line</div>
-      <div class="seg-row">
-        <div class="seg-btn" data-val="D1" onclick="pickDispatchLine(this)">D1</div>
-        <div class="seg-btn" data-val="D2" onclick="pickDispatchLine(this)">D2</div>
-      </div>
+    <div class="field" id="s_lineFieldDyn" style="display:none">
+      <div class="sec-div" id="s_lineLabel">Line</div>
+      <div class="seg-row" id="s_lineRowDyn"></div>
     </div>
 
     <div class="sec-div">Camera</div>
@@ -922,8 +936,7 @@
     </div>
 
     <div class="setup-status" id="setupStatus"></div>
-    <button class="btn-primary" onclick="saveSetup()">LAUNCH SCANNER →</button>
-    <button class="btn-secondary" onclick="switchOperator()">← Switch Operator</button>
+    <button class="btn-primary" onclick="launchGuided()">LAUNCH SCANNER →</button>
   </div>
 </div>
 
@@ -932,8 +945,8 @@
 ══════════════════════════════════ -->
 <div id="dispatchOpGate" class="screen">
   <div class="login-wrap" style="padding:24px 16px;gap:14px;align-items:center">
-    <div class="login-logo">Legend of Toys</div>
-    <div class="login-title">Dispatch<br>Operator</div>
+    <img src="scanner.svg" style="width:56px;height:56px;border-radius:14px;margin-bottom:4px" alt="">
+    <div class="login-title">Operator<br>Sign In</div>
     <div class="login-sub" id="dopSub">SCAN YOUR QR CARD TO START SHIFT</div>
     <div class="login-banner" id="dopBanner"
          style="display:none;margin:0 0 10px;padding:10px 14px;border-radius:6px;background:rgba(222,42,42,.15);border:1px solid rgba(222,42,42,.35);color:#ff7070;font-size:11px;font-family:var(--mono);letter-spacing:0.04em;text-transform:uppercase;line-height:1.4"></div>
@@ -968,7 +981,7 @@
       </button>
     </div>
 
-    <button class="btn-secondary" onclick="dispatchOpResetToSupervisor()" style="margin-top:6px">← Supervisor sign-in</button>
+    <button class="btn-secondary" onclick="logoutToDeptSelect()" style="margin-top:6px">← Back to departments</button>
   </div>
 </div>
 
@@ -985,11 +998,10 @@
     </div>
     <div class="topbar-right">
       <button id="dispatchChangeOpBtn"
-              style="display:none;background:none;border:1px solid #444;color:#aaa;font-size:11px;padding:3px 8px;border-radius:3px;cursor:pointer;font-family:'JetBrains Mono',monospace;letter-spacing:0.05em"
+              style="display:none;background:none;border:1px solid var(--border2);color:var(--text2);font-size:11px;padding:3px 8px;border-radius:6px;cursor:pointer;font-family:var(--mono);letter-spacing:0.05em"
               onclick="clearDispatchOperator()">⇄ CHANGE OP</button>
       <div class="queue-pill" id="queuePill">0 queued</div>
-      <div class="top-btn" id="shiftDisplay" onclick="cycleShift()" title="Shift">REG</div>
-      <div class="top-btn" onclick="requestSettings()">⚙</div>
+      <button class="logout-btn" onclick="logoutToDeptSelect()">Log out</button>
     </div>
   </div>
 
@@ -1199,11 +1211,8 @@
     </div>
   </div>
 
-  <div class="shift-bar">
-    <button class="shift-btn active" data-shift="Regular" onclick="setShift('Regular',this)">Regular</button>
-    <button class="shift-btn" data-shift="OT" onclick="setShift('OT',this)">OT</button>
-    <button class="shift-btn" data-shift="Double OT" onclick="setShift('Double OT',this)">Double OT</button>
-  </div>
+  <!-- Shift bar removed (S106) — shift is auto-derived from the device clock + station. -->
+
 
   <div class="act-strip" id="actStrip" style="display:none"></div>
 
@@ -1469,11 +1478,11 @@ window.addEventListener('load', async () => {
   pkgChannel   = cfg.pkgChannel || 'ecom';
 
   loadMasters();
-  // FEAT-022 — start with a defensive supervisor-locked default; routeBootScreen
-  // will flip to operator mode if getDeviceStatus reports an active setup. This
-  // avoids a blank flash and keeps the locked state the safe failure mode.
-  showSupervisorSignIn({ reason: 'not_setup' });
-  routeBootScreen();
+  // S106 — guided department flow. On reload, resume straight to the scanner only
+  // if the department unlock is still valid AND a station is configured AND (no
+  // operator needed OR the operator session is still valid). Otherwise start at
+  // the Department Select screen.
+  routeBootGuided();
 
   // CC_TASK_DISPATCH_OPERATOR_GATE — wire up gate buttons / manual fallback.
   const dopStartBtn = document.getElementById('dopStartBtn');
@@ -2102,10 +2111,291 @@ const STATION_DEFS = {
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
   STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN THEN SCAN BAG QR' },
   RESTOCK:    { label: 'Restock',          activity: 'RESTOCK',     hint: 'PICK REASON, SCAN LOT UPC — UNUSED UNITS ONLY' },
-  DSP_ISSUE:  { label: 'DSP Issue',        activity: 'DSP_ISSUE',   hint: 'SCAN DI-NNN STICKER TO ISSUE OUT' },
+  DSP_ISSUE:  { label: 'Direct Issue',     activity: 'DSP_ISSUE',   hint: 'SCAN DI-NNN STICKER TO ISSUE OUT' },
   REPACK_IN:  { label: 'Repack In',        activity: 'REPACK_IN',   hint: 'SELECT RUN THEN SCAN OLD BOX LABEL' },
   REPACK_OUT: { label: 'Repack Out',       activity: 'REPACK_OUT',  hint: 'SELECT RUN, SCAN CAR THEN DEST BOX' },
 };
+
+// ══════════════════════════════════════════════════════════════════
+// S106 — GUIDED NAVIGATION: Department → PIN → Category → Setup → Scanner
+// Four buckets; Production/Store/Dispatch are PIN-gated, Attendance is open.
+// Stations are referenced from STATION_DEFS (single source of truth); the menu
+// duplicates the shared QC→Package-Out chain across run types by design.
+// ══════════════════════════════════════════════════════════════════
+const DEPARTMENTS = {
+  production: { label: 'Production', operator: false, categories: [
+    { key: 'fresh',      label: 'Fresh Production', stations: ['INW','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
+    { key: 'repair',     label: 'Repair Run',       stations: ['REPAIR','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
+    { key: 'outsourced', label: 'Outsourced Run',   stations: ['EXT_INW','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
+    { key: 'repack',     label: 'Repack Run',       stations: ['REPACK_IN','REPACK_OUT'] },
+    { key: 'utilities',  label: 'Utilities',        stations: ['LOOKUP'] },
+  ]},
+  store: { label: 'Store', operator: true, categories: [
+    { key: 'store_issue',  label: 'Store Issue',  stations: ['STORE_ISSUE'] },
+    { key: 'returns',      label: 'Returns',      stations: ['RET_IN'] },
+    { key: 'direct_issue', label: 'Direct Issue', stations: ['DSP_ISSUE'] },
+    { key: 'utilities',    label: 'Utilities',    stations: ['LOOKUP','LEGACY_REG'] },
+  ]},
+  dispatch: { label: 'Dispatch', operator: true, categories: [
+    { key: 'flow',      label: 'Dispatch Flow', stations: ['DTK','ALLOC','PACK','DOUT'] },
+    { key: 'restock',   label: 'Restock',       stations: ['RESTOCK'] },
+    { key: 'utilities', label: 'Utilities',     stations: ['LOOKUP','LEGACY_REG'] },
+  ]},
+};
+// Line model per station: 'L' = L1–L5, 'D' = D1/D2, 'none' = SHARED / deviceless.
+const STATION_LINE_TYPE = {
+  INW:'L', QC_PASS:'L', QC_FAIL:'L', WKS:'L', PKG:'L', PKG_OUT:'L', REPAIR:'L', REPACK_IN:'L', REPACK_OUT:'L', EXT_INW:'L',
+  DTK:'D', ALLOC:'D', PACK:'D', DOUT:'D',
+  STORE_ISSUE:'none', RET_IN:'none', DSP_ISSUE:'none', RESTOCK:'none', LEGACY_REG:'none', LOOKUP:'none', ATTENDANCE:'none',
+};
+const L_LINES = ['L1','L2','L3','L4','L5'];
+const D_LINES = ['D1','D2'];
+const DEVICELESS_STATIONS = new Set(['LOOKUP','ATTENDANCE']); // resolved without a device row
+
+// Department unlock (PIN) state — persists in cfg until 1 AM IST expiry.
+let navDept    = null;   // 'production' | 'store' | 'dispatch'
+let navCat     = null;   // selected category object
+let navStation = null;   // selected station code
+let navLine    = null;   // selected line
+let pinDept    = null;   // department awaiting PIN
+let pinBuffer  = '';     // entered keypad digits
+
+function deptUnlockValid(dept) {
+  return cfg.unlockedDept === dept && cfg.deptUnlockExpiry && Date.now() < cfg.deptUnlockExpiry;
+}
+function deriveShift(stationCode) {
+  // IST clock → Regular within the station's window, else OT. Packaging 10–19, all others 9–18.
+  const now = new Date();
+  const istH = (now.getUTCHours() + 5 + Math.floor((now.getUTCMinutes() + 30) / 60)) % 24;
+  const istMin = (now.getUTCMinutes() + 30) % 60;
+  const t = istH + istMin / 60;
+  const [start, end] = (stationCode === 'PKG') ? [10, 19] : [9, 18];
+  return (t >= start && t < end) ? 'Regular' : 'OT';
+}
+function showOnly(screenId) {
+  ['deptSelect','deptPin','categorySelect','setupScreen','dispatchOpGate','scannerScreen','loginScreen']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.classList.toggle('active', id === screenId); });
+}
+
+// ── Screen 1: Department Select ──────────────────────────────────
+function showDeptSelect() {
+  navDept = navCat = navStation = navLine = null;
+  pinDept = null; pinBuffer = '';
+  stopAllCameras();
+  showOnly('deptSelect');
+}
+function pickDepartment(dept) {
+  if (dept === 'attendance') { launchAttendance(); return; }
+  if (deptUnlockValid(dept)) { navDept = dept; showCategorySelect(); return; }
+  showDeptPin(dept);
+}
+
+// ── Screen 2: Department PIN (on-screen keypad) ──────────────────
+function showDeptPin(dept) {
+  pinDept = dept; pinBuffer = '';
+  document.getElementById('pinDeptLabel').textContent = DEPARTMENTS[dept].label;
+  document.getElementById('pinError').style.display = 'none';
+  renderPinDots();
+  showOnly('deptPin');
+}
+function renderPinDots() {
+  const dots = document.getElementById('pinDots');
+  if (!dots) return;
+  dots.querySelectorAll('.pin-dot').forEach((d, i) => d.classList.toggle('filled', i < pinBuffer.length));
+}
+function pinKey(d) {
+  if (pinBuffer.length >= 6) return;
+  pinBuffer += String(d);
+  document.getElementById('pinError').style.display = 'none';
+  renderPinDots();
+  if (pinBuffer.length === 6) verifyPin();
+}
+function pinBackspace() { pinBuffer = pinBuffer.slice(0, -1); renderPinDots(); }
+async function verifyPin() {
+  const dept = pinDept, pin = pinBuffer;
+  const dotsEl = document.getElementById('pinDots');
+  try {
+    const res = await workerPost('verifyDepartmentPin', { department: dept, pin });
+    if (res && res.ok && res.data && res.data.valid) {
+      cfg.unlockedDept = dept;
+      cfg.deptUnlockExpiry = setupExpiryMs();
+      localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+      navDept = dept;
+      showCategorySelect();
+      return;
+    }
+  } catch (e) { /* fall through to error */ }
+  pinBuffer = '';
+  renderPinDots();
+  const err = document.getElementById('pinError');
+  err.textContent = 'Incorrect PIN — try again';
+  err.style.display = '';
+  if (dotsEl) { dotsEl.classList.remove('shake'); void dotsEl.offsetWidth; dotsEl.classList.add('shake'); }
+}
+// Next 1 AM IST as epoch ms (mirrors the worker's setupExpiryUTC).
+function setupExpiryMs() {
+  const now = new Date();
+  const ist = new Date(now.getTime() + (5 * 60 + 30) * 60000);
+  return Date.UTC(ist.getUTCFullYear(), ist.getUTCMonth(), ist.getUTCDate(), 19, 30, 0);
+}
+
+// ── Screen 3: Category Select ────────────────────────────────────
+function showCategorySelect() {
+  const dept = DEPARTMENTS[navDept];
+  document.getElementById('catDeptLabel').textContent = dept.label;
+  const grid = document.getElementById('catGrid');
+  grid.innerHTML = '';
+  dept.categories.forEach(cat => {
+    const tile = document.createElement('div');
+    tile.className = 'cat-tile';
+    tile.innerHTML = `<div class="cat-tile-name">${cat.label}</div>` +
+      `<div class="cat-tile-sub">${cat.stations.map(s => (STATION_DEFS[s]?.label || s)).join(' · ')}</div>`;
+    tile.onclick = () => pickCategory(cat);
+    grid.appendChild(tile);
+  });
+  stopAllCameras();
+  showOnly('categorySelect');
+}
+function pickCategory(cat) {
+  navCat = cat;
+  navStation = (cat.stations.length === 1) ? cat.stations[0] : null; // single-station → preselect
+  showSetup();
+}
+
+// ── Screen 4: Setup (line → station → camera/torch/volume → Launch) ──
+function showSetup() {
+  document.getElementById('setupDeptLabel').textContent = DEPARTMENTS[navDept].label + ' · ' + navCat.label;
+  renderSetupStations();
+  renderSetupLines();
+  stopAllCameras();
+  showOnly('setupScreen');
+}
+function renderSetupStations() {
+  const wrap = document.getElementById('s_stationDynamic');
+  const single = navCat.stations.length === 1;
+  document.getElementById('s_stationSection').style.display = single ? 'none' : '';
+  wrap.innerHTML = '';
+  if (single) { navStation = navCat.stations[0]; renderSetupLines(); return; }
+  navCat.stations.forEach(code => {
+    const b = document.createElement('div');
+    b.className = 'seg-btn nav-station-btn' + (navStation === code ? ' on' : '');
+    b.textContent = STATION_DEFS[code]?.label || code;
+    b.dataset.code = code;
+    b.onclick = () => {
+      wrap.querySelectorAll('.nav-station-btn').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      navStation = code;
+      renderSetupLines();
+    };
+    wrap.appendChild(b);
+  });
+}
+function renderSetupLines() {
+  const field = document.getElementById('s_lineFieldDyn');
+  if (!navStation) { field.style.display = 'none'; return; }
+  const type = STATION_LINE_TYPE[navStation] || 'none';
+  if (type === 'none') { navLine = 'SHARED'; field.style.display = 'none'; return; }
+  const lines = (type === 'D') ? D_LINES : L_LINES;
+  if (!lines.includes(navLine)) navLine = null;
+  field.style.display = '';
+  document.getElementById('s_lineLabel').textContent = (type === 'D') ? 'Dispatch Line' : 'Line';
+  const row = document.getElementById('s_lineRowDyn');
+  row.innerHTML = '';
+  lines.forEach(L => {
+    const b = document.createElement('div');
+    b.className = 'seg-btn' + (navLine === L ? ' on' : '');
+    b.textContent = L;
+    b.onclick = () => { row.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('on')); b.classList.add('on'); navLine = L; };
+    row.appendChild(b);
+  });
+}
+
+// ── Launch: resolve device, build cfg, gate operator (Store/Dispatch), boot ──
+async function launchGuided() {
+  if (!navStation) { showToast('Select a station', 'err'); return; }
+  const type = STATION_LINE_TYPE[navStation] || 'none';
+  if (type !== 'none' && !navLine) { showToast('Select a line', 'err'); return; }
+  const line = (type === 'none') ? 'SHARED' : navLine;
+  const statusEl = document.getElementById('setupStatus');
+  const camEl = document.querySelector('#setupScreen .seg-btn.on[data-val="environment"], #setupScreen .seg-btn.on[data-val="user"]');
+  const camFacing = camEl ? camEl.dataset.val : 'environment';
+  const torch = document.getElementById('s_torch').checked;
+  const volEl = document.getElementById('s_volume'); if (volEl) localStorage.setItem('lot_volume', volEl.value);
+
+  if (DEVICELESS_STATIONS.has(navStation)) {
+    cfg = { ...cfg, url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_KEY, stationCode: navStation,
+      stationLabel: STATION_DEFS[navStation]?.label || navStation, line: 'SHARED', deviceCode: null, deviceId: null,
+      activity: STATION_DEFS[navStation]?.activity || navStation, department: navDept, camFacing, torchEnabled: torch,
+      shift: deriveShift(navStation), pkgChannel };
+    localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+    currentShift = cfg.shift;
+    afterLaunch();
+    return;
+  }
+
+  statusEl.textContent = 'Looking up device…'; statusEl.style.color = 'var(--text2)';
+  try {
+    const devices = await sbGet('devices', `station=eq.${navStation}&line=eq.${line}&is_active=eq.true&limit=1`);
+    if (!devices || !devices.length) { statusEl.textContent = `No active device for ${STATION_DEFS[navStation]?.label||navStation} · ${line}`; statusEl.style.color = 'var(--red)'; return; }
+    const device = devices[0];
+    cfg = { ...cfg, url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_KEY, stationCode: navStation,
+      stationLabel: STATION_DEFS[navStation]?.label || navStation, line, deviceCode: device.device_code, deviceId: device.id,
+      activity: STATION_DEFS[navStation]?.activity || navStation, department: navDept, camFacing, torchEnabled: torch,
+      shift: deriveShift(navStation), pkgChannel };
+    localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+    currentShift = cfg.shift;
+    statusEl.textContent = '';
+    afterLaunch();
+  } catch (e) { statusEl.textContent = 'Connection error — check network'; statusEl.style.color = 'var(--red)'; }
+}
+function needsOperator() { return !!(DEPARTMENTS[cfg.department] && DEPARTMENTS[cfg.department].operator); }
+function afterLaunch() {
+  // Store/Dispatch require an operator QR sign-in; Production/Attendance go straight in.
+  if (needsOperator() && !dispatchOpSessionValid()) { showDispatchOpGate(); return; }
+  if (needsOperator()) restoreDispatchOperator();
+  startSession();
+  bootScanner();
+}
+function launchAttendance() {
+  cfg = { ...cfg, url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_KEY, stationCode: 'ATTENDANCE',
+    stationLabel: 'Attendance', line: 'SHARED', deviceCode: null, deviceId: null, activity: 'ATTENDANCE',
+    department: 'attendance', camFacing: cfg.camFacing || 'environment', torchEnabled: !!cfg.torchEnabled,
+    shift: deriveShift('ATTENDANCE'), pkgChannel };
+  localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+  currentShift = cfg.shift;
+  bootScanner();
+}
+
+// ── Logout: exit fully to Department Select (the only way to change station) ──
+function logoutToDeptSelect() {
+  try { if (currentSession) sbPatch('operator_sessions', currentSession.id, { logout_at: new Date().toISOString() }); } catch (e) {}
+  currentSession = null;
+  stopAllCameras();
+  showDeptSelect();
+}
+function stopAllCameras() {
+  try { if (qrScanner && qrScanner.stop) qrScanner.stop(); } catch (e) {}
+  try { if (typeof stopDispatchOpCamera === 'function') stopDispatchOpCamera(); } catch (e) {}
+}
+
+// On reload: resume to the scanner only if the department unlock is still valid,
+// a station is configured, and (no operator needed OR the operator session is
+// still valid). Otherwise start fresh at Department Select.
+function routeBootGuided() {
+  const dept = cfg.department;
+  if (dept === 'attendance' && cfg.stationCode === 'ATTENDANCE') {
+    currentShift = deriveShift('ATTENDANCE');
+    bootScanner();
+    return;
+  }
+  if (dept && DEPARTMENTS[dept] && cfg.stationCode && deptUnlockValid(dept)) {
+    navDept = dept;
+    currentShift = deriveShift(cfg.stationCode);
+    bootScanner(); // bootScanner itself re-checks the operator gate for Store/Dispatch
+    return;
+  }
+  showDeptSelect();
+}
 
 async function saveSetup() {
   const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on, #s_legacyStationGroup .seg-btn.on, #s_utilityStationGroup .seg-btn.on, #s_extStationGroup .seg-btn.on, #s_storeStationGroup .seg-btn.on');
@@ -2260,17 +2550,19 @@ async function startSession() {
 // SCANNER BOOT
 // ══════════════════════════════════════════════════════
 function bootScanner() {
-  // ── DISPATCH OPERATOR GATE (PACK/DTK/ALLOC/DOUT/PKG_OUT) ──
-  // The supervisor pre-sets the station; an operator must scan their QR card
-  // each shift before scans are accepted. Cached session lives in lot_cfg and
-  // expires at 1 AM IST. Single hook covers fresh-launch + post-reload paths.
-  if (isDispatchStation()) {
+  // ── OPERATOR GATE (Store + Dispatch) ──
+  // Store/Dispatch require a per-shift operator QR sign-in before scans are
+  // accepted; the cached session lives in lot_cfg and expires at 1 AM IST.
+  // Production + Attendance need no operator.
+  if (needsOperator()) {
     if (!dispatchOpSessionValid()) {
       showDispatchOpGate();
       return; // re-entered from #dopStartBtn after a successful scan
     }
     restoreDispatchOperator();
   }
+  // Shift is auto-derived from the device clock + station (S106 — no shift bar).
+  currentShift = deriveShift(cfg.stationCode);
 
   document.getElementById('setupScreen').classList.remove('active');
   document.getElementById('dispatchOpGate').classList.remove('active');
@@ -2283,7 +2575,7 @@ function bootScanner() {
   // ── Dispatch: Change Operator button — only show on dispatch stations
   const changeOpBtn = document.getElementById('dispatchChangeOpBtn');
   if (changeOpBtn) {
-    changeOpBtn.style.display = isDispatchStation() ? 'inline-block' : 'none';
+    changeOpBtn.style.display = needsOperator() ? 'inline-block' : 'none';
   }
 
   const initials = currentOperator
@@ -2334,7 +2626,6 @@ function bootScanner() {
   const isAttendance = cfg.stationCode === 'ATTENDANCE';
   document.getElementById('attendancePanel').style.display = isAttendance ? '' : 'none';
   document.querySelector('.camera-wrap').style.display     = '';
-  document.querySelector('.shift-bar').style.display       = isAttendance ? 'none' : '';
   const _attHint = document.getElementById('att_cameraHint');
   if (_attHint) _attHint.style.display = isAttendance ? '' : 'none';
   if (isAttendance) {
@@ -2359,7 +2650,7 @@ function bootScanner() {
   // Tally — show at PKG_OUT
   document.getElementById('tallyPanel').classList.toggle('show', cfg.activity === 'PKG_OUT');
 
-  setShift(currentShift, document.querySelector(`.shift-btn[data-shift="${currentShift}"]`), true);
+  document.getElementById('scannerShift').textContent = currentShift;
   updateScanHint();
   updateQueueBadge();
   initCamera();
