@@ -1,5 +1,7 @@
 // LOT Scanner — Service Worker
-const CACHE = 'lot-scanner-v2';
+// Network-first for the app shell (index.html / navigations) so deployed updates
+// always land when online; cache-first for static assets; offline falls back to cache.
+const CACHE = 'lot-scanner-v3';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -11,9 +13,7 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  e.waitUntil(
-    caches.open(CACHE).then(c => c.addAll(ASSETS))
-  );
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));
   self.skipWaiting();
 });
 
@@ -26,13 +26,39 @@ self.addEventListener('activate', e => {
   self.clients.claim();
 });
 
+function isShell(req) {
+  if (req.mode === 'navigate') return true;
+  const u = new URL(req.url);
+  return u.pathname.endsWith('/') || u.pathname.endsWith('/index.html');
+}
+
 self.addEventListener('fetch', e => {
-  // Network first for Apps Script calls, cache first for everything else
-  if (e.request.url.includes('script.google.com')) {
-    e.respondWith(fetch(e.request).catch(() => new Response('offline', {status: 503})));
+  const req = e.request;
+
+  // Only handle same-origin GETs; let API/cross-origin (lotopsproxy, supabase,
+  // apps script) pass straight through to the network.
+  if (req.method !== 'GET' || new URL(req.url).origin !== self.location.origin) {
     return;
   }
+
+  // App shell → network-first (keeps the deployed build fresh), cache fallback offline.
+  if (isShell(req)) {
+    e.respondWith(
+      fetch(req).then(res => {
+        const copy = res.clone();
+        caches.open(CACHE).then(c => c.put('./index.html', copy)).catch(() => {});
+        return res;
+      }).catch(() => caches.match('./index.html'))
+    );
+    return;
+  }
+
+  // Static assets → cache-first, then network (and cache it).
   e.respondWith(
-    caches.match(e.request).then(cached => cached || fetch(e.request))
+    caches.match(req).then(cached => cached || fetch(req).then(res => {
+      const copy = res.clone();
+      caches.open(CACHE).then(c => c.put(req, copy)).catch(() => {});
+      return res;
+    }))
   );
 });
