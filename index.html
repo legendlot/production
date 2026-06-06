@@ -117,7 +117,7 @@
     .logout-btn{background:transparent;border:1px solid var(--border2);color:var(--text2);font-family:var(--mono);font-size:12px;
       letter-spacing:.05em;padding:6px 12px;border-radius:8px;cursor:pointer;text-transform:uppercase}
     .logout-btn:active{background:var(--surface2);color:var(--text)}
-    .nav-station-btn{min-height:48px}
+    .nav-station-btn{min-height:48px;display:flex;align-items:center;justify-content:center;text-align:center}
     .ic{display:inline-block;vertical-align:-0.15em;flex-shrink:0}
 
     /* ══════════════════════════════════
@@ -2223,7 +2223,8 @@ const DEPARTMENTS = {
 };
 // Line model per station: 'L' = L1–L5, 'D' = D1/D2, 'none' = SHARED / deviceless.
 const STATION_LINE_TYPE = {
-  INW:'L', QC_PASS:'L', QC_FAIL:'L', WKS:'L', PKG:'L', PKG_OUT:'L', REPAIR:'L', REPACK_IN:'L', REPACK_OUT:'L', EXT_INW:'L',
+  // PKG_OUT is SHARED across lines — one heat-shrink machine serves all lines, so no line pick.
+  INW:'L', QC_PASS:'L', QC_FAIL:'L', WKS:'L', PKG:'L', PKG_OUT:'none', REPAIR:'L', REPACK_IN:'L', REPACK_OUT:'L', EXT_INW:'L',
   DTK:'D', ALLOC:'D', PACK:'D', DOUT:'D',
   STORE_ISSUE:'none', RET_IN:'none', DSP_ISSUE:'none', RESTOCK:'none', LEGACY_REG:'none', LOOKUP:'none', ATTENDANCE:'none',
 };
@@ -2449,6 +2450,20 @@ function launchAttendance() {
 function logoutToDeptSelect() {
   try { if (currentSession) sbPatch('operator_sessions', currentSession.id, { logout_at: new Date().toISOString() }); } catch (e) {}
   currentSession = null;
+  currentOperator = null;
+  operatorUUID = null;
+  // Full logout — clear the department unlock AND the operator session so re-entry
+  // requires the PIN again (and the operator QR for Store/Dispatch).
+  cfg.unlockedDept = null;
+  cfg.deptUnlockExpiry = null;
+  cfg.department = null;
+  cfg.stationCode = null;
+  cfg.dispatchOperatorId = null;
+  cfg.dispatchOperatorName = null;
+  cfg.dispatchOperatorEmpId = null;
+  cfg.dispatchOperatorDept = null;
+  cfg.dispatchOperatorExpiry = null;
+  localStorage.setItem('lot_cfg', JSON.stringify(cfg));
   stopAllCameras();
   showDeptSelect();
 }
@@ -2643,8 +2658,9 @@ function bootScanner() {
   // Shift is auto-derived from the device clock + station (S106 — no shift bar).
   currentShift = deriveShift(cfg.stationCode);
 
-  document.getElementById('setupScreen').classList.remove('active');
-  document.getElementById('dispatchOpGate').classList.remove('active');
+  // Hide every other screen (incl. the guided nav screens) before showing the scanner.
+  ['deptSelect','deptPin','categorySelect','setupScreen','dispatchOpGate','loginScreen']
+    .forEach(id => { const el = document.getElementById(id); if (el) el.classList.remove('active'); });
   document.getElementById('scannerScreen').classList.add('active');
 
   const stationDef = STATION_DEFS[cfg.stationCode] || {};
