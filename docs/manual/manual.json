@@ -1,7 +1,9 @@
 {
+  "_deprecated": true,
+  "_superseded_by": "Folded into the in-app Garage + Redline manuals (each has a 'Scanner' part). See DEPRECATED.md. Do not update or rebuild this standalone manual.",
   "title": "Scanner",
-  "title_accent": "Floor Guide",
-  "subtitle": "The self-serve guide to every station on the Legend of Toys production-floor scanner.",
+  "title_accent": "Floor Guide (DEPRECATED)",
+  "subtitle": "DEPRECATED 2026-06-07: superseded by the in-app Garage and Redline manuals. This standalone guide predates the department-gated redesign and is no longer maintained.",
   "version": "1.0.0",
   "date": "2026-05-29",
   "app_url": "scanner.legendoftoys.com",

@@ -1,3 +1,23 @@
+> # ⚠️ DEPRECATED — DO NOT UPDATE THIS MANUAL
+> **As of 2026-06-07 (Session 108-cont), this standalone Scanner manual is superseded.**
+> The scanner PWA has no in-app manual tab of its own, so its station docs were folded into
+> the **in-app manuals of Garage and Redline** (each has a "Scanner" part), split by which
+> team works each station:
+> - **Garage** (`05_Throttle/apps/garage/docs/manual/content/scan-*.html`) — the **Store**
+>   stations: Store Issue, Returns Intake, Direct Issue, Legacy Reg, Lookup; plus the
+>   super-admin Scanner Department PINs card in the Users chapter.
+> - **Redline** (`05_Throttle/apps/redline/docs/manual/content/scan-*.html`) — the
+>   **Production** stations (Assembly, QC Pass/Fail, Workshop, Packaging, PKG Out, Repair,
+>   Ext Inwarding, Repack In/Out) and **Dispatch** stations (Dispatch In, Allocate, Pack,
+>   Dispatch Out, Restock); plus Attendance/Lookup.
+>
+> **Any future scanner-doc change goes there**, then rebuild each app's manual
+> (`python3 docs/manual/build.py` + `python3 05_Throttle/scripts/build-manual-web.py <app>`).
+> This folder is kept as history only. See `CORE.md` → "In-app System Manuals" and the
+> `system-manual` skill. The content below predates the S108 department-gated redesign and is stale.
+
+---
+
 # Scanner Floor Guide
 
 The self-serve guide to the Legend of Toys production-floor scanner PWA
