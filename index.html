@@ -2446,10 +2446,16 @@ function routeBootGuided() {
     bootScanner();
     return;
   }
-  if (dept && DEPARTMENTS[dept] && cfg.stationCode && deptUnlockValid(dept)) {
+  // Resume straight into the scanner only if the department unlock is still valid,
+  // a station is configured, AND (no operator needed OR the operator session is still
+  // valid). If an operator IS required but not signed in, fall through to Department
+  // Select — never cold-open on the operator gate (it's reached via dept → category →
+  // station, not as the landing screen).
+  if (dept && DEPARTMENTS[dept] && cfg.stationCode && deptUnlockValid(dept)
+      && (!needsOperator() || dispatchOpSessionValid())) {
     navDept = dept;
     currentShift = deriveShift(cfg.stationCode);
-    bootScanner(); // bootScanner itself re-checks the operator gate for Store/Dispatch
+    bootScanner();
     return;
   }
   showDeptSelect();
