@@ -2075,6 +2075,7 @@ const STATION_DEFS = {
   DSP_ISSUE:  { label: 'Direct Issue',     activity: 'DSP_ISSUE',   hint: 'SCAN DI-NNN STICKER TO ISSUE OUT' },
   REPACK_IN:  { label: 'Repack In',        activity: 'REPACK_IN',   hint: 'SELECT RUN THEN SCAN OLD BOX LABEL' },
   REPACK_OUT: { label: 'Repack Out',       activity: 'REPACK_OUT',  hint: 'SELECT RUN, SCAN CAR THEN DEST BOX' },
+  REPACK_RELEASE: { label: 'Repack Release', activity: 'REPACK_RELEASE', hint: 'SELECT RUN THEN SCAN EACH BOX TO RELEASE TO REPACK' },
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -2176,6 +2177,7 @@ const DEPARTMENTS = {
   ]},
   dispatch: { label: 'Dispatch', operator: true, categories: [
     { key: 'flow',      label: 'Dispatch Flow', stations: ['DTK','ALLOC','PACK','DOUT'] },
+    { key: 'repack_release', label: 'Repack Release', stations: ['REPACK_RELEASE'] },
     { key: 'restock',   label: 'Restock',       stations: ['RESTOCK'] },
     { key: 'utilities', label: 'Utilities',     stations: ['LOOKUP','LEGACY_REG'] },
   ]},
@@ -2186,6 +2188,7 @@ const STATION_LINE_TYPE = {
   INW:'L', QC_PASS:'L', QC_FAIL:'L', WKS:'L', PKG:'L', PKG_OUT:'none', REPAIR:'L', REPACK_IN:'L', REPACK_OUT:'L', EXT_INW:'L',
   DTK:'D', ALLOC:'D', PACK:'D', DOUT:'D',
   STORE_ISSUE:'none', RET_IN:'none', UDR_ISSUE:'none', DSP_ISSUE:'none', RESTOCK:'none', LEGACY_REG:'none', LOOKUP:'none', ATTENDANCE:'none',
+  REPACK_RELEASE:'none',
 };
 const L_LINES = ['L1','L2','L3','L4','L5'];
 const D_LINES = ['D1','D2'];
@@ -2692,7 +2695,8 @@ function bootScanner() {
   if (cfg.stationCode === 'RET_IN')      { setupRetInStation();       }
   if (cfg.stationCode === 'RESTOCK')     { setupRestockStation();     }
   if (cfg.stationCode === 'REPACK_IN' ||
-      cfg.stationCode === 'REPACK_OUT')  { setupRepackStation();       }
+      cfg.stationCode === 'REPACK_OUT' ||
+      cfg.stationCode === 'REPACK_RELEASE')  { setupRepackStation();   }
 
   // ATTENDANCE — camera scans operator QR cards; the typed input collapses
   // behind a toggle so the soft keyboard doesn't pre-empt the camera.
@@ -3715,6 +3719,36 @@ function setRepackHint(text) {
   if (h) h.textContent = text;
 }
 
+// REPACK_RELEASE — dispatch hands a unit back to a repack run (custody sign-off).
+// Scan each unit box label (LOT-…-E/R); worker locks the car+remote out of dispatch
+// (→ released_repack) and records the release so REPACK_IN will accept it.
+async function doRepackReleaseScan(barcode) {
+  if (!repackRun) { showReject('NO RUN SELECTED', 'Select a repack run above first'); playErrBeep(); vibrate([100,50,100]); return; }
+  if (!isOnline)  { showReject('OFFLINE', 'Repack release requires a live connection'); playErrBeep(); vibrate([100,50,100]); return; }
+  if (!/^LOT-\d+(-[ER])?$/i.test(barcode)) {
+    showReject('WRONG BARCODE', 'Scan the unit box label (LOT-XXXXXXXX-E/R)');
+    playErrBeep(); vibrate([100,50,100]);
+    addLog({ barcode, status:'err', tag:'REPACK_RELEASE', label:'WRONG FORMAT' });
+    return;
+  }
+  const res = await workerPost('postRepackRelease', {
+    device_code: cfg.deviceCode,
+    box_ref:     barcode,
+    run_id:      repackRun.id,
+    operator_id: operatorUUID || currentOperator?.id || null,
+  });
+  if (!res.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('RELEASE FAILED', res.error || 'Unknown error');
+    addLog({ barcode, status:'err', tag:'REPACK_RELEASE', label:'ERR' });
+    return;
+  }
+  const d = res.data;
+  flash('ok'); vibrate([50,30,50]); playSuccessBeep();
+  showToast(`✓ Released ${d.car_upc}${d.remote_upc ? ' + remote' : ''} → ${repackRun.run_no}`, 'ok');
+  addLog({ barcode, status:'ok', tag:'REPACK_RELEASE', label:`RELEASED → ${repackRun.run_no}` });
+}
+
 // REPACK_IN — scan the OLD box label; worker frees every in-scope unit in it.
 async function doRepackInScan(barcode) {
   if (!repackRun) { showReject('NO RUN SELECTED', 'Select a repack run above first'); playErrBeep(); vibrate([100,50,100]); return; }
@@ -4682,6 +4716,12 @@ async function processBarcode(barcode, act) {
   // ── STORE_ISSUE — store picking station (FEAT-020) ──
   if (act === 'STORE_ISSUE') {
     await doStoreIssueScan(barcode);
+    return;
+  }
+
+  // ── REPACK_RELEASE — dispatch releases a unit to a repack run ──
+  if (act === 'REPACK_RELEASE') {
+    await doRepackReleaseScan(barcode);
     return;
   }
 
