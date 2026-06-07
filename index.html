@@ -2060,6 +2060,7 @@ const STATION_DEFS = {
   PKG:     { label: 'Packaging',    activity: 'PKG',     hint: 'SCAN CAR UPC FIRST' },
   PKG_OUT: { label: 'PKG Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   RET_IN:  { label: 'Returns Intake', activity: 'RET_IN', hint: 'SELECT OPEN SHIPMENT, THEN SCAN EACH UNIT' },
+  UDR_ISSUE: { label: 'Issue UDR', activity: 'UDR_ISSUE', hint: 'SCAN A UDR BOX LABEL OR UPC TO ISSUE OUT' },
   PACK:    { label: 'Dispatch Pack', activity: 'PACK',    hint: 'SELECT SHIPMENT THEN SCAN BATCH LABEL' },
   DTK:     { label: 'Dispatch In',  activity: 'DTK',   hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   ALLOC:   { label: 'Allocate',     activity: 'ALLOC', hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
@@ -2169,7 +2170,7 @@ const DEPARTMENTS = {
   ]},
   store: { label: 'Store', operator: true, categories: [
     { key: 'store_issue',  label: 'Store Issue',  stations: ['STORE_ISSUE'] },
-    { key: 'returns',      label: 'Returns',      stations: ['RET_IN'] },
+    { key: 'returns',      label: 'Returns',      stations: ['RET_IN','UDR_ISSUE'] },
     { key: 'direct_issue', label: 'Direct Issue', stations: ['DSP_ISSUE'] },
     { key: 'utilities',    label: 'Utilities',    stations: ['LOOKUP','LEGACY_REG'] },
   ]},
@@ -2184,7 +2185,7 @@ const STATION_LINE_TYPE = {
   // PKG_OUT is SHARED across lines — one heat-shrink machine serves all lines, so no line pick.
   INW:'L', QC_PASS:'L', QC_FAIL:'L', WKS:'L', PKG:'L', PKG_OUT:'none', REPAIR:'L', REPACK_IN:'L', REPACK_OUT:'L', EXT_INW:'L',
   DTK:'D', ALLOC:'D', PACK:'D', DOUT:'D',
-  STORE_ISSUE:'none', RET_IN:'none', DSP_ISSUE:'none', RESTOCK:'none', LEGACY_REG:'none', LOOKUP:'none', ATTENDANCE:'none',
+  STORE_ISSUE:'none', RET_IN:'none', UDR_ISSUE:'none', DSP_ISSUE:'none', RESTOCK:'none', LEGACY_REG:'none', LOOKUP:'none', ATTENDANCE:'none',
 };
 const L_LINES = ['L1','L2','L3','L4','L5'];
 const D_LINES = ['D1','D2'];
@@ -4705,6 +4706,27 @@ async function processBarcode(barcode, act) {
   // ── RETURNS INTAKE (Returns V2) ──
   if (cfg.stationCode === 'RET_IN') {
     await handleRetInScan(barcode);
+    return;
+  }
+
+  // ── ISSUE UDR (Returns V2.1) — fulfil a production UDR request, scan-only ──
+  if (cfg.stationCode === 'UDR_ISSUE') {
+    const res = await workerPost('postUdrIssueScan', {
+      scan:        barcode,
+      device_code: cfg.deviceCode,
+      operator_id: operatorUUID || currentOperator?.id || null,
+    });
+    if (res.ok) {
+      const d = res.data || res;
+      flash('ok'); vibrate([50]); playSuccessBeep();
+      const left = (d.remaining != null && d.wo_no) ? ` — ${d.remaining} left on ${d.wo_no}` : '';
+      showToast(`✓ Issued ${[d.product, d.color].filter(Boolean).join(' ')}`.trim(), 'ok');
+      addLog({ barcode, status: d.over ? 'warn' : 'ok', tag:'UDR', label:`UDR ✓ ${[d.product, d.color].filter(Boolean).join(' ')}${left}${d.over ? ' (OVER)' : ''}` });
+    } else {
+      playErrBeep(); vibrate([100,50,100]);
+      showReject('UDR ISSUE FAILED', res.error || 'Unknown error');
+      addLog({ barcode, status:'err', tag:'UDR', label: res.error || 'FAILED' });
+    }
     return;
   }
 
