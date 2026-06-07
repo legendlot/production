@@ -942,7 +942,7 @@
 </div>
 
 <!-- ══════════════════════════════════
-     DISPATCH OPERATOR GATE (D1/D2 only)
+     OPERATOR GATE (Production / Store / Dispatch — per-shift QR sign-in)
 ══════════════════════════════════ -->
 <div id="dispatchOpGate" class="screen">
   <div class="login-wrap" style="padding:24px 16px;gap:14px;align-items:center">
@@ -2202,7 +2202,7 @@ function startEmojiObserver() {
 // duplicates the shared QC→Package-Out chain across run types by design.
 // ══════════════════════════════════════════════════════════════════
 const DEPARTMENTS = {
-  production: { label: 'Production', operator: false, categories: [
+  production: { label: 'Production', operator: true, categories: [
     { key: 'fresh',      label: 'Fresh Production', stations: ['INW','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
     { key: 'repair',     label: 'Repair Run',       stations: ['REPAIR','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
     { key: 'outsourced', label: 'Outsourced Run',   stations: ['EXT_INW','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
@@ -2428,7 +2428,13 @@ async function launchGuided() {
     afterLaunch();
   } catch (e) { statusEl.textContent = 'Connection error — check network'; statusEl.style.color = 'var(--red)'; }
 }
-function needsOperator() { return !!(DEPARTMENTS[cfg.department] && DEPARTMENTS[cfg.department].operator); }
+function needsOperator() {
+  // Deviceless utilities (Lookup/Attendance) never need an operator — the QR gate
+  // calls loginDispatchOperator which requires a device_code, so gating them would
+  // hard-error. Otherwise an operator is required for any operator-flagged department.
+  if (DEVICELESS_STATIONS.has(cfg.stationCode)) return false;
+  return !!(DEPARTMENTS[cfg.department] && DEPARTMENTS[cfg.department].operator);
+}
 function afterLaunch() {
   // Store/Dispatch require an operator QR sign-in; Production/Attendance go straight in.
   if (needsOperator() && !dispatchOpSessionValid()) { showDispatchOpGate(); return; }
@@ -2645,9 +2651,9 @@ async function startSession() {
 // ══════════════════════════════════════════════════════
 function bootScanner() {
   // ── OPERATOR GATE (Store + Dispatch) ──
-  // Store/Dispatch require a per-shift operator QR sign-in before scans are
-  // accepted; the cached session lives in lot_cfg and expires at 1 AM IST.
-  // Production + Attendance need no operator.
+  // Production/Store/Dispatch require a per-shift operator QR sign-in before scans
+  // are accepted; the cached session lives in lot_cfg and expires at 1 AM IST.
+  // Deviceless utilities (Lookup/Attendance) need no operator.
   if (needsOperator()) {
     if (!dispatchOpSessionValid()) {
       showDispatchOpGate();
@@ -2672,7 +2678,7 @@ function bootScanner() {
   document.getElementById('tb_line').textContent    = cfg.line + ' · ' + currentShift;
   document.getElementById('tb_station').textContent = stationDef.label || cfg.stationCode;
 
-  // ── Dispatch: Change Operator button — only show on dispatch stations
+  // ── Change Operator button — show on any operator-gated station (Prod/Store/Dispatch)
   const changeOpBtn = document.getElementById('dispatchChangeOpBtn');
   if (changeOpBtn) {
     changeOpBtn.style.display = needsOperator() ? 'inline-block' : 'none';
