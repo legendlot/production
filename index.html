@@ -483,38 +483,6 @@
       font-family:'JetBrains Mono',monospace;width:100%;
     }
 
-    /* ── RTO UPC OVERLAY ── */
-    .rto-upc-overlay{
-      display:none;position:absolute;inset:0;z-index:50;
-      background:rgba(8,8,8,0.97);
-      flex-direction:column;align-items:center;justify-content:center;
-      gap:16px;padding:32px 24px;
-    }
-    .rto-upc-overlay.show{display:flex}
-    .rto-upc-icon{font-size:48px;line-height:1}
-    .rto-upc-label{
-      font-size:10px;color:var(--teal);letter-spacing:0.18em;
-      text-transform:uppercase;text-align:center;
-    }
-    .rto-upc-code{
-      font-size:28px;font-weight:900;color:var(--yellow);
-      letter-spacing:0.06em;background:var(--surface);
-      border:2px solid var(--teal);padding:16px 24px;
-      border-radius:10px;text-align:center;width:100%;
-      word-break:break-all;
-    }
-    .rto-upc-meta{
-      font-size:11px;color:var(--text2);text-align:center;
-      letter-spacing:0.04em;
-    }
-    .rto-upc-done{
-      margin-top:8px;padding:16px 40px;
-      background:var(--teal);color:#000;
-      font-weight:900;font-size:13px;letter-spacing:0.1em;
-      border:none;border-radius:12px;cursor:pointer;
-      font-family:'JetBrains Mono',monospace;width:100%;
-    }
-
     /* ── MODALS ── */
     .modal-backdrop{
       display:none;position:fixed;inset:0;z-index:100;
@@ -1154,7 +1122,7 @@
           style="width:100%;box-sizing:border-box;padding:8px;border-radius:5px;border:1px solid #DE2A2A;background:var(--bg2);color:var(--text);font-family:var(--mono);font-size:12px">
       </div>
       <div style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:8px;text-align:center;border-top:1px solid var(--border2);padding-top:6px">
-        ⚠ Courier-touched returns must go through RTO_IN, not Restock
+        ⚠ Courier-touched returns must go through Return Intake, not Restock
       </div>
     </div>
   </div>
@@ -1257,15 +1225,6 @@
       <div class="pkg-result-sub" id="pkgPrintStatus">🖨 Sending to printer...</div>
       <button id="pkgReprintBtn" onclick="retryPrint()" style="width:100%;padding:13px;background:var(--surface2);color:var(--text2);font-weight:700;font-size:12px;letter-spacing:0.1em;border:1px solid var(--border2);border-radius:10px;cursor:pointer;font-family:'JetBrains Mono',monospace">🖨 REPRINT LABEL</button>
       <button class="pkg-result-done" onclick="clearPkgResult()">NEXT UNIT →</button>
-    </div>
-
-    <!-- RTO_IN minted UPC overlay — shown after registerLegacyUnit mints a fresh LOT UPC -->
-    <div class="rto-upc-overlay" id="rtoUpcOverlay">
-      <div class="rto-upc-icon">✅</div>
-      <div class="rto-upc-label">MINTED LOT UPC — WRITE THIS DOWN:</div>
-      <div class="rto-upc-code" id="rtoUpcCode">—</div>
-      <div class="rto-upc-meta" id="rtoUpcMeta"></div>
-      <button class="rto-upc-done" onclick="clearRtoUpcOverlay()">NEXT SCAN →</button>
     </div>
 
     <!-- PACK result overlay -->
@@ -2052,7 +2011,7 @@ function pickStation(el) {
 
   // Three-way line-picker visibility — keyed on data-line-group with data-shared fallback.
   //   data-line-group="dispatch" → D-line picker (D1, D2)
-  //   data-shared="1"           → no line picker (LOOKUP, ATTENDANCE, PKG_OUT, RTO_IN, STORE_ISSUE, LEGACY_REG)
+  //   data-shared="1"           → no line picker (LOOKUP, ATTENDANCE, PKG_OUT, STORE_ISSUE, LEGACY_REG)
   //   default (production)      → L-line picker (L1–L5)
   const lineGroup = el.dataset.lineGroup || '';
   const isShared  = el.dataset.shared === '1' && !lineGroup;
@@ -2100,7 +2059,6 @@ const STATION_DEFS = {
   WKS:     { label: 'Workshop',     activity: 'WKS',     hint: 'SCAN LOT UPC' },
   PKG:     { label: 'Packaging',    activity: 'PKG',     hint: 'SCAN CAR UPC FIRST' },
   PKG_OUT: { label: 'PKG Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
-  RTO_IN:  { label: 'RTO In',       activity: 'RTO_IN',  hint: 'SCAN LOT UPC OR EAN' },
   RET_IN:  { label: 'Returns Intake', activity: 'RET_IN', hint: 'SELECT OPEN SHIPMENT, THEN SCAN EACH UNIT' },
   PACK:    { label: 'Dispatch Pack', activity: 'PACK',    hint: 'SELECT SHIPMENT THEN SCAN BATCH LABEL' },
   DTK:     { label: 'Dispatch In',  activity: 'DTK',   hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
@@ -4176,7 +4134,7 @@ function selectAllocChannel(id, name, type) {
 function actClass(act) {
   const m = {
     INW:'inw', QC_PASS:'qcp', QC_FAIL:'qcf',
-    WKS_IN:'wks', WKS_OUT:'wks', RTO_IN:'rto',
+    WKS_IN:'wks', WKS_OUT:'wks',
     PKG:'pkg', PKG_OUT:'pkg', RTE:'rte', RTR:'rtr',
     DTK:'dtk', ALLOC:'alloc', DOUT:'dout'
   };
@@ -4185,14 +4143,14 @@ function actClass(act) {
 function actBg(act) {
   const m = {
     INW:'#213CE2', QC_PASS:'#22c55e', QC_FAIL:'#DE2A2A',
-    WKS_IN:'#f59e0b', WKS_OUT:'#f59e0b', RTO_IN:'#14b8a6',
+    WKS_IN:'#f59e0b', WKS_OUT:'#f59e0b',
     PKG:'#8b5cf6', PKG_OUT:'#8b5cf6', RTE:'#0ea5e9', RTR:'#F2CD1A',
     RTD_RETURN:'#14b8a6', DTK:'#213CE2', ALLOC:'#F2CD1A', DOUT:'#22c55e'
   };
   return m[act] || '#333';
 }
 function actFg(act) {
-  return ['QC_PASS','WKS_IN','WKS_OUT','RTO_IN','RTE','RTR','RTD_RETURN'].includes(act) ? '#000' : '#fff';
+  return ['QC_PASS','WKS_IN','WKS_OUT','RTE','RTR','RTD_RETURN'].includes(act) ? '#000' : '#fff';
 }
 
 function updateScanHint() {
@@ -4212,7 +4170,6 @@ const LOOKUP_ACT_COLORS = {
   WKS_IN:  '#8b5cf6', WKS_OUT: '#8b5cf6', PKG:     '#8b5cf6',
   PKG_OUT: '#8b5cf6', RTE:     '#0ea5e9', RTR:     '#F2CD1A',
   DOUT:    '#F2CD1A', DTK:     '#f59e0b', ALLOC:   '#f59e0b',
-  RTO_IN:  '#f59e0b',
 };
 
 function fmtIST(ts) {
@@ -4854,62 +4811,12 @@ async function processBarcode(barcode, act) {
     return;
   }
 
-  // Legacy format detection at RTO_IN
-  if (cfg.stationCode === 'RTO_IN' && /^\d{13,}$/.test(barcode)) {
-    // 13-digit = EAN, 14+ = legacy car QR — both route to registerLegacyUnit return mode
-    document.getElementById('scanHint').textContent = 'Processing legacy return...';
-    try {
-      const res = await fetch(WORKER_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          action: 'registerLegacyUnit',
-          data: { mode: 'return', scan: barcode, operator_id: operatorUUID || currentOperator?.id || null, device_code: cfg.deviceCode }
-        })
-      });
-      const r = await res.json();
-      if (!r.ok) {
-        addLog({ barcode, status:'err', tag:'RTO_IN', label: r.error || 'LEGACY RETURN ERROR' });
-        document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
-        return;
-      }
-      const label = r.found_existing
-        ? `${r.product} ${r.model} ${r.color} — EXISTING UNIT RTO_IN`
-        : `${r.product} ${r.model} ${r.color} — NEW UNIT → ${r.car_upc}`;
-      addLog({ barcode, status:'ok', tag:'RTO_IN', label });
-      if (!r.found_existing && r.car_upc) {
-        // New unit: show minted LOT UPC prominently so operator can write it down
-        document.getElementById('rtoUpcCode').textContent = r.car_upc;
-        document.getElementById('rtoUpcMeta').textContent =
-          [r.product, r.model, r.color].filter(Boolean).join(' · ');
-        document.getElementById('rtoUpcOverlay').classList.add('show');
-        document.getElementById('scanHint').textContent = 'RTO RECORDED';
-      } else {
-        // Existing unit re-recorded — no new UPC, plain hint is sufficient
-        document.getElementById('scanHint').textContent = 'RTO RECORDED';
-      }
-    } catch(e) {
-      addLog({ barcode, status:'err', tag:'RTO_IN', label:'NETWORK ERROR' });
-      document.getElementById('scanHint').textContent = 'ERROR — TRY AGAIN';
-    }
+  // ── All remaining stations (INW, QC_PASS, QC_FAIL, PKG, WKS) expect a LOT UPC ──
+  if (!isLotUpc) {
+    showReject('WRONG BARCODE', 'Expected LOT-XXXXXXXX format');
+    playErrBeep(); vibrate([100,50,100]);
+    addLog({ barcode, status:'err', tag:'ERR', label:'WRONG FORMAT' });
     return;
-  }
-
-  // ── All other stations expect LOT UPC (except RTO_IN) ──
-  if (act !== 'RTO_IN') {
-    if (!isLotUpc) {
-      showReject('WRONG BARCODE', 'Expected LOT-XXXXXXXX format');
-      playErrBeep(); vibrate([100,50,100]);
-      addLog({ barcode, status:'err', tag:'ERR', label:'WRONG FORMAT' });
-      return;
-    }
-  }
-
-  // ── RTO_IN: if operator scans a batch label (LOT-XXXXXXXX-E/R), extract car UPC ──
-  // Operators scan the label on the outside of the returned box — strip the suffix
-  // so postScan receives a valid car UPC and records the RTO_IN correctly.
-  if (act === 'RTO_IN' && isBatchLabel) {
-    barcode = barcode.replace(/-[ER]$/i, '');
   }
 
   // ── QC_PASS — two-scan pairing flow ──
@@ -4940,7 +4847,7 @@ async function processBarcode(barcode, act) {
     return;
   }
 
-  // ── All other scan types (INW, WKS_IN, WKS_OUT, RTO_IN) ──
+  // ── All other scan types (INW, WKS_IN, WKS_OUT) ──
   // Flash and beep only after the API confirms success, so operators don't
   // walk away believing a scan registered when it actually failed.
   const scanId = await submitScanWorker(barcode, act);
@@ -5236,13 +5143,6 @@ function clearPkgResult() {
   pkgResultShowing = false;
   pkgInFlight      = false;
   document.getElementById('pkgResult').classList.remove('show');
-  // Reset debounce so next scan isn't suppressed
-  lastBarcode = '';
-  lastScanTs  = 0;
-}
-
-function clearRtoUpcOverlay() {
-  document.getElementById('rtoUpcOverlay').classList.remove('show');
   // Reset debounce so next scan isn't suppressed
   lastBarcode = '';
   lastScanTs  = 0;
