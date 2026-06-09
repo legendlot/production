@@ -5295,7 +5295,7 @@ async function loadRepairRuns() {
   res.data.forEach(run => {
     const opt = document.createElement('option');
     opt.value = run.id;
-    opt.textContent = `${run.run_no || run.id.slice(0,8)} — ${run.status.toUpperCase()}`;
+    opt.textContent = `${run.run_no || run.id.slice(0,8)} · ${run.line || '—'} · ${run.status.toUpperCase()}`;
     select.appendChild(opt);
   });
 }
