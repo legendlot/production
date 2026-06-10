@@ -4031,7 +4031,7 @@ async function doStoreIssueScan(barcode) {
   try {
     res = await workerPost('postRunPick', {
       device_code: cfg.deviceCode,
-      run_id:      storePickRun.id,
+      run_id:      storePickRun.run_id || storePickRun.id,
       bag_id:      barcode,
     });
   } catch (e) {
