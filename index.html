@@ -2851,28 +2851,33 @@ async function confirmAttendance() {
   setAttState('loading');
   const payload = { employee_id: attOpData.employee_id, device_id: cfg.deviceCode || 'ATTENDANCE' };
 
-  // Optimistic clockIn; fall back to clockOut if already clocked in. A clock-out within
-  // the worker's min-dwell window comes back as action:'noop' (a duplicate/double scan) —
-  // show "Already Clocked In", not a spurious clock-out.
-  let r = await workerPost('clockIn', payload);
-  let action = 'Clocked In';
-  let timeIst = r?.data?.clock_in_ist;
-  if (r && r.ok === false && /already clocked in/i.test(r.error || '')) {
-    r = await workerPost('clockOut', payload);
-    if (r?.data?.action === 'noop') {
-      action = 'Already Clocked In';
-      timeIst = r?.data?.clock_in_ist;
-    } else {
-      action = 'Clocked Out';
-      timeIst = r?.data?.clock_out_ist;
-    }
-  }
+  // Single resolver call: the worker decides clock-in vs clock-out from the operator's
+  // shift window + their own open-row state (no client-side toggle). Returns
+  // action 'in' | 'out' | 'noop'. noop reasons: mid_shift / min_dwell (already in,
+  // not yet eligible to clock out) or no_open_window (outside any clock-in window).
+  const r = await workerPost('recordAttendance', payload);
   if (!r || r.ok === false) {
     return showAttError(r?.error || 'Attendance failed');
   }
+  const d = r.data || {};
+  let action, timeIst;
+  if (d.action === 'in') {
+    action = 'Clocked In';
+    timeIst = d.clock_in_ist;
+  } else if (d.action === 'out') {
+    action = 'Clocked Out';
+    timeIst = d.clock_out_ist;
+  } else {
+    // noop — no row written
+    if (d.reason === 'no_open_window') {
+      return showAttError(d.message || 'Outside clock-in window — see supervisor');
+    }
+    action = 'Already Clocked In';   // mid_shift or min_dwell double-scan
+    timeIst = d.clock_in_ist;
+  }
 
   document.getElementById('att_successAction').textContent = action.toUpperCase();
-  document.getElementById('att_successName').textContent   = r.data?.operator_name || attOpData.name || '';
+  document.getElementById('att_successName').textContent   = d.operator_name || attOpData.name || '';
   document.getElementById('att_successTime').textContent   = timeIst ? `${timeIst} IST` : '';
   setAttState('success');
   attResetTimer = setTimeout(() => resetAttendance(), 2500);
