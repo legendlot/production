@@ -2067,7 +2067,7 @@ const STATION_DEFS = {
   DOUT:       { label: 'Dispatch Out',    activity: 'DOUT',       hint: 'SCAN BOX LABEL (BOX-XXXXX) OR BATCH LABEL' },
   LEGACY_REG: { label: 'Legacy Reg',      activity: 'LEGACY_REG', hint: 'SELECT MODE THEN SCAN' },
   REPAIR:     { label: 'Repair',          activity: 'REPAIR',     hint: 'SELECT MODE ABOVE' },
-  LOOKUP:     { label: 'Lookup',          activity: 'LOOKUP',     hint: 'SCAN ANY UPC — LOT, BOX, OR REMOTE' },
+  LOOKUP:     { label: 'Lookup',          activity: 'LOOKUP',     hint: 'SCAN ANY CODE — LOT, BOX, REMOTE, OR BAG' },
   ATTENDANCE: { label: 'Attendance',      activity: 'ATTENDANCE', hint: 'SCAN OR TYPE EMPLOYEE ID' },
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
   STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN THEN SCAN BAG QR' },
@@ -4243,6 +4243,8 @@ async function doLookupScan(barcode) {
     const d = res.data;
     const logLabel = d.type === 'box'
       ? 'BOX · ' + (d.box && d.box.unit_count ? d.box.unit_count : 0) + ' units'
+      : d.type === 'bag'
+      ? 'BAG · ' + [d.bag && d.bag.part_code, (d.pick_scans && d.pick_scans[0] && d.pick_scans[0].run_no)].filter(Boolean).join(' · ')
       : [d.unit && d.unit.product, d.unit && d.unit.current_status].filter(Boolean).join(' · ');
     addLog({ barcode, status: 'ok', tag: 'LOOKUP', label: logLabel });
     showLookupResult(d, barcode);
@@ -4300,6 +4302,55 @@ function buildLookupBoxHTML(data, barcode) {
     + '<button class="lookup-reprint-btn' + reprintReady + '" id="lookupReprintBtn" onclick="doLookupReprint(\'' + boxRef + '\')">'
     + '🖨 REPRINT BOX LABEL</button>'
     + '<div style="font-size:10px;color:var(--muted);text-align:center;margin-top:6px;letter-spacing:0.04em;min-height:16px" id="lookupReprintStatus"></div>'
+    + '<button class="lookup-done-btn" onclick="clearLookupResult()">← SCAN AGAIN</button>';
+}
+
+function buildLookupBagHTML(data, barcode) {
+  const bag   = data.bag || {};
+  const picks = data.pick_scans || [];
+  const bagRef = bag.bag_id || barcode;
+  const partLine = [bag.part_code, bag.part_name].filter(Boolean).join(' · ') || '—';
+
+  const detail = [
+    ['Part',    [bag.part_code, bag.part_name].filter(Boolean).join(' · ') || '—'],
+    ['Product', bag.product || '—'],
+    ['Bag qty', (bag.qty != null ? bag.qty + ' pcs' : '—')],
+    ['GRN',     bag.grn_no || '—'],
+    ['Bin',     bag.bin_code || '—'],
+  ];
+  let detailRows = '';
+  for (const [k, v] of detail) {
+    detailRows += '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)">'
+      + '<span style="color:var(--text2);font-size:11px">' + k + '</span>'
+      + '<span style="color:var(--text);font-size:11px;font-weight:600">' + v + '</span>'
+      + '</div>';
+  }
+
+  let pickRows = '';
+  for (const p of picks) {
+    pickRows += '<div class="lookup-scan-row">'
+      + '<span class="lookup-activity-badge" style="background:#22c55e22;color:#22c55e;border-color:#22c55e44">PICK</span>'
+      + '<div>'
+      + '<div class="lookup-scan-meta" style="color:var(--text2)">' + (p.run_no || '—') + ' · ' + (p.qty != null ? p.qty + ' pcs' : '—') + '</div>'
+      + '<div class="lookup-scan-meta">' + fmtIST(p.scanned_at) + ' · ' + (p.device_code || '—') + '</div>'
+      + '</div>'
+      + '</div>';
+  }
+  if (!pickRows) {
+    pickRows = '<div style="padding:12px 0;color:var(--muted);font-size:11px;text-align:center">Not yet picked into a run</div>';
+  }
+
+  return '<div class="lookup-result-header">'
+    + '<div>'
+    + '<div class="lookup-upc">' + bagRef + '</div>'
+    + '<div class="lookup-product">' + partLine + '</div>'
+    + '</div>'
+    + '<span class="lookup-status-badge" style="background:rgba(242,205,26,0.15);color:var(--yellow);border-color:rgba(242,205,26,0.4)">BAG</span>'
+    + '</div>'
+    + '<div class="lookup-section-label">Bag details</div>'
+    + '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:0 12px">' + detailRows + '</div>'
+    + '<div class="lookup-section-label">Pick history</div>'
+    + '<div style="background:var(--surface);border:1px solid var(--border2);border-radius:8px;padding:0 12px">' + pickRows + '</div>'
     + '<button class="lookup-done-btn" onclick="clearLookupResult()">← SCAN AGAIN</button>';
 }
 
@@ -4425,6 +4476,8 @@ function showLookupResult(data, barcode) {
   const el = document.getElementById('lookupResult');
   el.innerHTML = data.type === 'box'
     ? buildLookupBoxHTML(data, barcode)
+    : data.type === 'bag'
+    ? buildLookupBagHTML(data, barcode)
     : buildLookupUnitHTML(data, barcode);
   el.classList.add('show');
   playSuccessBeep(); vibrate([60]);
