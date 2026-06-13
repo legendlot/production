@@ -2851,14 +2851,21 @@ async function confirmAttendance() {
   setAttState('loading');
   const payload = { employee_id: attOpData.employee_id, device_id: cfg.deviceCode || 'ATTENDANCE' };
 
-  // Optimistic clockIn; fall back to clockOut if already clocked in.
+  // Optimistic clockIn; fall back to clockOut if already clocked in. A clock-out within
+  // the worker's min-dwell window comes back as action:'noop' (a duplicate/double scan) —
+  // show "Already Clocked In", not a spurious clock-out.
   let r = await workerPost('clockIn', payload);
   let action = 'Clocked In';
   let timeIst = r?.data?.clock_in_ist;
   if (r && r.ok === false && /already clocked in/i.test(r.error || '')) {
     r = await workerPost('clockOut', payload);
-    action = 'Clocked Out';
-    timeIst = r?.data?.clock_out_ist;
+    if (r?.data?.action === 'noop') {
+      action = 'Already Clocked In';
+      timeIst = r?.data?.clock_in_ist;
+    } else {
+      action = 'Clocked Out';
+      timeIst = r?.data?.clock_out_ist;
+    }
   }
   if (!r || r.ok === false) {
     return showAttError(r?.error || 'Attendance failed');
