@@ -2072,6 +2072,7 @@ const STATION_DEFS = {
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
   STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN THEN SCAN BAG QR' },
   RESTOCK:    { label: 'Restock',          activity: 'RESTOCK',     hint: 'PICK REASON, SCAN LOT UPC — UNUSED UNITS ONLY' },
+  STOCK_AUDIT:{ label: 'Stock Audit',      activity: 'STOCK_AUDIT', hint: 'OPEN AN AUDIT IN DEPOT, THEN SCAN EVERY CAR LABEL YOU HOLD — RE-SCANS IGNORED' },
   DSP_ISSUE:  { label: 'Direct Issue',     activity: 'DSP_ISSUE',   hint: 'SCAN DI-NNN STICKER TO ISSUE OUT' },
   REPACK_IN:  { label: 'Repack In',        activity: 'REPACK_IN',   hint: 'SELECT RUN THEN SCAN OLD BOX LABEL' },
   REPACK_OUT: { label: 'Repack Out',       activity: 'REPACK_OUT',  hint: 'SELECT RUN, SCAN CAR THEN DEST BOX' },
@@ -2179,6 +2180,7 @@ const DEPARTMENTS = {
     { key: 'flow',      label: 'Dispatch Flow', stations: ['DTK','ALLOC','PACK','DOUT'] },
     { key: 'repack_release', label: 'Repack Release', stations: ['REPACK_RELEASE'] },
     { key: 'restock',   label: 'Restock',       stations: ['RESTOCK'] },
+    { key: 'stock_audit', label: 'Stock Audit', stations: ['STOCK_AUDIT'] },
     { key: 'utilities', label: 'Utilities',     stations: ['LOOKUP','LEGACY_REG'] },
   ]},
 };
@@ -2188,7 +2190,7 @@ const STATION_LINE_TYPE = {
   INW:'L', QC_PASS:'L', QC_FAIL:'L', WKS:'L', PKG:'L', PKG_OUT:'none', REPAIR:'L', REPACK_IN:'L', REPACK_OUT:'L', EXT_INW:'L',
   DTK:'D', ALLOC:'D', PACK:'D', DOUT:'D',
   STORE_ISSUE:'none', RET_IN:'none', UDR_ISSUE:'none', DSP_ISSUE:'none', RESTOCK:'none', LEGACY_REG:'none', LOOKUP:'none', ATTENDANCE:'none',
-  REPACK_RELEASE:'none',
+  REPACK_RELEASE:'none', STOCK_AUDIT:'none',
 };
 const L_LINES = ['L1','L2','L3','L4','L5'];
 const D_LINES = ['D1','D2'];
@@ -4825,6 +4827,35 @@ async function processBarcode(barcode, act) {
       playErrBeep(); vibrate([100,50,100]);
       showReject('UDR ISSUE FAILED', res.error || 'Unknown error');
       addLog({ barcode, status:'err', tag:'UDR', label: res.error || 'FAILED' });
+    }
+    return;
+  }
+
+  // ── STOCK AUDIT — scan held car labels into the open audit (soft, dedup) ──
+  if (act === 'STOCK_AUDIT') {
+    if (!isBatchLabel && !isLotUpc) {
+      showReject('WRONG BARCODE', 'Scan a car box label (LOT-XXXXXXXX-E/R)');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'AUDIT', label:'WRONG FORMAT' });
+      return;
+    }
+    flash('ok'); vibrate([50]);
+    const res = await workerPost('postStockAudit', {
+      batch_label: barcode,
+      operator_id: operatorUUID || currentOperator?.id || null,
+    });
+    const d = res.data || res;
+    if (res.ok && d.ok) {
+      playSuccessBeep();
+      const name = [d.product, d.color].filter(Boolean).join(' ');
+      showToast(`✓ ${name || d.car_upc} · ${d.total_scanned} scanned`, 'ok');
+      addLog({ barcode, status: d.held ? 'ok' : 'warn',
+        tag:'AUDIT', label:`${name || d.car_upc}${d.held ? '' : ' ⚠ not held'} (${d.total_scanned})` });
+    } else {
+      // soft: no open audit / unknown label — warn, never red-screen the count
+      playErrBeep(); vibrate([100,50,100]);
+      showToast(d.message || res.error || 'Not recorded', 'warn');
+      addLog({ barcode, status:'warn', tag:'AUDIT', label: d.message || res.error || 'not recorded' });
     }
     return;
   }
