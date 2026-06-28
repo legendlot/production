@@ -2071,7 +2071,7 @@ const STATION_DEFS = {
   ATTENDANCE: { label: 'Attendance',      activity: 'ATTENDANCE', hint: 'SCAN OR TYPE EMPLOYEE ID' },
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
   STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN THEN SCAN BAG QR' },
-  RESTOCK:    { label: 'Restock',          activity: 'RESTOCK',     hint: 'PICK REASON, SCAN LOT UPC — UNUSED UNITS ONLY' },
+  RESTOCK:    { label: 'Restock / Remove',  activity: 'RESTOCK',     hint: 'PICK REASON, SCAN LOT LABEL — REMOVES FROM BOX, BACK TO DISPATCH' },
   STOCK_AUDIT:{ label: 'Stock Audit',      activity: 'STOCK_AUDIT', hint: 'OPEN AN AUDIT IN DEPOT, THEN SCAN EVERY CAR LABEL YOU HOLD — RE-SCANS IGNORED' },
   DSP_ISSUE:  { label: 'Direct Issue',     activity: 'DSP_ISSUE',   hint: 'SCAN DI-NNN STICKER TO ISSUE OUT' },
   REPACK_IN:  { label: 'Repack In',        activity: 'REPACK_IN',   hint: 'SELECT RUN THEN SCAN OLD BOX LABEL' },
@@ -3443,7 +3443,7 @@ function renderPackBoxBar() {
                    appearance:none;-webkit-appearance:none">
             ${openBoxes.map(b => `
               <option value="${b.id}" ${b.id === packBox?.id ? 'selected' : ''}>
-                ${b.box_ref} · ${b.unit_count || 0} units
+                ${b.box_ref} · ${b.unit_count || 0}${b.capacity ? '/' + b.capacity : ''} units
               </option>`).join('')}
           </select>
         </div>
@@ -3586,6 +3586,14 @@ async function doPackScan(barcode) {
     renderPackBoxBar();
   }
 
+  // Box capacity hard-block (client-side pre-check for instant UX; the worker is
+  // the authoritative block). Refuse to scan into a carton already at its max.
+  if (isBulk && packBox && packBox.capacity != null && (packBox.unit_count || 0) >= packBox.capacity) {
+    showReject('BOX FULL', `${packBox.box_ref} holds ${packBox.capacity}. Close it & pick/add a new box.`);
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
   flash('ok'); vibrate([50]);
 
   // Update local openBoxes count optimistically
@@ -3609,6 +3617,13 @@ async function doPackScan(barcode) {
   });
 
   if (!result.ok) {
+    // Revert the optimistic count bump — the worker rejected (e.g. BOX FULL / over-target).
+    if (isBulk && packBox) {
+      packBox.unit_count = Math.max(0, (packBox.unit_count || 1) - 1);
+      const idx = openBoxes.findIndex(b => b.id === packBox.id);
+      if (idx !== -1) openBoxes[idx] = { ...openBoxes[idx], unit_count: packBox.unit_count };
+      renderPackBoxBar();
+    }
     flash('err'); vibrate([100,50,100]); playErrBeep();
     showReject('PACK FAILED', result.error || 'Unknown error');
     addLog({ barcode, status:'err', tag:'PACK', label:'PACK ERR' });
@@ -3619,7 +3634,16 @@ async function doPackScan(barcode) {
   playSuccessBeep();
   addLog({ barcode, status:'ok', tag:'PACK', label: d.auto_closed ? `PACK ✓ AUTO-CLOSE` : `PACK ✓ (${d.unit_count})` });
 
-  if (d.auto_closed) {
+  if (d.auto_closed && d.box_full) {
+    // Bulk capacity reached — this pack filled the carton; worker auto-closed it.
+    // Advance to the next open box (or none → operator adds one).
+    openBoxes = openBoxes.filter(b => b.id !== packBox?.id);
+    packBox = openBoxes[0] || null;
+    if (packBox) localStorage.setItem('pack_box_id', packBox.id);
+    else localStorage.removeItem('pack_box_id');
+    renderPackBoxBar();
+    showToast(`✓ ${d.box_ref} FULL (${d.unit_count}/${d.capacity}) — closed. ${packBox ? 'Now: ' + packBox.box_ref : 'Add a new box'}`, 'ok');
+  } else if (d.auto_closed) {
     // Unit fulfillment — show result and clear box
     packBox = null;
     showPackResult(d);
@@ -3629,7 +3653,7 @@ async function doPackScan(barcode) {
       packBox.unit_count = d.unit_count;
       renderPackBoxBar();
     }
-    showToast(`✓ ${d.unit_count} units in box`, 'ok');
+    showToast(`✓ ${d.unit_count}${d.capacity ? '/' + d.capacity : ''} units in box`, 'ok');
   }
 }
 
