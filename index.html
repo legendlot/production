@@ -2071,7 +2071,7 @@ const STATION_DEFS = {
   ATTENDANCE: { label: 'Attendance',      activity: 'ATTENDANCE', hint: 'SCAN OR TYPE EMPLOYEE ID' },
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
   STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN THEN SCAN BAG QR' },
-  RESTOCK:    { label: 'Restock / Remove',  activity: 'RESTOCK',     hint: 'PICK REASON, SCAN LOT LABEL — REMOVES FROM BOX, BACK TO DISPATCH' },
+  RESTOCK:    { label: 'Restock / Remove',  activity: 'RESTOCK',     hint: 'PICK REASON, SCAN BOX LABEL (LOT-…-E/R) OR CAR UPC — REMOVES FROM BOX, BACK TO DISPATCH' },
   STOCK_AUDIT:{ label: 'Stock Audit',      activity: 'STOCK_AUDIT', hint: 'OPEN AN AUDIT IN DEPOT, THEN SCAN EVERY CAR LABEL YOU HOLD — RE-SCANS IGNORED' },
   DSP_ISSUE:  { label: 'Direct Issue',     activity: 'DSP_ISSUE',   hint: 'SCAN DI-NNN STICKER TO ISSUE OUT' },
   REPACK_IN:  { label: 'Repack In',        activity: 'REPACK_IN',   hint: 'SELECT RUN THEN SCAN OLD BOX LABEL' },
@@ -4993,8 +4993,15 @@ async function processBarcode(barcode, act) {
   }
 
   // ── All remaining stations (INW, QC_PASS, QC_FAIL, PKG, WKS) expect a LOT UPC ──
-  if (!isLotUpc) {
-    showReject('WRONG BARCODE', 'Expected LOT-XXXXXXXX format');
+  //    RESTOCK also accepts a per-unit box label (LOT-XXXXXXXX-E/R): a packed car
+  //    sits inside its box, so the box's outside label is what's scannable (the
+  //    worker strips the -E/R suffix to the car). A bare car UPC still works for a
+  //    loose, un-boxed unit.
+  const restockBoxLabelOk = act === 'RESTOCK' && isBatchLabel;
+  if (!isLotUpc && !restockBoxLabelOk) {
+    showReject('WRONG BARCODE', act === 'RESTOCK'
+      ? 'Scan the box label (LOT-XXXXXXXX-E/R) or the car UPC'
+      : 'Expected LOT-XXXXXXXX format');
     playErrBeep(); vibrate([100,50,100]);
     addLog({ barcode, status:'err', tag:'ERR', label:'WRONG FORMAT' });
     return;
