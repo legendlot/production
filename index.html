@@ -5868,6 +5868,20 @@ async function submitScanWorker(barcode, act) {
     return null;
   }
 
+  if (isRestock) {
+    // Restock's ok() carries no scan_id, so the generic scanId!==null path below
+    // would flash nothing — show success here instead. already_restocked = the unit
+    // was already back in dispatch holding (a racing / repeated scan whose first scan
+    // did the work) — that's a success, not an error.
+    const rd = result.data || {};
+    flash('ok'); playSuccessBeep(); vibrate([50]);
+    showToast(rd.already_restocked
+      ? `Already restocked — ${barcode}`
+      : `✓ Restocked${rd.channel_name ? ' → ' + rd.channel_name : ''}`, 'ok');
+    addLog({ barcode, status:'ok', tag:'RESTOCK', label: rd.already_restocked ? 'ALREADY' : 'RESTOCK' });
+    return null;
+  }
+
   if (isDspIssue) {
     const u = result.data?.units_flipped ?? 0;
     const p = result.data?.parts_updated ?? 0;
