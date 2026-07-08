@@ -783,7 +783,7 @@
       <div class="dept-tile prod"     onclick="pickDepartment('production')"><div class="dept-tile-name">Production</div><div class="dept-tile-sub">Assembly · QC · Packaging · Repair</div></div>
       <div class="dept-tile store"    onclick="pickDepartment('store')"><div class="dept-tile-name">Store</div><div class="dept-tile-sub">Issue · Returns · Direct Issue</div></div>
       <div class="dept-tile dispatch" onclick="pickDepartment('dispatch')"><div class="dept-tile-name">Dispatch</div><div class="dept-tile-sub">Dispatch In · Allocate · Pack · Out</div></div>
-      <div class="dept-tile attend"   onclick="pickDepartment('attendance')"><div class="dept-tile-name">Attendance</div><div class="dept-tile-sub">Clock in / out — open to all</div></div>
+      <div class="dept-tile attend"   onclick="pickDepartment('attendance')"><div class="dept-tile-name">Attendance</div><div class="dept-tile-sub">Clock in / out · Supervisor PIN</div></div>
     </div>
   </div>
 </div>
@@ -2228,7 +2228,13 @@ function showDeptSelect() {
   showOnly('deptSelect');
 }
 function pickDepartment(dept) {
-  if (dept === 'attendance') { launchAttendance(); return; }
+  if (dept === 'attendance') {
+    // Attendance is now PIN-gated like the other buckets (supervisor-only PIN).
+    // On unlock it goes straight to the scanner — it has no category/station picker.
+    if (deptUnlockValid('attendance')) { launchAttendance(); return; }
+    showDeptPin('attendance');
+    return;
+  }
   if (deptUnlockValid(dept)) { navDept = dept; showCategorySelect(); return; }
   showDeptPin(dept);
 }
@@ -2236,7 +2242,7 @@ function pickDepartment(dept) {
 // ── Screen 2: Department PIN (on-screen keypad) ──────────────────
 function showDeptPin(dept) {
   pinDept = dept; pinBuffer = '';
-  document.getElementById('pinDeptLabel').textContent = DEPARTMENTS[dept].label;
+  document.getElementById('pinDeptLabel').textContent = DEPARTMENTS[dept] ? DEPARTMENTS[dept].label : 'Attendance';
   document.getElementById('pinError').style.display = 'none';
   renderPinDots();
   showOnly('deptPin');
@@ -2263,6 +2269,8 @@ async function verifyPin() {
       cfg.unlockedDept = dept;
       cfg.deptUnlockExpiry = setupExpiryMs();
       localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+      // Attendance has no category/station picker — go straight into the station.
+      if (dept === 'attendance') { launchAttendance(); return; }
       navDept = dept;
       showCategorySelect();
       return;
@@ -2447,8 +2455,14 @@ function stopAllCameras() {
 function routeBootGuided() {
   const dept = cfg.department;
   if (dept === 'attendance' && cfg.stationCode === 'ATTENDANCE') {
-    currentShift = deriveShift('ATTENDANCE');
-    bootScanner();
+    // Resume attendance only if the supervisor PIN unlock is still valid; else
+    // fall through to Department Select so the PIN is required again.
+    if (deptUnlockValid('attendance')) {
+      currentShift = deriveShift('ATTENDANCE');
+      bootScanner();
+      return;
+    }
+    showDeptSelect();
     return;
   }
   // Resume straight into the scanner only if the department unlock is still valid,
