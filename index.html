@@ -2077,6 +2077,7 @@ const STATION_DEFS = {
   REPACK_IN:  { label: 'Repack In',        activity: 'REPACK_IN',   hint: 'SELECT RUN THEN SCAN OLD BOX LABEL' },
   REPACK_OUT: { label: 'Repack Out',       activity: 'REPACK_OUT',  hint: 'SELECT RUN, SCAN CAR THEN DEST BOX' },
   REPACK_RELEASE: { label: 'Repack Release', activity: 'REPACK_RELEASE', hint: 'SELECT RUN THEN SCAN EACH BOX TO RELEASE TO REPACK' },
+  CYCLE_COUNT:{ label: 'Cycle Count',      activity: 'CYCLE_COUNT', hint: 'START A COUNT IN GARAGE, THEN SCAN EVERY BAG QR ON THE SHELF — RE-SCANS IGNORED' },
 };
 
 // ══════════════════════════════════════════════════════════════════
@@ -2173,6 +2174,7 @@ const DEPARTMENTS = {
     { key: 'store_issue',  label: 'Store Issue',  stations: ['STORE_ISSUE'] },
     { key: 'returns',      label: 'Returns',      stations: ['RET_IN','UDR_ISSUE'] },
     { key: 'direct_issue', label: 'Direct Issue', stations: ['DSP_ISSUE'] },
+    { key: 'cycle_count',  label: 'Cycle Count',  stations: ['CYCLE_COUNT'] },
     { key: 'utilities',    label: 'Utilities',    stations: ['LOOKUP','LEGACY_REG'] },
   ]},
   dispatch: { label: 'Dispatch', operator: true, categories: [
@@ -2189,7 +2191,7 @@ const STATION_LINE_TYPE = {
   INW:'L', QC_PASS:'L', QC_FAIL:'L', WKS:'L', PKG:'L', PKG_OUT:'none', REPAIR:'L', REPACK_IN:'L', REPACK_OUT:'L', EXT_INW:'L',
   DTK:'D', ALLOC:'D', PACK:'D', DOUT:'D',
   STORE_ISSUE:'none', RET_IN:'none', UDR_ISSUE:'none', DSP_ISSUE:'none', RESTOCK:'none', LEGACY_REG:'none', LOOKUP:'none', ATTENDANCE:'none',
-  REPACK_RELEASE:'none', STOCK_AUDIT:'none',
+  REPACK_RELEASE:'none', STOCK_AUDIT:'none', CYCLE_COUNT:'none',
 };
 const L_LINES = ['L1','L2','L3','L4','L5'];
 const D_LINES = ['D1','D2'];
@@ -4893,6 +4895,52 @@ async function processBarcode(barcode, act) {
       playErrBeep(); vibrate([100,50,100]);
       showToast(d.message || res.error || 'Not recorded', 'warn');
       addLog({ barcode, status:'warn', tag:'AUDIT', label: d.message || res.error || 'not recorded' });
+    }
+    return;
+  }
+
+  // ── CYCLE_COUNT — store shelf count by bag QR ──
+  // One scan = one full bag. The bag's part code and quantity come from the bag
+  // record, so the counter never types a number. Re-scanning the same bag is a
+  // deliberate no-op (see postCycleCountScan) so a shelf can be re-walked safely.
+  if (act === 'CYCLE_COUNT') {
+    if (!/^BAG-/i.test(barcode)) {
+      showReject('WRONG BARCODE', 'Scan a bag QR (BAG-…)');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'COUNT', label:'WRONG FORMAT' });
+      return;
+    }
+    flash('ok'); vibrate([50]);
+    let res;
+    try {
+      res = await workerPost('postCycleCountScan', {
+        bag_id:      barcode,
+        device_code: cfg.deviceCode || null,
+        operator_id: operatorUUID || currentOperator?.id || null,
+      });
+    } catch (e) {
+      playErrBeep(); vibrate([100,50,100]);
+      showToast('Network error — not recorded', 'warn');
+      addLog({ barcode, status:'warn', tag:'COUNT', label:'NET ERR' });
+      return;
+    }
+    const d = res.data || res;
+    if (res.ok && d.ok) {
+      playSuccessBeep();
+      if (d.already_scanned) {
+        // Not an error — the count is unchanged, which is exactly what should happen.
+        showToast(`Already counted · ${d.part_code} — ${d.counted_qty}`, 'warn');
+        addLog({ barcode, status:'warn', tag:'COUNT', label:`${d.part_code} ALREADY (${d.counted_qty})` });
+      } else {
+        showToast(`✓ ${d.part_code} +${d.bag_qty} → ${d.counted_qty}`, 'ok');
+        addLog({ barcode, status:'ok', tag:'COUNT',
+          label:`${d.part_code} +${d.bag_qty} = ${d.counted_qty} (${d.bags_scanned} bag${d.bags_scanned === 1 ? '' : 's'})` });
+      }
+    } else {
+      // SOFT — never red-screen a count in progress; every scan is data.
+      playErrBeep(); vibrate([100,50,100]);
+      showToast(d.message || res.error || 'Not recorded', 'warn');
+      addLog({ barcode, status:'warn', tag:'COUNT', label: d.message || res.error || 'not recorded' });
     }
     return;
   }
