@@ -4870,6 +4870,30 @@ async function processBarcode(barcode, act) {
     return;
   }
 
+  // ── DIRECT ISSUE (DSP V2, S92) — scan the DI-NNN sticker to move the stock ──
+  //    RULE-DSP-001: the scan IS the physical issue event; Garage's Approve only
+  //    authorized it. Needs its own branch BEFORE the LOT-UPC guard below, exactly
+  //    like LEGACY_REG / RET_IN / UDR_ISSUE above — a DI sticker is a DI number,
+  //    not a unit UPC. Without it every DI-NNN scan died on "Expected LOT-XXXXXXXX
+  //    format" client-side, never reaching the (already correct) postDspIssueScan
+  //    routing in submitScanWorker. Latent since S92 and invisible until the DI
+  //    sticker gained a QR on 2026-07-28 — before that there was nothing to scan,
+  //    so every DI went out through Garage force-issue (Piyush, DI-005, 07-30).
+  if (cfg.stationCode === 'DSP_ISSUE') {
+    if (!/^DI-\d+$/i.test(barcode)) {
+      showReject('WRONG BARCODE', 'Scan the DI-NNN sticker on the Direct Issuance slip');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'DSP_ISSUE', label:'WRONG FORMAT' });
+      return;
+    }
+    // submitScanWorker already routes DSP_ISSUE → postDspIssueScan (sending di_no)
+    // AND owns the success flash/beep/toast + every reject/queue state, returning
+    // null either way — same shape as RESTOCK. So do NOT re-toast here; that branch
+    // is the single place that knows the outcome.
+    await submitScanWorker(barcode.toUpperCase(), 'DSP_ISSUE');
+    return;
+  }
+
   // ── STOCK AUDIT — scan held car labels into the open audit (soft, dedup) ──
   if (act === 'STOCK_AUDIT') {
     if (!isBatchLabel && !isLotUpc) {
@@ -5945,10 +5969,16 @@ async function submitScanWorker(barcode, act) {
   }
 
   if (isDspIssue) {
+    // postDspIssueScan's ok() carries no scan_id, so the generic scanId!==null path
+    // below would flash nothing — same trap as RESTOCK above (RULE-SCAN-001).
     const u = result.data?.units_flipped ?? 0;
     const p = result.data?.parts_updated ?? 0;
     flash('ok'); playSuccessBeep(); vibrate([50]);
     showToast(`${result.data?.di_no || 'DI'} issued — ${u} unit${u === 1 ? '' : 's'}, ${p} part line${p === 1 ? '' : 's'}`, 'ok');
+    // Log here, not in the caller: this is the only point that knows the scan
+    // succeeded (the return is null on both success and failure).
+    addLog({ barcode, status:'ok', tag:'DSP_ISSUE',
+             label:`ISSUED ✓ ${result.data?.di_no || ''} · ${u} unit${u === 1 ? '' : 's'}`.trim() });
     return null;
   }
 
