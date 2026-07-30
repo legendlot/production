@@ -416,13 +416,20 @@
       height:120px;overflow-y:auto;flex-shrink:0;
       background:var(--surface2);border-top:1px solid var(--border);
     }
+    /* 120px shows barely 2.5 rows, so the entry you just scanned scrolls away while you
+       are still reading it. Raised ONLY on tall viewports: .camera-wrap is flex:1, so
+       every pixel here comes straight out of the camera — and a growing panel crowding
+       the scanner off-screen is the exact 06-09 regression this must not repeat. Short
+       phones keep 120px unchanged. */
+    @media (min-height:760px){ .log-feed{height:180px} }
+    @media (min-height:900px){ .log-feed{height:220px} }
     .log-empty{
       padding:20px;text-align:center;font-size:11px;
       color:var(--muted);letter-spacing:0.1em;
     }
     .log-item{
       display:flex;align-items:flex-start;gap:10px;
-      padding:8px 14px;border-bottom:1px solid var(--border);
+      padding:9px 14px;border-bottom:1px solid var(--border);
     }
     .log-dot{width:8px;height:8px;border-radius:50%;margin-top:4px;flex-shrink:0}
     .log-dot.ok{background:var(--green)}
@@ -430,8 +437,14 @@
     .log-dot.pending{background:var(--orange)}
     .log-body{flex:1;min-width:0}
     .log-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
-    .log-bc{font-size:12px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-    .log-tag{font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:0.08em;flex-shrink:0}
+    /* The barcode is what an operator is verifying, so it must never be the thing that
+       gets truncated. It used to be: .log-tag carries the LABEL and was flex-shrink:0,
+       so a long label (Returns Intake sends "product model colour ⚠ not held") ate the
+       row and ellipsised the barcode down to nothing. Now the barcode keeps its share
+       and the label is the one that gives way. (Piyush, Returns Intake readability.) */
+    .log-bc{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1 1 auto;min-width:11ch}
+    .log-tag{font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;letter-spacing:0.08em;
+      flex:0 1 auto;min-width:0;max-width:58%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
     .log-tag.inw{background:var(--blue);color:#fff}
     .log-tag.qcp{background:var(--green);color:#000}
     .log-tag.qcf{background:var(--red);color:#fff}
@@ -1093,6 +1106,25 @@
 
     <!-- Recent intake log -->
     <div id="retInLog" style="margin-top:8px"></div>
+  </div>
+
+  <!-- ── COUNT TARGET panel — Stock Audit + Cycle Count ──
+       Both counting stations used to reveal their target only in the first scan's
+       response, so a counter could walk half a shelf before finding out nothing was
+       open. Shown at station launch instead. Static (not injected) so it can never
+       stack up under another station the way the S106 injected panels did. -->
+  <div id="countTargetPanel" style="display:none;margin-bottom:12px">
+    <div id="countTargetBar" style="background:var(--bg3);border:1px solid var(--border2);border-radius:6px;padding:8px 10px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+        <div style="flex:1;min-width:0">
+          <div style="font-size:10px;color:var(--text3);font-family:var(--mono);letter-spacing:.05em">COUNTING INTO</div>
+          <div id="countTargetId" style="font-size:16px;font-family:var(--mono);font-weight:700">…</div>
+          <div id="countTargetMeta" style="font-size:10px;color:var(--text3);font-family:var(--mono);margin-top:2px"></div>
+        </div>
+        <button onclick="refreshCountTarget()"
+          style="padding:6px 10px;border-radius:5px;border:1px solid var(--border2);background:transparent;color:var(--text3);font-family:var(--mono);font-size:10px;cursor:pointer">↻ REFRESH</button>
+      </div>
+    </div>
   </div>
 
   <!-- ── RESTOCK panel (Session 72) — reason picker for unit restock ── -->
@@ -2651,6 +2683,9 @@ function bootScanner() {
     cfg.stationCode === 'RET_IN' ? '' : 'none';
   document.getElementById('restockPanel').style.display =
     cfg.stationCode === 'RESTOCK' ? '' : 'none';
+  const _isCounting = cfg.stationCode === 'STOCK_AUDIT' || cfg.stationCode === 'CYCLE_COUNT';
+  document.getElementById('countTargetPanel').style.display = _isCounting ? '' : 'none';
+  if (_isCounting) refreshCountTarget();
   if (cfg.stationCode === 'DTK')         { setupDtkStation();         }
   if (cfg.stationCode === 'ALLOC')       { setupAllocStation();       }
   if (cfg.stationCode === 'PACK')        { setupPackStation();        }
@@ -3108,6 +3143,58 @@ async function handleRetInScan(barcode) {
 // RESTOCK STATION (Session 72)
 // ════════════════════════════════════════════════════════════════
 let _restockReason = 'orders_cancelled';
+
+// ── COUNT TARGET (Stock Audit / Cycle Count) ──
+// Fetches whichever audit or count the next scan will actually land in, using the
+// same resolution the scan handlers use, so the header cannot disagree with reality.
+// Never throws and never blocks scanning: a network failure or a closed audit just
+// shows the state in amber — the station stays usable, because the scan handlers are
+// deliberately soft too (RULE-AUDIT-001 / RULE-COUNT-001).
+async function refreshCountTarget() {
+  const idEl   = document.getElementById('countTargetId');
+  const metaEl = document.getElementById('countTargetMeta');
+  const barEl  = document.getElementById('countTargetBar');
+  if (!idEl || !metaEl || !barEl) return;
+  const isAudit = cfg.stationCode === 'STOCK_AUDIT';
+  idEl.textContent = 'CHECKING…'; idEl.style.color = 'var(--text3)';
+  metaEl.textContent = ''; barEl.style.borderColor = 'var(--border2)';
+  let d;
+  try {
+    const res = await workerPost(isAudit ? 'getOpenStockAudit' : 'getOpenCycleCount', {});
+    d = res.data || res;
+    if (!res.ok) throw new Error(res.error || 'lookup failed');
+  } catch (e) {
+    idEl.textContent = 'CHECK FAILED'; idEl.style.color = 'var(--yellow)';
+    metaEl.textContent = 'Could not reach the server — scanning still works';
+    barEl.style.borderColor = 'var(--yellow)';
+    return;
+  }
+  if (!d.open) {
+    idEl.textContent = isAudit ? 'NO OPEN AUDIT' : 'NO COUNT IN PROGRESS';
+    idEl.style.color = 'var(--yellow)';
+    metaEl.textContent = isAudit
+      ? 'Open an audit in Depot, then hit refresh'
+      : 'Start a count in Garage → Cycle Counts, then hit refresh';
+    barEl.style.borderColor = 'var(--yellow)';
+    return;
+  }
+  idEl.style.color = '#22c55e';
+  barEl.style.borderColor = '#22c55e';
+  if (isAudit) {
+    idEl.textContent = d.audit_no || 'OPEN AUDIT';
+    metaEl.textContent = `${d.total_scanned || 0} scanned so far`;
+  } else {
+    idEl.textContent = d.count_no || 'OPEN COUNT';
+    metaEl.textContent = `${d.bags_scanned || 0} bag${d.bags_scanned === 1 ? '' : 's'} scanned · ${d.line_count || 0} part${d.line_count === 1 ? '' : 's'} on count`;
+  }
+}
+
+// Keep the header's running total live off the scan response we already have,
+// rather than re-fetching after every scan.
+function bumpCountTarget(text) {
+  const metaEl = document.getElementById('countTargetMeta');
+  if (metaEl && text) metaEl.textContent = text;
+}
 
 function setupRestockStation() {
   // Restore saved reason (persists across device reloads / sessions)
@@ -4860,6 +4947,7 @@ async function processBarcode(barcode, act) {
       playSuccessBeep();
       const name = [d.product, d.color].filter(Boolean).join(' ');
       showToast(`✓ ${name || d.car_upc} · ${d.total_scanned} scanned`, 'ok');
+      bumpCountTarget(`${d.total_scanned || 0} scanned so far`);
       addLog({ barcode, status: d.held ? 'ok' : 'warn',
         tag:'AUDIT', label:`${name || d.car_upc}${d.held ? '' : ' ⚠ not held'} (${d.total_scanned})` });
     } else {
@@ -4907,6 +4995,13 @@ async function processBarcode(barcode, act) {
         showToast(`✓ ${d.part_code} +${d.bag_qty} → ${d.counted_qty}`, 'ok');
         addLog({ barcode, status:'ok', tag:'COUNT',
           label:`${d.part_code} +${d.bag_qty} = ${d.counted_qty} (${d.bags_scanned} bag${d.bags_scanned === 1 ? '' : 's'})` });
+      }
+      // Header shows the COUNT-WIDE total, so it must read `total_scans` — the scan
+      // response's `bags_scanned` is scoped to the part just scanned (used in the log line
+      // above, where that is what you want). Both the fresh and already-counted paths carry
+      // it, and a re-scan deliberately leaves it unchanged (RULE-COUNT-001 merge).
+      if (d.total_scans != null) {
+        bumpCountTarget(`${d.total_scans} bag${d.total_scans === 1 ? '' : 's'} scanned in this count`);
       }
     } else {
       // SOFT — never red-screen a count in progress; every scan is data.
