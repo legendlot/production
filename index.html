@@ -1994,58 +1994,6 @@ function goToSetup() {
   document.getElementById('setupScreen').classList.add('active');
 }
 
-function pickStation(el) {
-  const allBtns = document.querySelectorAll('#s_stationGroup .seg-btn, #s_dispatchStationGroup .seg-btn, #s_legacyStationGroup .seg-btn, #s_utilityStationGroup .seg-btn, #s_extStationGroup .seg-btn, #s_storeStationGroup .seg-btn');
-  const lField = document.getElementById('s_lineField');
-  const dField = document.getElementById('s_dispatchLineField');
-  // Toggle off if already selected
-  if (el.classList.contains('on')) {
-    el.classList.remove('on');
-    lField.style.display = '';
-    dField.style.display = 'none';
-    document.getElementById('legacyRegPanel').style.display = 'none';
-    return;
-  }
-  allBtns.forEach(b => b.classList.remove('on'));
-  el.classList.add('on');
-
-  // Three-way line-picker visibility — keyed on data-line-group with data-shared fallback.
-  //   data-line-group="dispatch" → D-line picker (D1, D2)
-  //   data-shared="1"           → no line picker (LOOKUP, ATTENDANCE, PKG_OUT, STORE_ISSUE, LEGACY_REG)
-  //   default (production)      → L-line picker (L1–L5)
-  const lineGroup = el.dataset.lineGroup || '';
-  const isShared  = el.dataset.shared === '1' && !lineGroup;
-  if (lineGroup === 'dispatch') {
-    lField.style.display = 'none';
-    dField.style.display = '';
-    document.querySelectorAll('#s_lineField .seg-btn').forEach(b => b.classList.remove('on'));
-  } else if (isShared) {
-    lField.style.display = 'none';
-    dField.style.display = 'none';
-    document.querySelectorAll('#s_lineField .seg-btn, #s_dispatchLineField .seg-btn').forEach(b => b.classList.remove('on'));
-  } else {
-    lField.style.display = '';
-    dField.style.display = 'none';
-    document.querySelectorAll('#s_dispatchLineField .seg-btn').forEach(b => b.classList.remove('on'));
-  }
-
-  // Hide legacy panel unless legacy reg is selected
-  document.getElementById('legacyRegPanel').style.display =
-    el.dataset.code === 'LEGACY_REG' ? '' : 'none';
-  document.getElementById('repairRunPanel').style.display =
-    el.dataset.code === 'REPAIR' ? '' : 'none';
-}
-
-function pickLine(el) {
-  document.querySelectorAll('#s_lineField .seg-btn').forEach(b => b.classList.remove('on'));
-  el.classList.add('on');
-}
-
-function pickDispatchLine(el) {
-  document.querySelectorAll('#s_dispatchLineField .seg-btn').forEach(b => b.classList.remove('on'));
-  el.classList.add('on');
-}
-
 function pickCam(el) {
   el.closest('.seg-row').querySelectorAll('.seg-btn').forEach(b => b.classList.remove('on'));
   el.classList.add('on');
