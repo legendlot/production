@@ -1195,6 +1195,17 @@
           Cancel
         </button>
       </div>
+      <!-- Break is a SEPARATE, explicit action — never an implicit mid-shift badge scan.
+           RULE-ATT-001 ignores mid-shift scans so a tea-time scan can't close the day; if
+           such a scan doubled as a break punch, every accidental double-scan would mint a
+           fake break. Tapping this cannot clock anyone in or out. -->
+      <button id="att_breakBtn" onclick="confirmBreak()"
+        style="width:100%;margin-top:8px;padding:12px;border-radius:8px;border:1px solid var(--border2);background:transparent;color:var(--text2);font-family:var(--mono);font-size:12px;letter-spacing:.05em;cursor:pointer">
+        ☕ BREAK IN / OUT
+      </button>
+      <div style="font-size:10px;color:var(--text3);font-family:var(--mono);text-align:center;margin-top:6px">
+        Break time is recorded for visibility only — it is never deducted from hours worked
+      </div>
     </div>
 
     <!-- State D: success -->
@@ -2876,6 +2887,44 @@ async function confirmAttendance() {
     timeIst = d.clock_in_ist;
   }
 
+  document.getElementById('att_successAction').textContent = action.toUpperCase();
+  document.getElementById('att_successName').textContent   = d.operator_name || attOpData.name || '';
+  document.getElementById('att_successTime').textContent   = timeIst ? `${timeIst} IST` : '';
+  setAttState('success');
+  attResetTimer = setTimeout(() => resetAttendance(), 2500);
+}
+
+// ── BREAK IN / OUT ──
+// Server-decided toggle, exactly like recordAttendance: the scanner does not track whether
+// the operator is currently away, the open break row does. This never clocks anyone in or
+// out — a break is visibility only and is never deducted from hours worked.
+async function confirmBreak() {
+  if (attState !== 'confirm' || !attOpData) return;
+  setAttState('loading');
+  const r = await workerPost('recordBreak', {
+    employee_id: attOpData.employee_id,
+    device_id:   cfg.deviceCode || 'ATTENDANCE',
+  });
+  if (!r || r.ok === false) {
+    return showAttError(r?.error || 'Break not recorded');
+  }
+  const d = r.data || {};
+  let action, timeIst;
+  if (d.action === 'break_start') {
+    action = 'Break Started';
+    timeIst = d.started_ist;
+  } else if (d.action === 'break_end') {
+    action = `Back — away ${d.away_minutes} min`;
+    timeIst = d.ended_ist;
+  } else {
+    // noop — nothing written. not_clocked_in is the one worth stopping on; the others
+    // (double_tap / already_on_break) are benign repeat taps.
+    if (d.reason === 'not_clocked_in') {
+      return showAttError(d.message || 'Not clocked in — clock in first');
+    }
+    action = d.reason === 'already_on_break' ? 'Already On Break' : 'Break Just Started';
+    timeIst = d.started_ist;
+  }
   document.getElementById('att_successAction').textContent = action.toUpperCase();
   document.getElementById('att_successName').textContent   = d.operator_name || attOpData.name || '';
   document.getElementById('att_successTime').textContent   = timeIst ? `${timeIst} IST` : '';
