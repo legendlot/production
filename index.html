@@ -4989,6 +4989,12 @@ async function processBarcode(barcode, act) {
     flash('ok'); vibrate([50]);
     const res = await workerPost('postStockAudit', {
       batch_label: barcode,
+      // ATTRIBUTION (S274) — the audit scan had no device stamp at all: the worker hardcoded
+      // device_code:null, so a scan could not be traced to a handset after the fact. The station
+      // is deliberately unauthenticated (RULE-COUNT-001 keeps it green), so this does NOT gate
+      // anything — it only makes a scan attributable. Sent BEFORE the worker reads it, so an
+      // un-reloaded scanner keeps working with null attribution exactly as before.
+      device_code: cfg.deviceCode || null,
       operator_id: operatorUUID || currentOperator?.id || null,
     });
     const d = res.data || res;
