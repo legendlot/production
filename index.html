@@ -2061,7 +2061,7 @@ const STATION_DEFS = {
   LOOKUP:     { label: 'Lookup',          activity: 'LOOKUP',     hint: 'SCAN ANY CODE — LOT, BOX, REMOTE, OR BAG' },
   ATTENDANCE: { label: 'Attendance',      activity: 'ATTENDANCE', hint: 'SCAN OR TYPE EMPLOYEE ID' },
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
-  STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN THEN SCAN BAG QR' },
+  STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN OR REQUEST THEN SCAN BAG QR' },
   RESTOCK:    { label: 'Restock / Remove',  activity: 'RESTOCK',     hint: 'PICK REASON, SCAN BOX LABEL (LOT-…-E/R) OR CAR UPC — REMOVES FROM BOX, BACK TO DISPATCH' },
   STOCK_AUDIT:{ label: 'Stock Audit',      activity: 'STOCK_AUDIT', hint: 'OPEN AN AUDIT IN DEPOT, THEN SCAN EVERY CAR LABEL YOU HOLD — RE-SCANS IGNORED' },
   DSP_ISSUE:  { label: 'Direct Issue',     activity: 'DSP_ISSUE',   hint: 'SCAN DI-NNN STICKER TO ISSUE OUT' },
@@ -4022,13 +4022,24 @@ function handleRepackOutSuccess(carUpc, data, alreadyLogged) {
 // Setup: select a Submitted/Picking run → derive BOM (worker)
 //        → enter scan mode, scan bag QRs (BAG-…)
 // ════════════════════════════════════════════════════════════════
-let storePickRun    = null;  // { id, run_no, product, run_type, status }
+let storePickRun    = null;  // { id, run_no, product, run_type, status } | { wo_no, product, wo_type }
 let storePickLines  = [];    // [{ id, part_code, part_name, required_qty, scanned_qty, is_void }]
 let storePickableRuns = [];  // list cached for the selector
+// FEAT-021 — the same station also picks ad-hoc parts requests. One station, two
+// kinds of thing to pick against, because the same store person does both.
+let storePickKind    = 'run';  // 'run' | 'wo' — which flow the current pick is
+let storePickableWOs = [];
+
+// What the current pick is called, for toasts. Runs carry run_no, ad-hoc WOs wo_no.
+function currentPickRef() {
+  if (!storePickRun) return '';
+  return storePickKind === 'wo' ? storePickRun.wo_no : storePickRun.run_no;
+}
 
 async function setupStoreIssueStation() {
   storePickRun   = null;
   storePickLines = [];
+  storePickKind  = 'run';
 
   // Clear other station selectors if leftover in DOM
   ['packShipmentBar','packDirectBar','packBoxBar','allocChannelBar'].forEach(id => {
@@ -4036,14 +4047,27 @@ async function setupStoreIssueStation() {
     if (el) el.remove();
   });
 
-  try {
-    const res = await workerPost('getPickableRuns', { device_code: cfg.deviceCode });
-    if (!res.ok) throw new Error(res.error || 'Failed to load runs');
-    storePickableRuns = res.data || [];
-  } catch (e) {
+  // Both lists load together. An ad-hoc failure must NOT take the run list down
+  // with it — run picking has been live since FEAT-020 and is the busier path.
+  const [runsRes, wosRes] = await Promise.allSettled([
+    workerPost('getPickableRuns',       { device_code: cfg.deviceCode }),
+    workerPost('getPickableWorkOrders', { device_code: cfg.deviceCode }),
+  ]);
+
+  if (runsRes.status === 'fulfilled' && runsRes.value.ok) {
+    storePickableRuns = runsRes.value.data || [];
+  } else {
     storePickableRuns = [];
-    showReject('LOAD FAILED', e.message);
+    const msg = runsRes.status === 'rejected'
+      ? runsRes.reason.message
+      : (runsRes.value.error || 'Failed to load runs');
+    showReject('LOAD FAILED', msg);
   }
+
+  storePickableWOs = (wosRes.status === 'fulfilled' && wosRes.value.ok)
+    ? (wosRes.value.data || [])
+    : [];
+
   renderStoreRunSelector();
   renderStoreProgressBar();
 }
@@ -4058,11 +4082,15 @@ function renderStoreRunSelector() {
   bar.style.position = 'relative';
 
   const label = storePickRun
-    ? `${storePickRun.run_no} · ${storePickRun.product}`
-    : 'Select Run';
+    ? `${currentPickRef()} · ${storePickRun.product || 'Ad hoc'}`
+    : 'Select Run or Request';
   const isActive = !!storePickRun;
 
-  const items = storePickableRuns.map(r => {
+  const groupHdr = (text) =>
+    `<div style="padding:6px 14px;font-family:var(--mono);font-size:9px;letter-spacing:.18em;
+       color:var(--muted);background:rgba(255,255,255,.03)">${text}</div>`;
+
+  const runItems = storePickableRuns.map(r => {
     const status = r.status === 'Picking' ? '<span style="color:var(--yellow);font-weight:700;margin-left:6px">• PICKING</span>' : '';
     return `<div class="pack-ship-item" onclick="selectStoreRun('${r.id}')">
       <div>
@@ -4072,6 +4100,27 @@ function renderStoreRunSelector() {
     </div>`;
   }).join('');
 
+  // FEAT-021 — ad-hoc requests, listed under their own heading so the operator
+  // can see at a glance which list they are picking from.
+  const woItems = storePickableWOs.map(w => {
+    const started = w.pick_started
+      ? `<span style="color:var(--yellow);font-weight:700;margin-left:6px">• ${w.lines_complete}/${w.lines_total}</span>`
+      : '';
+    const meta = [w.product, w.line_no].filter(Boolean).join(' · ') || 'Ad-hoc parts';
+    return `<div class="pack-ship-item" onclick="selectStoreWO('${w.wo_no}')">
+      <div>
+        <div class="pack-ship-name">${w.wo_no}${started}</div>
+        <div class="pack-ship-meta">${meta}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  const bothEmpty = !runItems && !woItems;
+  const items = bothEmpty
+    ? '<div style="padding:14px;font-size:11px;color:var(--muted)">Nothing available to pick</div>'
+    : (runItems ? groupHdr('PRODUCTION RUNS') + runItems : '')
+      + (woItems ? groupHdr('AD HOC REQUESTS') + woItems : '');
+
   bar.innerHTML = `
     <div id="storeRunSelected" class="pack-shipment-selected ${isActive ? 'active' : ''}"
          onclick="toggleStoreRunList()">
@@ -4079,7 +4128,7 @@ function renderStoreRunSelector() {
       <span style="font-size:10px;color:var(--muted)">▼</span>
     </div>
     <div id="storeRunList" class="pack-shipment-list">
-      ${items || '<div style="padding:14px;font-size:11px;color:var(--muted)">No runs available for picking</div>'}
+      ${items}
     </div>`;
 
   const camWrap = document.querySelector('.camera-wrap');
@@ -4098,6 +4147,41 @@ async function selectStoreRun(runId) {
   await startPickSession(run);
 }
 
+// FEAT-021 — ad-hoc equivalent of selectStoreRun.
+async function selectStoreWO(woNo) {
+  const wo = storePickableWOs.find(w => w.wo_no === woNo);
+  if (!wo) return;
+  toggleStoreRunList();
+  await startWOPickSession(wo);
+}
+
+async function startWOPickSession(wo) {
+  showToast(`Starting pick for ${wo.wo_no}…`, 'ok');
+  let res;
+  try {
+    res = await workerPost('startWorkOrderPick', {
+      device_code: cfg.deviceCode,
+      wo_no:       wo.wo_no,
+    });
+  } catch (e) {
+    showReject('START FAILED', e.message);
+    return;
+  }
+  if (!res.ok) {
+    showReject('START FAILED', res.error || 'Unknown error');
+    return;
+  }
+  // Only flip the station into ad-hoc mode once the server has agreed, so a
+  // failed start leaves any run pick already in progress untouched.
+  storePickKind  = 'wo';
+  storePickRun   = res.data;
+  storePickLines = res.data.pick_lines || [];
+  renderStoreRunSelector();
+  renderStoreProgressBar();
+  const partsCount = storePickLines.filter(l => !l.is_void).length;
+  showToast(`✓ ${wo.wo_no} — ${partsCount} parts to pick`, 'ok');
+}
+
 async function startPickSession(run) {
   showToast(`Starting pick for ${run.run_no}…`, 'ok');
   let res;
@@ -4114,6 +4198,7 @@ async function startPickSession(run) {
     showReject('START FAILED', res.error || 'Unknown error');
     return;
   }
+  storePickKind  = 'run';
   storePickRun   = res.data;
   storePickLines = res.data.pick_lines || [];
   renderStoreRunSelector();
@@ -4146,7 +4231,7 @@ function renderStoreProgressBar() {
 
 async function doStoreIssueScan(barcode) {
   if (!storePickRun) {
-    showReject('NO RUN SELECTED', 'Select a run above before scanning');
+    showReject('NOTHING SELECTED', 'Select a run or request above before scanning');
     playErrBeep(); vibrate([100,50,100]);
     return;
   }
@@ -4166,11 +4251,20 @@ async function doStoreIssueScan(barcode) {
 
   let res;
   try {
-    res = await workerPost('postRunPick', {
-      device_code: cfg.deviceCode,
-      run_id:      storePickRun.run_id || storePickRun.id,
-      bag_id:      barcode,
-    });
+    // FEAT-021 — same scan gesture, two destinations. Everything below this
+    // point (progress bar, over-pick handling, logging) is shared, because the
+    // worker returns the same shape for both.
+    res = storePickKind === 'wo'
+      ? await workerPost('postWorkOrderPick', {
+          device_code: cfg.deviceCode,
+          wo_no:       storePickRun.wo_no,
+          bag_id:      barcode,
+        })
+      : await workerPost('postRunPick', {
+          device_code: cfg.deviceCode,
+          run_id:      storePickRun.run_id || storePickRun.id,
+          bag_id:      barcode,
+        });
   } catch (e) {
     flash('err'); vibrate([100,50,100]); playErrBeep();
     showReject('SCAN ERROR', e.message);
@@ -4213,7 +4307,7 @@ async function doStoreIssueScan(barcode) {
   addLog({ barcode, status: over ? 'pending' : 'ok', tag:'PICK', label });
 
   if (d.pick_complete && !over) {
-    showToast(`ALL PARTS PICKED — ${storePickRun.run_no} READY TO ISSUE`, 'ok');
+    showToast(`ALL PARTS PICKED — ${currentPickRef()} READY TO ISSUE`, 'ok');
   } else if (over) {
     showToast(`⚠ OVER PICK — ${d.part_code} ${d.scanned_qty}/${d.required_qty} (logged)`, 'warn');
   } else {
