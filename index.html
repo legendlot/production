@@ -2052,6 +2052,7 @@ const STATION_DEFS = {
   PKG_OUT: { label: 'PKG Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   RET_IN:  { label: 'Returns Intake', activity: 'RET_IN', hint: 'SELECT OPEN SHIPMENT, THEN SCAN EACH UNIT' },
   UDR_ISSUE: { label: 'Issue UDR', activity: 'UDR_ISSUE', hint: 'SCAN A UDR BOX LABEL OR UPC TO ISSUE OUT' },
+  REPAIR_ISSUE: { label: 'Issue Repair', activity: 'REPAIR_ISSUE', hint: 'SELECT REPAIR RUN THEN SCAN EACH UNIT' },
   PACK:    { label: 'Dispatch Pack', activity: 'PACK',    hint: 'SELECT SHIPMENT THEN SCAN BATCH LABEL' },
   DTK:     { label: 'Dispatch In',  activity: 'DTK',   hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   ALLOC:   { label: 'Allocate',     activity: 'ALLOC', hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
@@ -2163,7 +2164,7 @@ const DEPARTMENTS = {
   ]},
   store: { label: 'Store', operator: true, categories: [
     { key: 'store_issue',  label: 'Store Issue',  stations: ['STORE_ISSUE'] },
-    { key: 'returns',      label: 'Returns',      stations: ['RET_IN','UDR_ISSUE'] },
+    { key: 'returns',      label: 'Returns',      stations: ['RET_IN','UDR_ISSUE','REPAIR_ISSUE'] },
     { key: 'direct_issue', label: 'Direct Issue', stations: ['DSP_ISSUE'] },
     { key: 'cycle_count',  label: 'Cycle Count',  stations: ['CYCLE_COUNT'] },
     { key: 'utilities',    label: 'Utilities',    stations: ['LOOKUP','LEGACY_REG'] },
@@ -2181,7 +2182,7 @@ const STATION_LINE_TYPE = {
   // PKG_OUT is SHARED across lines — one heat-shrink machine serves all lines, so no line pick.
   INW:'L', QC_PASS:'L', QC_FAIL:'L', WKS:'L', PKG:'L', PKG_OUT:'none', REPAIR:'L', REPACK_IN:'L', REPACK_OUT:'L', EXT_INW:'L',
   DTK:'D', ALLOC:'D', PACK:'D', DOUT:'D',
-  STORE_ISSUE:'none', RET_IN:'none', UDR_ISSUE:'none', DSP_ISSUE:'none', RESTOCK:'none', LEGACY_REG:'none', LOOKUP:'none', ATTENDANCE:'none',
+  STORE_ISSUE:'none', RET_IN:'none', UDR_ISSUE:'none', REPAIR_ISSUE:'none', DSP_ISSUE:'none', RESTOCK:'none', LEGACY_REG:'none', LOOKUP:'none', ATTENDANCE:'none',
   REPACK_RELEASE:'none', STOCK_AUDIT:'none', CYCLE_COUNT:'none',
 };
 const L_LINES = ['L1','L2','L3','L4','L5'];
@@ -2703,6 +2704,7 @@ function bootScanner() {
   if (cfg.stationCode === 'LEGACY_REG')  { setupLegacyRegStation();   }
   if (cfg.stationCode === 'REPAIR')      { setupRepairStation();      }
   if (cfg.stationCode === 'STORE_ISSUE') { setupStoreIssueStation();  }
+  if (cfg.stationCode === 'REPAIR_ISSUE') { setupRepairIssueStation(); }
   if (cfg.stationCode === 'RET_IN')      { setupRetInStation();       }
   if (cfg.stationCode === 'RESTOCK')     { setupRestockStation();     }
   if (cfg.stationCode === 'REPACK_IN' ||
@@ -4315,6 +4317,166 @@ async function doStoreIssueScan(barcode) {
   }
 }
 
+// ════════════════════════════════════════════════════════════════
+// REPAIR_ISSUE station (FEAT-023)
+// Fulfil a production-requested repair run by scanning each CXR/BRV
+// unit out of the returns pile.
+// Setup: select a planned/active REP-NNN → scan car or remote UPCs.
+// Deliberately select-then-scan rather than Issue UDR's auto-match:
+// 38 repair runs are open and the oldest have sat 'active' since May
+// with nothing issued, so matching by age would feed abandoned runs.
+// ════════════════════════════════════════════════════════════════
+let repairIssueRun  = null;   // { id, run_no, status, lines: [...] }
+let repairIssueRuns = [];
+
+async function setupRepairIssueStation() {
+  repairIssueRun = null;
+  ['packShipmentBar','packDirectBar','packBoxBar','allocChannelBar','storeRunBar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+  try {
+    const res = await workerPost('getIssuableRepairRuns', { device_code: cfg.deviceCode });
+    if (!res.ok) throw new Error(res.error || 'Failed to load repair runs');
+    repairIssueRuns = res.data || [];
+  } catch (e) {
+    repairIssueRuns = [];
+    showReject('LOAD FAILED', e.message);
+  }
+  renderRepairRunSelector();
+  renderRepairProgressBar();
+}
+
+function renderRepairRunSelector() {
+  const existing = document.getElementById('repairRunBar');
+  if (existing) existing.remove();
+
+  const bar = document.createElement('div');
+  bar.id = 'repairRunBar';
+  bar.className = 'pack-shipment-bar';
+  bar.style.position = 'relative';
+
+  const label = repairIssueRun
+    ? `${repairIssueRun.run_no} · ${repairIssueRun.lines.length} line${repairIssueRun.lines.length === 1 ? '' : 's'}`
+    : 'Select Repair Run';
+
+  const items = repairIssueRuns.map(r => {
+    const what = r.lines.map(l => [l.product, l.color].filter(Boolean).join(' ')).slice(0, 2).join(', ')
+              + (r.lines.length > 2 ? ` +${r.lines.length - 2}` : '');
+    const prog = `${r.done_cars}/${r.target_cars}`;
+    return `<div class="pack-ship-item" onclick="selectRepairRun('${r.id}')">
+      <div>
+        <div class="pack-ship-name">${r.run_no}<span style="color:var(--muted);font-weight:400;margin-left:8px">${prog}</span></div>
+        <div class="pack-ship-meta">${what || '—'}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  bar.innerHTML = `
+    <div id="repairRunSelected" class="pack-shipment-selected ${repairIssueRun ? 'active' : ''}"
+         onclick="toggleRepairRunList()">
+      <span>${label}</span>
+      <span style="font-size:10px;color:var(--muted)">▼</span>
+    </div>
+    <div id="repairRunList" class="pack-shipment-list">
+      ${items || '<div style="padding:14px;font-size:11px;color:var(--muted)">No open repair runs — production must request one first</div>'}
+    </div>`;
+
+  const camWrap = document.querySelector('.camera-wrap');
+  if (camWrap) camWrap.parentNode.insertBefore(bar, camWrap);
+}
+
+function toggleRepairRunList() {
+  const list = document.getElementById('repairRunList');
+  if (list) list.classList.toggle('show');
+}
+
+function selectRepairRun(runId) {
+  const run = repairIssueRuns.find(r => String(r.id) === String(runId));
+  if (!run) return;
+  toggleRepairRunList();
+  repairIssueRun = run;
+  renderRepairRunSelector();
+  renderRepairProgressBar();
+  showToast(`✓ ${run.run_no} — ${run.target_cars} unit${run.target_cars === 1 ? '' : 's'} wanted`, 'ok');
+}
+
+function renderRepairProgressBar() {
+  const existing = document.getElementById('repairProgressBar');
+  if (existing) existing.remove();
+  if (!repairIssueRun) return;
+
+  const bar = document.createElement('div');
+  bar.id = 'repairProgressBar';
+  bar.style.cssText = 'padding:6px 14px;background:var(--surface);border-bottom:1px solid var(--border);font-family:var(--mono);font-size:11px;color:var(--text2);flex-shrink:0';
+  const done  = repairIssueRun.done_cars || 0;
+  const total = repairIssueRun.target_cars || 0;
+  const pct   = total > 0 ? Math.round((done / total) * 100) : 0;
+  bar.innerHTML = `<strong style="color:var(--yellow)">${done}/${total}</strong> cars issued · <span style="color:var(--text3)">${pct}%</span>`;
+
+  const runBar = document.getElementById('repairRunBar');
+  if (runBar && runBar.parentNode) runBar.parentNode.insertBefore(bar, runBar.nextSibling);
+}
+
+async function doRepairIssueScan(barcode) {
+  if (!repairIssueRun) {
+    showReject('NO RUN SELECTED', 'Select a repair run above before scanning');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+  if (!isOnline) {
+    showReject('OFFLINE', 'Issue Repair requires a live connection');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  let res;
+  try {
+    res = await workerPost('postRepairIssueScan', {
+      device_code:    cfg.deviceCode,
+      operator_id:    operatorUUID || currentOperator?.id || null,
+      repair_run_id:  repairIssueRun.id,
+      scan:           barcode,
+    });
+  } catch (e) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('SCAN ERROR', e.message);
+    addLog({ barcode, status:'err', tag:'REP', label:'NET ERR' });
+    return;
+  }
+
+  if (!res.ok) {
+    flash('err'); vibrate([100,50,100]); playErrBeep();
+    showReject('ISSUE FAILED', res.error || 'Unknown error');
+    addLog({ barcode, status:'err', tag:'REP', label: res.error || 'FAILED' });
+    return;
+  }
+
+  const d    = res.data || res;
+  const over = !!d.over;
+  const what = [d.product, d.model, d.color].filter(Boolean).join(' ');
+
+  // Keep the local run total in step so the progress bar moves without a
+  // refetch. Cars are the headline count; a remote-only unit does not move it.
+  if (d.scanned_side !== 'remote') repairIssueRun.done_cars = (repairIssueRun.done_cars || 0) + 1;
+  renderRepairProgressBar();
+
+  flash(over ? 'pending' : 'ok');
+  vibrate(over ? [60,50,60] : [50]);
+  playSuccessBeep();
+
+  let label = `REP ✓ ${what} [${d.cars_done}/${d.target_cars}]`;
+  if (d.scanned_side === 'remote') label += ' (remote)';
+  if (over) label += ' ⚠ OVER';
+  addLog({ barcode, status: over ? 'pending' : 'ok', tag:'REP', label });
+
+  if (over) {
+    showToast(`⚠ OVER — ${what} beyond what ${d.run_no} asked for (logged)`, 'warn');
+  } else {
+    showToast(`✓ ${what} → ${d.run_no} · ${d.remaining_cars} left`, 'ok');
+  }
+}
+
 // ── ALLOC station setup ──────────────────────────────────────────
 async function setupAllocStation() {
   await loadDispatchChannels();
@@ -4994,6 +5156,12 @@ async function processBarcode(barcode, act) {
   // ── STORE_ISSUE — store picking station (FEAT-020) ──
   if (act === 'STORE_ISSUE') {
     await doStoreIssueScan(barcode);
+    return;
+  }
+
+  // ── ISSUE REPAIR (FEAT-023) — fulfil a repair run, scan-only ──
+  if (act === 'REPAIR_ISSUE') {
+    await doRepairIssueScan(barcode);
     return;
   }
 
