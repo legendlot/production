@@ -709,6 +709,35 @@
       border-radius:12px;cursor:pointer;font-family:'JetBrains Mono',monospace;width:100%;
     }
 
+    /* ── BOX DIMENSION PICKER (dispatch_box_types_v1) ── */
+    .box-dim{
+      display:none;position:absolute;inset:0;z-index:55;
+      background:rgba(8,8,8,0.97);
+      flex-direction:column;gap:10px;padding:20px 18px;
+    }
+    .box-dim.show{display:flex}
+    .box-dim-title{font-size:10px;color:var(--yellow);letter-spacing:0.18em;text-transform:uppercase;text-align:center}
+    .box-dim-box{
+      font-size:16px;font-weight:700;color:var(--text);text-align:center;
+      background:var(--surface);border:1px solid var(--border2);padding:8px 14px;border-radius:8px;
+    }
+    .box-dim-list{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:6px;margin:2px 0}
+    .box-dim-opt{
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      padding:13px 14px;background:var(--surface);border:1px solid var(--border2);
+      border-radius:9px;cursor:pointer;font-family:'JetBrains Mono',monospace;
+      color:var(--text);font-size:13px;font-weight:700;text-align:left;width:100%;
+    }
+    .box-dim-opt .dims{font-size:10px;color:var(--muted);font-weight:400;letter-spacing:0.04em}
+    .box-dim-opt.suggested{border-color:var(--green);background:rgba(0,200,120,0.09)}
+    .box-dim-opt.suggested .tag{font-size:9px;color:var(--green);letter-spacing:0.12em}
+    .box-dim-skip{
+      padding:13px;background:var(--surface2);color:var(--text2);
+      border:1px solid var(--border2);border-radius:10px;cursor:pointer;
+      font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:0.1em;width:100%;
+    }
+    .box-dim-empty{color:var(--muted);font-size:11px;text-align:center;padding:18px 6px;line-height:1.7}
+
     /* ── LOOKUP RESULT OVERLAY ── */
     .lookup-result{
       display:none;position:absolute;inset:0;z-index:50;
@@ -1278,6 +1307,15 @@
       <div class="pack-result-detail" id="packResultDetail">—</div>
       <div class="pack-result-sub" id="packResultSub">—</div>
       <button class="pack-result-done" onclick="clearPackResult()">NEXT UNIT →</button>
+    </div>
+
+    <!-- BOX DIMENSION picker — raised on EVERY bulk box close (manual CLOSE and
+         capacity auto-close alike). Library-only: the floor picks, Depot creates. -->
+    <div class="box-dim" id="boxDim">
+      <div class="box-dim-title">Which carton did you seal?</div>
+      <div class="box-dim-box" id="boxDimRef">—</div>
+      <div class="box-dim-list" id="boxDimList"></div>
+      <button class="box-dim-skip" onclick="skipBoxDim()">SKIP — I'LL LEAVE IT</button>
     </div>
 
     <!-- LOOKUP result overlay — dynamically populated by showLookupResult() -->
@@ -3579,6 +3617,7 @@ async function doCloseBox() {
   else localStorage.removeItem('pack_box_id');
   renderPackBoxBar();
   showToast(`✓ ${res.data?.box_ref || 'Box'} closed — label printing`, 'ok');
+  await maybeAskBoxDim(res.data);
 }
 
 async function doReopenBox() {
@@ -3605,6 +3644,72 @@ function showPackResult(data) {
 
   packResultShowing = true;
   overlay.classList.add('show');
+}
+
+// ══ BOX DIMENSION PICKER (dispatch_box_types_v1) ══════════════
+// Padmajit asked for this on the CLOSE button. It is raised on the box-CLOSED
+// moment instead, because capacity auto-close is now 82.9% of bulk closes
+// (Aug 2026) and never touches that button — a button-only prompt would have
+// captured about one box in six.
+// The floor can only CHOOSE from the library; there is no free text and no
+// create-on-the-fly (Afshaan). Skipping is allowed — anything skipped shows up
+// in Depot against the shipment and gets filled at the desk.
+let boxTypes      = [];    // cached library, loaded once per PACK session
+let boxDimBoxId   = null;  // box awaiting a stamp
+
+function escBoxHtml(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c =>
+    ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+async function loadBoxTypes() {
+  if (boxTypes.length) return boxTypes;
+  try {
+    const res = await workerPost('getBoxTypes', {});
+    if (res.ok && Array.isArray(res.data)) boxTypes = res.data;
+  } catch (e) { /* offline — picker degrades to a skip, never blocks packing */ }
+  return boxTypes;
+}
+
+async function maybeAskBoxDim(d) {
+  if (!d?.needs_dimensions || !d.box_id) return false;
+  await loadBoxTypes();
+  boxDimBoxId = d.box_id;
+
+  document.getElementById('boxDimRef').textContent = d.box_ref || '—';
+  const list = document.getElementById('boxDimList');
+  const suggested = d.default_box_type?.id || null;
+
+  if (!boxTypes.length) {
+    list.innerHTML = '<div class="box-dim-empty">No box sizes are set up yet.<br>Ask Depot to add them, then skip for now.</div>';
+  } else {
+    // Shipment default first, so the common case is one tap on the top row.
+    const ordered = [...boxTypes].sort((a, b) =>
+      (b.id === suggested ? 1 : 0) - (a.id === suggested ? 1 : 0));
+    list.innerHTML = ordered.map(t => `
+      <button class="box-dim-opt${t.id === suggested ? ' suggested' : ''}" onclick="pickBoxDim('${t.id}')">
+        <span>${escBoxHtml(t.name)}${t.id === suggested ? ' <span class="tag">USUAL</span>' : ''}</span>
+        <span class="dims">${t.length_cm}×${t.width_cm}×${t.height_cm} cm</span>
+      </button>`).join('');
+  }
+  document.getElementById('boxDim').classList.add('show');
+  return true;
+}
+
+async function pickBoxDim(boxTypeId) {
+  const id = boxDimBoxId;
+  hideBoxDim();
+  if (!id) return;
+  const res = await workerPost('setBoxDimensions', { box_id: id, box_type_id: boxTypeId });
+  if (res.ok) showToast(`✓ ${res.data.box_type_name} recorded`, 'ok');
+  else showToast(res.error || 'Could not record the box size', 'err');
+}
+
+function skipBoxDim() { hideBoxDim(); }
+
+function hideBoxDim() {
+  boxDimBoxId = null;
+  document.getElementById('boxDim').classList.remove('show');
 }
 
 function clearPackResult() {
@@ -3739,12 +3844,14 @@ async function doPackScan(barcode) {
   if (d.auto_closed && d.box_full) {
     // Bulk capacity reached — this pack filled the carton; worker auto-closed it.
     // Advance to the next open box (or none → operator adds one).
+    const closedBoxId = d.box_id || packBox?.id || null;
     openBoxes = openBoxes.filter(b => b.id !== packBox?.id);
     packBox = openBoxes[0] || null;
     if (packBox) localStorage.setItem('pack_box_id', packBox.id);
     else localStorage.removeItem('pack_box_id');
     renderPackBoxBar();
     showToast(`✓ ${d.box_ref} FULL (${d.unit_count}/${d.capacity}) — closed. ${packBox ? 'Now: ' + packBox.box_ref : 'Add a new box'}`, 'ok');
+    await maybeAskBoxDim({ ...d, box_id: closedBoxId });
   } else if (d.auto_closed) {
     // Unit fulfillment — show result and clear box
     packBox = null;
