@@ -4471,7 +4471,7 @@ function renderRepairRunSelector() {
     const what = r.lines.map(l => [l.product, l.color].filter(Boolean).join(' ')).slice(0, 2).join(', ')
               + (r.lines.length > 2 ? ` +${r.lines.length - 2}` : '');
     const prog = `${r.done_cars}/${r.target_cars}`;
-    return `<div class="pack-ship-item" onclick="selectRepairRun('${r.id}')">
+    return `<div class="pack-ship-item" onclick="selectRepairIssueRun('${r.id}')">
       <div>
         <div class="pack-ship-name">${r.run_no}<span style="color:var(--muted);font-weight:400;margin-left:8px">${prog}</span></div>
         <div class="pack-ship-meta">${what || '—'}</div>
@@ -4498,7 +4498,14 @@ function toggleRepairRunList() {
   if (list) list.classList.toggle('show');
 }
 
-function selectRepairRun(runId) {
+// NB: named selectRepairIssueRun, NOT selectRepairRun. The REPAIR station already
+// declares a global `selectRepairRun` further down (~line 5976, the REP_START/PASS/SCRAP
+// run <select>). Both are plain function declarations in the same <script>, so the LATER
+// one silently wins — this station's item taps were being routed into the REPAIR
+// station's handler, which does not know about repairIssueRuns and returns without
+// throwing. Symptom: the run list opens, a tap does nothing at all, no error anywhere.
+// Live on the floor 2026-08-14 -> 2026-08-19. Keep these two names distinct.
+function selectRepairIssueRun(runId) {
   const run = repairIssueRuns.find(r => String(r.id) === String(runId));
   if (!run) return;
   toggleRepairRunList();
