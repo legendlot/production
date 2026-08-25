@@ -3725,9 +3725,28 @@ function clearPackResult() {
 }
 
 // AWB captured at PACK (S308) — answers "which customer got this car?", which nothing
-// could before for a single-unit dispatch. Held here until the next batch-label scan
-// carries it, then cleared so it can never leak onto the following parcel.
+// could before for a single-unit dispatch. Held until the next batch-label scan carries it.
+//
+// ⚠️ HOSTILE-REVIEW CORRECTION (S308): an earlier comment here claimed it "can never leak onto
+// the following parcel". That was FALSE. It is cleared only after a pack posts, so an operator
+// who scanned a courier label, got distracted, and then packed a DIFFERENT parcel would have
+// stamped the first parcel's AWB onto the second — assigning one customer's order to another
+// customer's car, which is precisely the harm this feature exists to prevent.
+// It now EXPIRES after 2 minutes, so a forgotten scan dies instead of following the operator.
+const PENDING_AWB_TTL_MS = 120000;
 let pendingAwb = null;
+let pendingAwbAt = 0;
+
+// Drop a held AWB that is too old to trust. Returns the live value or null.
+function takePendingAwb() {
+  if (!pendingAwb) return null;
+  if (Date.now() - pendingAwbAt > PENDING_AWB_TTL_MS) {
+    pendingAwb = null; pendingAwbAt = 0;
+    showToast('Courier label expired, scan it again', 'err');
+    return null;
+  }
+  return pendingAwb;
+}
 
 // A LOT batch label is `LOT-<digits>-E|R`; a courier AWB is bare digits (Delhivery is 14).
 // Distinct enough to route on, so the operator just scans BOTH — no extra input box, no
@@ -3747,6 +3766,7 @@ async function doPackScan(barcode) {
   // AWB scanned — hold it for the batch label that follows. Never a pack on its own.
   if (looksLikeAwb(barcode)) {
     pendingAwb = String(barcode).trim();
+    pendingAwbAt = Date.now();
     showToast(`AWB ${pendingAwb} — now scan the box label`, 'ok');
     playSuccessBeep(); vibrate(40);
     addLog({ barcode, status:'ok', tag:'AWB', label:'AWB HELD' });
@@ -3780,9 +3800,9 @@ async function doPackScan(barcode) {
       shipment_id: null,
       device_id:   cfg.deviceId || null,
       operator_id: operatorUUID || currentOperator?.id || null,
-      awb:         pendingAwb || null,
+      awb:         takePendingAwb(),
     });
-    pendingAwb = null;
+    pendingAwb = null; pendingAwbAt = 0;
     if (!packRes.ok) {
       flash('err'); vibrate([100,50,100]); playErrBeep();
       showReject('PACK FAILED', packRes.error || 'Unknown error');
@@ -3846,9 +3866,9 @@ async function doPackScan(barcode) {
     shipment_id:  packShipment.id,
     device_id:    cfg.deviceId || null,
     operator_id:  operatorUUID || currentOperator?.id || null,
-    awb:          pendingAwb || null,
+    awb:          takePendingAwb(),
   });
-  pendingAwb = null;
+  pendingAwb = null; pendingAwbAt = 0;
 
   if (!result.ok) {
     // Revert the optimistic count bump — the worker rejected (e.g. BOX FULL / over-target).
