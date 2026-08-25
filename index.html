@@ -2091,7 +2091,7 @@ const STATION_DEFS = {
   RET_IN:  { label: 'Returns Intake', activity: 'RET_IN', hint: 'SELECT OPEN SHIPMENT, THEN SCAN EACH UNIT' },
   UDR_ISSUE: { label: 'Issue UDR', activity: 'UDR_ISSUE', hint: 'SCAN A UDR BOX LABEL OR UPC TO ISSUE OUT' },
   REPAIR_ISSUE: { label: 'Issue Repair', activity: 'REPAIR_ISSUE', hint: 'SELECT REPAIR RUN THEN SCAN EACH UNIT' },
-  PACK:    { label: 'Dispatch Pack', activity: 'PACK',    hint: 'SELECT SHIPMENT THEN SCAN BATCH LABEL' },
+  PACK:    { label: 'Dispatch Pack', activity: 'PACK',    hint: 'SCAN AWB THEN BATCH LABEL' },
   DTK:     { label: 'Dispatch In',  activity: 'DTK',   hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
   ALLOC:   { label: 'Allocate',     activity: 'ALLOC', hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
   DOUT:       { label: 'Dispatch Out',    activity: 'DOUT',       hint: 'SCAN BOX LABEL (BOX-XXXXX) OR BATCH LABEL' },
@@ -3724,10 +3724,33 @@ function clearPackResult() {
   lastScanTs  = 0;
 }
 
+// AWB captured at PACK (S308) — answers "which customer got this car?", which nothing
+// could before for a single-unit dispatch. Held here until the next batch-label scan
+// carries it, then cleared so it can never leak onto the following parcel.
+let pendingAwb = null;
+
+// A LOT batch label is `LOT-<digits>-E|R`; a courier AWB is bare digits (Delhivery is 14).
+// Distinct enough to route on, so the operator just scans BOTH — no extra input box, no
+// focus juggling on a live floor scanner, and either order works.
+function looksLikeAwb(code) {
+  const c = String(code || '').trim();
+  return /^[0-9]{10,18}$/.test(c);
+}
+
 async function doPackScan(barcode) {
   if (!isOnline) {
     showReject('OFFLINE', 'Packing requires connection');
     playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+
+  // AWB scanned — hold it for the batch label that follows. Never a pack on its own.
+  if (looksLikeAwb(barcode)) {
+    pendingAwb = String(barcode).trim();
+    showToast(`AWB ${pendingAwb} — now scan the box label`, 'ok');
+    playSuccessBeep(); vibrate(40);
+    addLog({ barcode, status:'ok', tag:'AWB', label:'AWB HELD' });
+    lastBarcode = ''; lastScanTs = 0;
     return;
   }
   if (packMode === 'shipment' && !packShipment) {
@@ -3757,7 +3780,9 @@ async function doPackScan(barcode) {
       shipment_id: null,
       device_id:   cfg.deviceId || null,
       operator_id: operatorUUID || currentOperator?.id || null,
+      awb:         pendingAwb || null,
     });
+    pendingAwb = null;
     if (!packRes.ok) {
       flash('err'); vibrate([100,50,100]); playErrBeep();
       showReject('PACK FAILED', packRes.error || 'Unknown error');
@@ -3821,7 +3846,9 @@ async function doPackScan(barcode) {
     shipment_id:  packShipment.id,
     device_id:    cfg.deviceId || null,
     operator_id:  operatorUUID || currentOperator?.id || null,
+    awb:          pendingAwb || null,
   });
+  pendingAwb = null;
 
   if (!result.ok) {
     // Revert the optimistic count bump — the worker rejected (e.g. BOX FULL / over-target).
