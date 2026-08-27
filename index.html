@@ -4091,6 +4091,7 @@ async function doRepackInScan(barcode) {
     showReject('WRONG BARCODE', 'Scan the OLD box label (BOX-XXXXX or LOT-XXXXXXXX)');
     playErrBeep(); vibrate([100,50,100]);
     addLog({ barcode, status:'err', tag:'REPACK_IN', label:'WRONG FORMAT' });
+    reportClientReject(barcode, `wrong barcode format at Repack In — scanned '${barcode}', expected BOX-XXXXX or LOT-XXXXXXXX`, 'BOX-XXXXX or LOT-XXXXXXXX');
     return;
   }
   const res = await workerPost('postRepackIn', {
@@ -4117,6 +4118,25 @@ async function doRepackInScan(barcode) {
 // products with has_remote, single car scan otherwise. Channel chosen via
 // the E/R toggle (pkgChannel global). Boxes were torn down at REPACK_IN, so
 // the pair is loose — this re-confirms it before printing the new sticker.
+// Report a refusal the SCANNER made itself, before the worker was ever called. Without this
+// a wrong-format barcode at Repack In/Out left NO trace anywhere — the operator saw a red
+// screen and the system remembered nothing, which is why the 24 Aug repack deadlock (12 cars
+// held since 31 July) had nothing to investigate.
+// Fire-and-forget: never awaited, never blocks the operator, never surfaces its own failure.
+// The worker derives station/line from the device row, so we send only what it cannot know.
+function reportClientReject(upc, message, expected) {
+  try {
+    if (!isOnline || !cfg.deviceCode) return;
+    workerPost('logScanViolation', {
+      device_code:     cfg.deviceCode,
+      operator_id:     operatorUUID || currentOperator?.id || null,
+      upc:             upc || null,
+      error_message:   message,
+      expected_status: expected || null,
+    }).catch(() => {});
+  } catch (_) { /* logging must never break a scan */ }
+}
+
 async function doRepackOutScan(barcode) {
   if (!repackRun) { showReject('NO RUN SELECTED', 'Select a repack run above first'); playErrBeep(); vibrate([100,50,100]); return; }
   if (!isOnline)  { showReject('OFFLINE', 'Repack requires a live connection'); playErrBeep(); vibrate([100,50,100]); return; }
@@ -4125,6 +4145,7 @@ async function doRepackOutScan(barcode) {
     showReject('WRONG BARCODE', 'Expected a LOT-XXXXXXXX UPC');
     playErrBeep(); vibrate([100,50,100]);
     addLog({ barcode, status:'err', tag:'REPACK_OUT', label:'WRONG FORMAT' });
+    reportClientReject(barcode, `wrong barcode format at Repack Out — scanned '${barcode}', expected LOT-XXXXXXXX`, 'LOT-XXXXXXXX');
     return;
   }
   if (pendingRepackCar) {
