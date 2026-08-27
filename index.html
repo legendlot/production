@@ -2197,6 +2197,14 @@ const DEPARTMENTS = {
   production: { label: 'Production', operator: true, categories: [
     { key: 'fresh',      label: 'Fresh Production', stations: ['INW','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
     { key: 'repair',     label: 'Repair Run',       stations: ['REPAIR','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
+    // Outsourced Run — restored 2026-08-27. EXT_INW had a complete worker handler
+    // (postExtInw), 5 active device rows (EXT_INW-L1..L5) and a Redline manual chapter
+    // telling the floor to use it, but the S108 department redesign left it out of every
+    // category — so there was NO menu path to the station and `public.scans` held ZERO
+    // EXT_INW rows for all time. Outsourced returns were coming back through ordinary INW
+    // instead, which is why no returned unit could be traced to the EXT run it came from.
+    // Station set mirrors Repair Run (the manual's "Then: rejoin QC → Packaging → PKG Out").
+    { key: 'outsourced', label: 'Outsourced Run',   stations: ['EXT_INW','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
     { key: 'repack',     label: 'Repack Run',       stations: ['REPACK_IN','REPACK_OUT'] },
     { key: 'utilities',  label: 'Utilities',        stations: ['LOOKUP'] },
   ]},
@@ -2226,6 +2234,33 @@ const STATION_LINE_TYPE = {
 const L_LINES = ['L1','L2','L3','L4','L5'];
 const D_LINES = ['D1','D2'];
 const DEVICELESS_STATIONS = new Set(['LOOKUP','ATTENDANCE']); // resolved without a device row
+
+// A station in STATION_DEFS with no `public.devices` row is UNDETECTABLE until a human
+// hits it, and the bare "No active device" line reads like an outage rather than a config
+// gap — so nobody escalates. Third occurrence when this was written (2026-08-27):
+// REPAIR_ISSUE (5 days, no CXR/BRV unit issuable by scan), CYCLE_COUNT-SHARED,
+// STOCK_AUDIT-SHARED. Distinguishes the two cases, because the remedies differ:
+//   • NO rows for the station at all → nobody ever registered it; an admin must add it.
+//   • Rows exist elsewhere/inactive → say which lines DO work, so the operator can move
+//     to a working one now instead of standing at a dead screen.
+// Best-effort: any lookup failure falls back to the original wording rather than
+// replacing a real error with a misleading diagnosis.
+async function deviceGapMessage(station, line) {
+  const label = STATION_DEFS[station]?.label || station;
+  try {
+    const all = await sbGet('devices', `station=eq.${station}&select=device_code,line,is_active&limit=50`);
+    if (!all || !all.length) {
+      return `${label} is not registered — no scanner device exists for this station. Ask an admin to add it; this is a setup gap, not a fault on this device.`;
+    }
+    const liveLines = [...new Set(all.filter(d => d.is_active && d.line).map(d => d.line))].sort();
+    if (liveLines.length) {
+      return `No active device for ${label} · ${line}. This station is live on ${liveLines.join(', ')} — pick one of those, or ask an admin to add ${line}.`;
+    }
+    return `${label} has devices registered but all are switched off. Ask an admin to re-activate one.`;
+  } catch (e) {
+    return `No active device for ${label} · ${line}`;
+  }
+}
 
 // Department unlock (PIN) state — persists in cfg until 1 AM IST expiry.
 let navDept    = null;   // 'production' | 'store' | 'dispatch'
@@ -2419,7 +2454,10 @@ async function launchGuided() {
   statusEl.textContent = 'Looking up device…'; statusEl.style.color = 'var(--text2)';
   try {
     const devices = await sbGet('devices', `station=eq.${navStation}&line=eq.${line}&is_active=eq.true&limit=1`);
-    if (!devices || !devices.length) { statusEl.textContent = `No active device for ${STATION_DEFS[navStation]?.label||navStation} · ${line}`; statusEl.style.color = 'var(--red)'; return; }
+    if (!devices || !devices.length) {
+      statusEl.textContent = await deviceGapMessage(navStation, line);
+      statusEl.style.color = 'var(--red)'; return;
+    }
     const device = devices[0];
     cfg = { ...cfg, url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_KEY, stationCode: navStation,
       stationLabel: STATION_DEFS[navStation]?.label || navStation, line, deviceCode: device.device_code, deviceId: device.id,
@@ -2567,7 +2605,7 @@ async function saveSetup() {
       `station=eq.${stationCode}&line=eq.${line}&is_active=eq.true&limit=1`
     );
     if (!devices || !devices.length) {
-      statusEl.textContent = `No active device found for ${stationEl.dataset.val} · ${line}`;
+      statusEl.textContent = await deviceGapMessage(stationCode, line);
       statusEl.style.color = 'var(--red)';
       return;
     }
