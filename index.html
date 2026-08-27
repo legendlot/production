@@ -2197,14 +2197,20 @@ const DEPARTMENTS = {
   production: { label: 'Production', operator: true, categories: [
     { key: 'fresh',      label: 'Fresh Production', stations: ['INW','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
     { key: 'repair',     label: 'Repair Run',       stations: ['REPAIR','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
-    // Outsourced Run — restored 2026-08-27. EXT_INW had a complete worker handler
-    // (postExtInw), 5 active device rows (EXT_INW-L1..L5) and a Redline manual chapter
-    // telling the floor to use it, but the S108 department redesign left it out of every
-    // category — so there was NO menu path to the station and `public.scans` held ZERO
-    // EXT_INW rows for all time. Outsourced returns were coming back through ordinary INW
-    // instead, which is why no returned unit could be traced to the EXT run it came from.
-    // Station set mirrors Repair Run (the manual's "Then: rejoin QC → Packaging → PKG Out").
-    { key: 'outsourced', label: 'Outsourced Run',   stations: ['EXT_INW','QC_PASS','QC_FAIL','WKS','PKG','PKG_OUT'] },
+    // ⛔ DO NOT ADD AN 'outsourced' / EXT_INW CATEGORY HERE. Tried and reverted 2026-08-27
+    // (S317) within the same session. EXT_INW *looks* like an accidentally-dropped station —
+    // complete worker handler, 5 active EXT_INW-L1..L5 device rows, a STATION_DEFS entry,
+    // client routing in submitScanWorker, and a Redline manual chapter describing an
+    // "Outsourced Run" category — but it is DELIBERATELY RETIRED. RULE-EXT-001's S180
+    // amendment moved the outsourced receive leg into the receiving/GRN flow ("Finishing is
+    // a separate Fresh + FBU run … no EXT_INW scan"), and BUSINESS_RULES lists the EXT_INW
+    // SCANNER_ACTION as dead code awaiting Plan-4 deletion.
+    // ⚠️ Restoring the menu entry does NOT make it work: postExtInw finds its run by
+    // line_no, and line_no is NULL on ALL 30 outsourced runs ever created because
+    // assignOutsourcedLine has no UI and has never been called — so every scan 404s and the
+    // floor reports the scanner as broken. Unit→EXT-run traceability IS a real gap, but it
+    // belongs in the S180 model (tag units at FBU-GRN time); the outsourcing flow is
+    // Afshaan-owned. See BACKLOG [lotops].
     { key: 'repack',     label: 'Repack Run',       stations: ['REPACK_IN','REPACK_OUT'] },
     { key: 'utilities',  label: 'Utilities',        stations: ['LOOKUP'] },
   ]},
