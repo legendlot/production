@@ -1190,6 +1190,7 @@
 
   <!-- ── ATTENDANCE panel (Manpower Step 4) ── -->
   <div id="attendancePanel" style="display:none;margin-bottom:12px">
+    <div id="att_deviceStrip" style="font-family:var(--mono);font-size:10.5px;color:var(--text3);padding:6px 2px 10px"></div>
     <!-- State A: idle -->
     <div id="att_idle">
       <input id="att_input" type="text" autocomplete="off" inputmode="numeric"
@@ -1447,6 +1448,111 @@ let scanLoopActive  = false;
 // ══════════════════════════════════════════════════════
 // WORKER API
 // ══════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════
+// DEVICE IDENTITY (S324) — attendance lock
+// ══════════════════════════════════════════════════════
+// Attendance is the one station with no device of its own, which is exactly why any phone
+// can mark it today. This gives the gate phone an identity that cannot be copied off it.
+//
+// ⚠️ WHY A KEY AND NOT A CODE: `device_code` lives in localStorage and is just text — read it
+// from devtools, photograph it, or have it dictated, and any handset can pretend to be the
+// gate phone. A private key generated `extractable:false` cannot be exported by anything,
+// including this page. Possession of the phone becomes the credential.
+//
+// ⚠️ `extractable:false` applies to the PRIVATE key only. WebCrypto always returns the public
+// half extractable, which is what lets us send it at enrolment. That is not a leak: the public
+// key is what the worker verifies against and is meant to travel.
+//
+// ⚠️ INERT UNTIL ENROLLED, DELIBERATELY. signedWorkerPost falls back to a plain unsigned post
+// when there is no key or no device code, so shipping this changes nothing on the floor. The
+// worker is still in log-only mode. Enforcement is a separate, later flip — and it MUST NOT
+// happen before the gate phone is enrolled, because every attendance call today is unsigned
+// and the gate would reject all of them.
+const LOT_IDB_NAME = 'lot_device', LOT_IDB_STORE = 'keys';
+
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const rq = indexedDB.open(LOT_IDB_NAME, 1);
+    rq.onupgradeneeded = () => { rq.result.createObjectStore(LOT_IDB_STORE); };
+    rq.onsuccess = () => resolve(rq.result);
+    rq.onerror   = () => reject(rq.error);
+  });
+}
+function idbReq(store, mode, fn) {
+  return idbOpen().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(LOT_IDB_STORE, mode);
+    const rq = fn(tx.objectStore(LOT_IDB_STORE));
+    rq.onsuccess = () => resolve(rq.result);
+    rq.onerror   = () => reject(rq.error);
+  }));
+}
+// A CryptoKey structured-clones into IndexedDB and comes back usable, WITHOUT its private
+// material ever being readable by JS. localStorage cannot hold one — it only takes strings,
+// which is the whole reason the key lives here and the device_code lives there.
+async function getDeviceKeyPair() {
+  try {
+    const pair = await idbReq(LOT_IDB_STORE, 'readonly', st => st.get('attendance_keypair'));
+    return (pair && pair.privateKey) ? pair : null;
+  } catch (_) { return null; }
+}
+async function createDeviceKeyPair() {
+  const pair = await crypto.subtle.generateKey(
+    { name: 'ECDSA', namedCurve: 'P-256' },
+    false,                                   // extractable:false — the point of the whole design
+    ['sign', 'verify']
+  );
+  await idbReq(LOT_IDB_STORE, 'readwrite', st => st.put(pair, 'attendance_keypair'));
+  return pair;
+}
+async function exportPublicKeyB64(pair) {
+  const spki = await crypto.subtle.exportKey('spki', pair.publicKey);
+  return btoa(String.fromCharCode(...new Uint8Array(spki)));
+}
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// Signed variant of workerPost. Header names and the canonical string must match
+// verifyDeviceSignature in 01_worker/worker.js EXACTLY:
+//     `${action}|${device_code}|${ts}|${nonce}|` + sha256Hex(JSON.stringify(data ?? null))
+// ⚠️ The hash covers `data` ONLY, not the whole {action, data} envelope — the worker hashes
+// `body.data`. ⚠️ And it re-stringifies after JSON.parse, so key ORDER must survive the round
+// trip. It does for ordinary string keys; do not introduce numeric-looking keys into an
+// attendance payload, because JS reorders those and the signature would stop matching.
+async function signedWorkerPost(action, data) {
+  const devCode = cfg.attDeviceCode || null;
+  let pair = null;
+  try { pair = devCode ? await getDeviceKeyPair() : null; } catch (_) { pair = null; }
+  if (!pair || !devCode) return workerPost(action, data);   // not enrolled -> exactly as before
+
+  try {
+    const ts = String(Date.now());
+    const nonce = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2));
+    const canonical = `${action}|${devCode}|${ts}|${nonce}|` +
+                      await sha256Hex(JSON.stringify(data ?? null));
+    const sigBuf = await crypto.subtle.sign(
+      { name: 'ECDSA', hash: 'SHA-256' }, pair.privateKey,
+      new TextEncoder().encode(canonical));
+    const sig = btoa(String.fromCharCode(...new Uint8Array(sigBuf)));
+    const res = await fetch(WORKER_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-LOT-Device': devCode, 'X-LOT-TS': ts, 'X-LOT-Nonce': nonce, 'X-LOT-Sig': sig,
+      },
+      body: JSON.stringify({ action, data })
+    });
+    return await res.json();
+  } catch (e) {
+    // ⚠️ Signing must NEVER cost a clock-in. If anything here fails (no WebCrypto, key gone,
+    // clock skew) fall back to the unsigned post rather than blocking the operator. Once
+    // enforcement is on the worker will refuse it and say so, which is the right place for
+    // that decision to be made — not silently here on the phone.
+    return workerPost(action, data);
+  }
+}
+
 async function workerPost(action, data) {
   try {
     const res = await fetch(WORKER_URL, {
@@ -2489,6 +2595,54 @@ function afterLaunch() {
   startSession();
   bootScanner();
 }
+// ── Attendance device enrolment (S324) ────────────────────────────────────────
+// Two prompts, run once, standing at the gate phone. The FIRST is what ties a name to this
+// physical handset; the SECOND makes that binding permanent, because only this phone can
+// sign afterwards. Nothing here can be done remotely: the one-time code is minted by a super
+// admin in Garage, lasts 15 minutes and is spent once.
+async function enrolAttendanceDevice() {
+  if (!window.isSecureContext || !crypto.subtle) {
+    alert('This phone cannot store a secure key (the page must be served over HTTPS).');
+    return;
+  }
+  const devCode = (prompt('Device code for THIS phone\n\nAsk the admin which code was created for the gate phone, e.g. ATT-GATE.') || '').trim();
+  if (!devCode) return;
+  const code = (prompt('Enrolment code\n\nThe 6-digit code from Garage \u2192 Users \u2192 Scanner PINs \u2192 Attendance device.\nIt expires 15 minutes after it was created.') || '').trim();
+  if (!code) return;
+
+  try {
+    const pair   = await createDeviceKeyPair();
+    const pubB64 = await exportPublicKeyB64(pair);
+    const r = await workerPost('completeDeviceEnrolment', {
+      device_code: devCode, enrolment_code: code, public_key: pubB64 });
+    if (!r || r.ok === false) {
+      alert('Enrolment failed\n\n' + ((r && r.error) || 'Unknown error') +
+            '\n\nAsk the admin for a fresh code and try again.');
+      return;
+    }
+    cfg.attDeviceCode = devCode;
+    localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+    renderAttendanceDeviceStrip();
+    alert('This phone is now enrolled as ' + devCode + '.\n\nAttendance marked here is signed by a key that cannot be copied to another phone.');
+  } catch (e) {
+    alert('Enrolment failed on this phone: ' + (e && e.message ? e.message : e));
+  }
+}
+
+// Small status strip on the attendance screen. Deliberately shows the UNenrolled state too,
+// so the person setting the gate phone up can see at a glance whether this is the one.
+async function renderAttendanceDeviceStrip() {
+  const el = document.getElementById('att_deviceStrip');
+  if (!el) return;
+  let enrolled = false;
+  try { enrolled = !!(cfg.attDeviceCode && await getDeviceKeyPair()); } catch (_) {}
+  el.innerHTML = enrolled
+    ? `<span style="color:var(--green)">\u25cf</span> Enrolled as <strong>${cfg.attDeviceCode}</strong>`
+      + ` <button onclick="enrolAttendanceDevice()" style="margin-left:8px;background:none;border:1px solid var(--border2);color:var(--text3);border-radius:5px;padding:3px 8px;font-family:var(--mono);font-size:10px;cursor:pointer">Re-enrol</button>`
+    : `<span style="color:var(--text3)">\u25cb Not enrolled \u2014 attendance is not locked to this phone</span>`
+      + ` <button onclick="enrolAttendanceDevice()" style="margin-left:8px;background:none;border:1px solid var(--border2);color:var(--yellow);border-radius:5px;padding:3px 8px;font-family:var(--mono);font-size:10px;cursor:pointer">Enrol this phone</button>`;
+}
+
 function launchAttendance() {
   cfg = { ...cfg, url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_KEY, stationCode: 'ATTENDANCE',
     stationLabel: 'Attendance', line: 'SHARED', deviceCode: null, deviceId: null, activity: 'ATTENDANCE',
@@ -2798,6 +2952,7 @@ function bootScanner() {
   // Shift bar is hidden since attendance has no shift selection.
   const isAttendance = cfg.stationCode === 'ATTENDANCE';
   document.getElementById('attendancePanel').style.display = isAttendance ? '' : 'none';
+  if (isAttendance) renderAttendanceDeviceStrip();   // S324: show enrolled / not-enrolled state
   document.querySelector('.camera-wrap').style.display     = '';
   const _attHint = document.getElementById('att_cameraHint');
   if (_attHint) _attHint.style.display = isAttendance ? '' : 'none';
@@ -2924,7 +3079,7 @@ async function submitAttendanceLookup() {
   const employeeId = normalizeEmployeeId(input.value);
   if (!employeeId) return;
   setAttState('loading');
-  const r = await workerPost('getOperatorByCode', { employee_id: employeeId, device_id: cfg.deviceCode || 'ATTENDANCE' });
+  const r = await signedWorkerPost('getOperatorByCode', { employee_id: employeeId, device_id: cfg.attDeviceCode || cfg.deviceCode || 'ATTENDANCE' });
   if (!r || r.ok === false) {
     return showAttError(r?.error || 'Operator not found');
   }
@@ -2950,7 +3105,7 @@ async function confirmAttendance() {
   // shift window + their own open-row state (no client-side toggle). Returns
   // action 'in' | 'out' | 'noop'. noop reasons: mid_shift / min_dwell (already in,
   // not yet eligible to clock out) or no_open_window (outside any clock-in window).
-  const r = await workerPost('recordAttendance', payload);
+  const r = await signedWorkerPost('recordAttendance', payload);
   if (!r || r.ok === false) {
     return showAttError(r?.error || 'Attendance failed');
   }
@@ -2985,7 +3140,7 @@ async function confirmAttendance() {
 async function confirmBreak() {
   if (attState !== 'confirm' || !attOpData) return;
   setAttState('loading');
-  const r = await workerPost('recordBreak', {
+  const r = await signedWorkerPost('recordBreak', {
     employee_id: attOpData.employee_id,
     device_id:   cfg.deviceCode || 'ATTENDANCE',
   });
