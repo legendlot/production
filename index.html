@@ -3099,7 +3099,12 @@ async function submitAttendanceLookup() {
 async function confirmAttendance() {
   if (attState !== 'confirm' || !attOpData) return;
   setAttState('loading');
-  const payload = { employee_id: attOpData.employee_id, device_id: cfg.deviceCode || 'ATTENDANCE' };
+  // ⚠️ attDeviceCode FIRST — `cfg.deviceCode` is null on the attendance path (launchAttendance
+  // sets it so), which is why every operator_attendance row ever written says the literal
+  // "ATTENDANCE" and the table cannot say which phone marked a shift. The enrolled gate phone
+  // knows its own code; use it. Signing is unaffected either way (identity travels in the
+  // X-LOT-Device header, not the body) — this is about what the ROW records.
+  const payload = { employee_id: attOpData.employee_id, device_id: cfg.attDeviceCode || cfg.deviceCode || 'ATTENDANCE' };
 
   // Single resolver call: the worker decides clock-in vs clock-out from the operator's
   // shift window + their own open-row state (no client-side toggle). Returns
@@ -3142,7 +3147,7 @@ async function confirmBreak() {
   setAttState('loading');
   const r = await signedWorkerPost('recordBreak', {
     employee_id: attOpData.employee_id,
-    device_id:   cfg.deviceCode || 'ATTENDANCE',
+    device_id:   cfg.attDeviceCode || cfg.deviceCode || 'ATTENDANCE',   // see confirmAttendance
   });
   if (!r || r.ok === false) {
     return showAttError(r?.error || 'Break not recorded');
