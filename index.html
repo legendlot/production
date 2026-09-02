@@ -1495,12 +1495,21 @@ async function getDeviceKeyPair() {
     return (pair && pair.privateKey) ? pair : null;
   } catch (_) { return null; }
 }
-async function createDeviceKeyPair() {
-  const pair = await crypto.subtle.generateKey(
+// ⚠️ GENERATE AND PERSIST ARE DELIBERATELY SEPARATE (2026-09-02). They used to be one call
+// that stored the new key BEFORE the server had accepted it, so a re-enrol that failed —
+// an expired or mistyped code, which is the common case, since the code lives 15 minutes —
+// destroyed the working key and replaced it with one the server had never seen.
+// The phone then went on showing a green "Enrolled as ATT-GATE" (the strip only checks that
+// a code and *a* key exist) while every signature was rejected: strictly worse than being
+// unenrolled, because the status lied. Generate → register → persist only on success.
+async function generateDeviceKeyPair() {
+  return crypto.subtle.generateKey(
     { name: 'ECDSA', namedCurve: 'P-256' },
     false,                                   // extractable:false — the point of the whole design
     ['sign', 'verify']
   );
+}
+async function persistDeviceKeyPair(pair) {
   await idbReq(LOT_IDB_STORE, 'readwrite', st => st.put(pair, 'attendance_keypair'));
   return pair;
 }
@@ -2611,15 +2620,21 @@ async function enrolAttendanceDevice() {
   if (!code) return;
 
   try {
-    const pair   = await createDeviceKeyPair();
+    // Generated in memory only — NOT yet written to IndexedDB. If the server refuses the
+    // code below, this key is simply discarded and the phone keeps the enrolment it already
+    // had. Persisting first is what used to break a working gate phone on a mistyped code.
+    const pair   = await generateDeviceKeyPair();
     const pubB64 = await exportPublicKeyB64(pair);
     const r = await workerPost('completeDeviceEnrolment', {
       device_code: devCode, enrolment_code: code, public_key: pubB64 });
     if (!r || r.ok === false) {
       alert('Enrolment failed\n\n' + ((r && r.error) || 'Unknown error') +
-            '\n\nAsk the admin for a fresh code and try again.');
+            '\n\nAsk the admin for a fresh code and try again.' +
+            '\n\nThis phone\'s existing enrolment has NOT been changed.');
       return;
     }
+    // Server accepted this key. Only now does it replace whatever was stored.
+    await persistDeviceKeyPair(pair);
     cfg.attDeviceCode = devCode;
     localStorage.setItem('lot_cfg', JSON.stringify(cfg));
     renderAttendanceDeviceStrip();
