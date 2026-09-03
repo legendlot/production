@@ -80,8 +80,14 @@ public class MainActivity extends Activity {
             @Override
             public boolean shouldOverrideUrlLoading(WebView v, WebResourceRequest rq) {
                 Uri u = rq.getUrl();
-                if (ALLOWED_HOST.equals(u.getHost())) return false;   // ours: load it
-                return true;                                          // anything else: refuse
+                // ⚠️ Scheme AND case both matter. Without the scheme check, http:// passes and
+                // usesCleartextTraffic is only honoured by WebView from API 26 (minSdk is 24),
+                // so on Android 7.x a MITM-injected cleartext page would load WITH the bridge
+                // attached. Without equalsIgnoreCase, a legitimate mixed-case link silently
+                // dead-ends instead of loading.
+                if ("https".equals(u.getScheme()) && ALLOWED_HOST.equalsIgnoreCase(u.getHost()))
+                    return false;                                      // ours: load it
+                return true;                                           // anything else: refuse
             }
         });
 
@@ -96,12 +102,40 @@ public class MainActivity extends Activity {
 
         web.addJavascriptInterface(new Bridge(), "LOTDevice");
 
+        // ⛔ ORDER IS LOAD-BEARING, and getting it wrong breaks the camera on FIRST LAUNCH of
+        // every handset. The scanner calls getUserMedia as soon as a scan screen opens (which
+        // is why setMediaPlaybackRequiresUserGesture is false above), so loading the page while
+        // the OS permission dialog is still up means the camera request fires before the app
+        // has the grant — and onPermissionRequest granting the WebView is not enough, Chromium
+        // still needs the app's own OS permission. Load only once the grant is settled, and
+        // reload when it arrives late (see onRequestPermissionsResult).
         if (Build.VERSION.SDK_INT >= 23
                 && checkSelfPermission(Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
             requestPermissions(new String[]{Manifest.permission.CAMERA}, REQ_CAMERA);
+        } else {
+            web.loadUrl(START_URL);
         }
+    }
 
-        web.loadUrl(START_URL);
+    /**
+     * The grant arrives asynchronously, so this is where the first load actually happens on a
+     * fresh install. Without it the operator would see a permanently camera-less scanner and
+     * the only recovery would be to force-kill the app — which is exactly the kind of "it just
+     * doesn't work" the floor reports as a broken scanner rather than a permissions problem.
+     */
+    @Override
+    public void onRequestPermissionsResult(int code, String[] perms, int[] results) {
+        super.onRequestPermissionsResult(code, perms, results);
+        if (code != REQ_CAMERA) return;
+        boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
+        if (web.getUrl() == null) web.loadUrl(START_URL);   // first launch: load now
+        else if (granted) web.reload();                     // granted late: re-run the camera
+        if (!granted) {
+            // Say so plainly rather than presenting a scanner that silently cannot scan.
+            android.widget.Toast.makeText(this,
+                    "Camera permission is required to scan. Enable it in Settings > Apps > LOT Scanner.",
+                    android.widget.Toast.LENGTH_LONG).show();
+        }
     }
 
     /** Back walks the PWA's own history rather than dropping the operator out of the app. */
@@ -131,7 +165,10 @@ public class MainActivity extends Activity {
          */
         @JavascriptInterface
         public String deviceId() {
-            return Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            // Can be null on some devices/ROMs — return "" so the page sees a falsy value it
+            // can test, not the string "null" written into a register as if it were an id.
+            String id = Settings.Secure.getString(getContentResolver(), Settings.Secure.ANDROID_ID);
+            return id == null ? "" : id;
         }
 
         /**
@@ -183,7 +220,10 @@ public class MainActivity extends Activity {
      * generated INSIDE the AndroidKeyStore and is never extractable — it cannot be copied to
      * another phone, and clearing the browser's site data does not touch it.
      */
-    private Certificate ensureKey() throws Exception {
+    // synchronized: JS bridge calls run on a background thread, so two concurrent callers could
+    // both pass containsAlias and both generate — the second overwriting the alias, which would
+    // let a signature be produced by a different key than the one just enrolled.
+    private synchronized Certificate ensureKey() throws Exception {
         KeyStore ks = KeyStore.getInstance("AndroidKeyStore");
         ks.load(null);
         if (!ks.containsAlias(KEY_ALIAS)) {
