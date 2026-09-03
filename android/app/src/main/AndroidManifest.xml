@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- CAMERA is load-bearing, not optional: the scanner reads barcodes via getUserMedia +
+         BarcodeDetector (02_scanner/index.html:1879, :5385, :5445). A shell that does not grant
+         it does not "degrade" — it stops the floor scanning. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+
+    <application
+        android:label="LOT Scanner"
+        android:icon="@mipmap/ic_launcher"
+        android:usesCleartextTraffic="false"
+        android:allowBackup="false">
+
+        <!-- allowBackup=false on purpose. The hardware key cannot leave the phone anyway, but a
+             restored backup carrying this app's identity onto a DIFFERENT handset is exactly the
+             confusion this app exists to remove. -->
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@android:style/Theme.NoTitleBar"
+            android:screenOrientation="portrait"
+            android:configChanges="orientation|screenSize|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

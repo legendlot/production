@@ -1,0 +1,44 @@
+plugins { id 'com.android.application' }
+
+// Deliberately ZERO dependencies — no AndroidX, no Kotlin, no libraries. The whole app is one
+// Activity and one JS bridge, so there is nothing here to go stale or to break on an upgrade.
+// Runtime permissions use the framework API (minSdk 24), not ActivityCompat.
+android {
+  namespace 'com.legendoftoys.scanner'
+  compileSdk 34
+  defaultConfig {
+    applicationId 'com.legendoftoys.scanner'
+    minSdk 24
+    targetSdk 34
+    versionCode 1
+    versionName '1.0'
+  }
+  // ⛔ THE SIGNING KEY IS PART OF THE IDENTITY, NOT PACKAGING TRIVIA. Settings.Secure.ANDROID_ID
+  // is scoped to (app signing key, user, device), and an AndroidKeyStore entry is tied to the
+  // app's UID — so installing a build signed with a DIFFERENT key makes Android treat it as a
+  // different app and the phone reports a NEW id and loses its key. Gradle's debug keystore is
+  // generated per machine (and fresh on every CI runner), so debug builds are for smoke-testing
+  // the shell ONLY. Anything that goes on a floor phone must be signed with the one persistent
+  // key below, or "stable identity" silently stops being true at the next reinstall.
+  signingConfigs {
+    release {
+      def ks = System.getenv('LOT_KEYSTORE_FILE')
+      if (ks) {
+        storeFile file(ks)
+        storePassword System.getenv('LOT_KEYSTORE_PASSWORD')
+        keyAlias System.getenv('LOT_KEY_ALIAS')
+        keyPassword System.getenv('LOT_KEY_PASSWORD')
+      }
+    }
+  }
+  buildTypes {
+    release {
+      minifyEnabled false
+      if (System.getenv('LOT_KEYSTORE_FILE')) signingConfig signingConfigs.release
+    }
+  }
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_17
+    targetCompatibility JavaVersion.VERSION_17
+  }
+}
