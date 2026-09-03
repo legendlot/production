@@ -190,7 +190,7 @@ public class MainActivity extends Activity {
             KeyPairGenerator kpg =
                     KeyPairGenerator.getInstance(KeyProperties.KEY_ALGORITHM_EC, "AndroidKeyStore");
             kpg.initialize(new KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_SIGN)
-                    .setAlgorithmParameter(new ECGenParameterSpec("secp256r1"))
+                    .setAlgorithmParameterSpec(new ECGenParameterSpec("secp256r1"))
                     .setDigests(KeyProperties.DIGEST_SHA256)
                     .build());
             kpg.generateKeyPair();
