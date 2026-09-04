@@ -1,0 +1,20 @@
+# ⛔ SIGNING KEYSTORES — NEVER COMMIT ONE.
+# The signing key IS the device identity: Settings.Secure.ANDROID_ID is scoped to it, so the key
+# leaking means someone can build an APK Android treats as ours, and re-keying re-identifies every
+# handset on the floor. Keep the .jks off-repo entirely (password manager / encrypted backup) and
+# let CI read it from the LOT_KEYSTORE_B64 repo secret. These patterns are the backstop, not the plan.
+*.jks
+*.keystore
+*.p12
+*.pfx
+key.properties
+
+# Gradle / Android build output — the APK is a CI artifact, not a repo file.
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+.gradle/
+
+# macOS
+.DS_Store
