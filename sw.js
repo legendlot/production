@@ -1,7 +1,13 @@
 // LOT Scanner — Service Worker
 // Network-first for the app shell (index.html / navigations) so deployed updates
 // always land when online; cache-first for static assets; offline falls back to cache.
-const CACHE = 'lot-scanner-v3';
+// ⛔ BUMPED v3 -> v4 on 2026-09-04 (S345 hostile review) TO EVICT A POSSIBLY POISONED SHELL.
+// The install-banner link was a same-origin NAVIGATION to lot-scanner.apk, so isShell() matched
+// it and the network-first branch cached the APK BINARY as './index.html'. Any device that
+// tapped it would, on its next OFFLINE load, be served APK bytes as the app shell — the scanner
+// would download instead of render, and `install`/addAll never re-runs while sw.js is unchanged,
+// so the poisoned entry would survive every reload. Changing this name forces a fresh install.
+const CACHE = 'lot-scanner-v4';
 const ASSETS = [
   './index.html',
   './manifest.json',
@@ -45,8 +51,15 @@ self.addEventListener('fetch', e => {
   if (isShell(req)) {
     e.respondWith(
       fetch(req).then(res => {
-        const copy = res.clone();
-        caches.open(CACHE).then(c => c.put('./index.html', copy)).catch(() => {});
+        // ⛔ ONLY cache a response that is actually HTML. isShell() matches on request.mode
+        // === 'navigate', which is ALSO true for a link to a same-origin FILE (the APK link
+        // that shipped earlier today), and caching that response as './index.html' bricks the
+        // scanner offline. Guard on what came back, not on what was asked for.
+        const ct = res.headers.get('content-type') || '';
+        if (res.ok && ct.includes('text/html')) {
+          const copy = res.clone();
+          caches.open(CACHE).then(c => c.put('./index.html', copy)).catch(() => {});
+        }
         return res;
       }).catch(() => caches.match('./index.html'))
     );

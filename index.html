@@ -857,10 +857,22 @@
          and nothing about it looks wrong — the same silent-failure shape that hid the
          attendance signing problem for days. Rather than rely on everyone remembering which
          icon to tap, the browser tells them. -->
-    <a id="apkBanner" class="apk-banner" href="lot-scanner.apk" hidden>
-      <span class="apk-banner-t">Install the LOT Scanner app</span>
-      <span class="apk-banner-s">You're in a browser — scans from here have no device ID</span>
-    </a>
+    <!-- ⛔ WAS A LINK TO lot-scanner.apk. TWO REASONS IT IS NOT ANY MORE (S345 hostile review):
+         (1) the link is a same-origin NAVIGATION, so the service worker cached the APK binary as
+             the app shell and bricked the scanner offline — fixed in sw.js too, but the link is
+             the thing that triggered it;
+         (2) installing the APK gives the WebView a FRESH storage partition, which strands
+             `lot_queue` — any UNSENT offline scans in this browser are lost, and scans are
+             ground truth (RULE-DSP-001). An unsupervised self-install invitation on ~50 floor
+             handsets is exactly the wrong shape: rollout is STAFFED (Afshaan, 2026-09-04), and
+             each phone must be labelled at install by the person holding it.
+         The diagnostic value is kept — if an operator can see this, they are in a browser and
+         their scans carry no device identity. Whoever runs the rollout fetches the APK directly
+         from /lot-scanner.apk. -->
+    <div id="apkBanner" class="apk-banner" hidden>
+      <span class="apk-banner-t">This is the browser, not the LOT Scanner app</span>
+      <span class="apk-banner-s">Scans from here work normally but carry no device ID. Ask your supervisor to install the app.</span>
+    </div>
   </div>
 </div>
 
@@ -1637,11 +1649,19 @@ async function workerPost(action, data) {
   try {
     const res = await fetch(WORKER_URL, {
       method: 'POST',
-      // ⭐ hwHeaders() matters MOST here. This is the unsigned path signedWorkerPost silently
-      // falls back to, and the fact that such a call could not be attributed to a handset is
-      // exactly why the attendance signing failure stayed invisible for days. Inside the app,
-      // even an unsigned call now says which phone it came from.
-      headers: { 'Content-Type': 'application/json', ...hwHeaders() },
+      // ⭐ THIS IS THE PATH THAT MATTERS. signedWorkerPost silently falls back here, and a call
+      // that cannot be attributed to a handset is exactly why the attendance signing failure
+      // stayed invisible for days.
+      // ⚠️ X-LOT-HW alone was NOT enough (S345 hostile review): it is APK-only, so it covers one
+      // test phone while all ~50 floor handsets stay anonymous — the very condition the backlog
+      // and watchboard both call "the cheapest unblock, and it gates every other step".
+      // X-LOT-Device works on EVERY handset today, with no APK, and the worker's CORS allow-list
+      // already permits it. `attempted_device_code` in device_auth_failures stops being ''.
+      headers: {
+        'Content-Type': 'application/json',
+        ...(cfg && cfg.attDeviceCode ? { 'X-LOT-Device': cfg.attDeviceCode } : {}),
+        ...hwHeaders(),
+      },
       body: JSON.stringify({ action, data })
     });
     return await res.json();
