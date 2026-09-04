@@ -2526,8 +2526,16 @@ function pinBackspace() { pinBuffer = pinBuffer.slice(0, -1); renderPinDots(); }
 async function verifyPin() {
   const dept = pinDept, pin = pinBuffer;
   const dotsEl = document.getElementById('pinDots');
+  // ⛔ A REQUEST THAT NEVER REACHED THE WORKER USED TO RENDER AS "Incorrect PIN — try again",
+  // because workerPost RETURNS {ok:false, error:'Network error: …'} instead of throwing, and
+  // every non-success fell through to the same message. That cost a live debugging round on
+  // 2026-09-04: the APK could not reach lotopsproxy and the screen blamed the operator's PIN,
+  // while the floor (on browsers) worked fine — so it read as "the PIN is broken for me".
+  // A wrong PIN and an unreachable server are DIFFERENT FAULTS and must not share a message.
+  let netFail = false;
   try {
     const res = await workerPost('verifyDepartmentPin', { department: dept, pin });
+    if (res && res.ok === false && /network error/i.test(String(res.error || ''))) netFail = true;
     if (res && res.ok && res.data && res.data.valid) {
       cfg.unlockedDept = dept;
       cfg.deptUnlockExpiry = setupExpiryMs();
@@ -2538,11 +2546,13 @@ async function verifyPin() {
       showCategorySelect();
       return;
     }
-  } catch (e) { /* fall through to error */ }
+  } catch (e) { netFail = true; }
   pinBuffer = '';
   renderPinDots();
   const err = document.getElementById('pinError');
-  err.textContent = 'Incorrect PIN — try again';
+  err.textContent = netFail
+    ? 'Cannot reach the server — check the connection, then try again'
+    : 'Incorrect PIN — try again';
   err.style.display = '';
   if (dotsEl) { dotsEl.classList.remove('shake'); void dotsEl.offsetWidth; dotsEl.classList.add('shake'); }
 }
