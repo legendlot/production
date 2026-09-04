@@ -2,6 +2,14 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <!-- ⛔ CSP + SRI are the S343 hostile-review blockers on APK step ②. The Android shell's
+       addJavascriptInterface injects window.LOTDevice into EVERY frame, and the host pin only
+       intercepts navigations — so any script running on this origin gets the bridge. Once sign()
+       is the attendance credential, a swapped CDN bundle could mint valid signatures.
+       connect-src is the load-bearing directive: it stops exfiltration to an attacker origin.
+       ⚠️ Adding an external origin here (a new CDN, a new API host) means adding it to the
+       matching directive below, or it is blocked with only a console error. -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://unpkg.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self' https://lotopsproxy.afshaan.workers.dev https://jkxcnjabmrkteanzoofj.supabase.co; worker-src 'self'; manifest-src 'self'; base-uri 'self'; form-action 'self'; object-src 'none'">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,7 +21,15 @@
   <link rel="icon" type="image/png" sizes="16x16" href="icons/icon-16.png">
   <link rel="apple-touch-icon" sizes="180x180" href="icons/icon-180.png">
   <link href="https://fonts.googleapis.com/css2?family=Tomorrow:wght@400;600;700;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <script src="https://unpkg.com/@zxing/library@latest/umd/index.min.js"></script>
+  <!-- ⛔ PINNED + SRI (was `@latest`, which let unpkg change the live barcode library under the
+       floor with no review). 0.23.0 is byte-identical to what @latest served on 2026-09-04, so
+       this pin is behaviourally a no-op. To upgrade: fetch the new bytes, recompute the hash
+       (`openssl dgst -sha384 -binary f | openssl base64 -A`), change BOTH the version and the
+       integrity attribute, and smoke the floor scanner — a stale hash blocks the script and the
+       scanner cannot read a barcode at all. -->
+  <script src="https://unpkg.com/@zxing/library@0.23.0/umd/index.min.js"
+          integrity="sha384-0ASr5PEWAMtTnWsn0PzKmioHVDA4+QqFiJr94io/0DCrGP6E1gRAmbO6O8y5WZW9"
+          crossorigin="anonymous"></script>
   <style>
     :root {
       /* Brand (shared with Garage/Redline) */
