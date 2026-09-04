@@ -5393,6 +5393,7 @@ async function doLookupBatchReprint(batchLabel, product, model, color, channel) 
   if (btn)      { btn.disabled = true; }
 
   var res = await workerPost('postReprintJob', {
+    device_code: cfg.deviceCode,   // the worker gates reprints on the station device (S349)
     batch_label: batchLabel,
     product:     product  || '',
     model:       model    || '',
@@ -5418,7 +5419,7 @@ async function doLookupReprint(boxRef) {
   if (statusEl) { statusEl.textContent = '🖨 Queuing...'; statusEl.style.color = 'var(--text2)'; }
   if (btn)      { btn.disabled = true; }
 
-  var res = await workerPost('postLookupReprint', { box_ref: boxRef, line: lookupPrinter });
+  var res = await workerPost('postLookupReprint', { device_code: cfg.deviceCode, box_ref: boxRef, line: lookupPrinter });
 
   if (res.ok) {
     if (statusEl) { statusEl.textContent = '✓ Queued to ' + lookupPrinter + ' — printing shortly'; statusEl.style.color = 'var(--green)'; }
@@ -6263,6 +6264,7 @@ async function retryPrint() {
   if (ps) { ps.textContent = '🖨 Queuing reprint...'; ps.style.color = ''; }
 
   const result = await workerPost('postReprintJob', {
+    device_code: cfg.deviceCode,   // the worker gates reprints on the station device (S349)
     batch_label: lastPkgData.batch_label,
     product:     lastPkgData.product  || null,
     model:       lastPkgData.model    || null,
