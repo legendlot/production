@@ -88,6 +88,15 @@
     .nav-title em{color:var(--yellow);font-style:normal}
     .nav-title-sm{font-family:var(--head);font-size:22px;font-weight:800;color:var(--text);letter-spacing:.02em;margin-bottom:4px}
     .nav-sub{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--text3);text-transform:uppercase;text-align:center}
+    /* Install-the-app nudge — browser only. ⚠️ [hidden] needs the !important because the rule
+       below sets display:flex, and a bare `display` beats the hidden attribute. */
+    .apk-banner{display:flex;flex-direction:column;gap:4px;margin-top:18px;padding:14px 16px;
+      border:1px solid var(--yellow);border-radius:10px;background:rgba(242,205,26,.08);
+      text-decoration:none;text-align:center}
+    .apk-banner[hidden]{display:none!important}
+    .apk-banner-t{font-family:var(--head,var(--cond));font-size:15px;font-weight:700;
+      color:var(--yellow);text-transform:uppercase;letter-spacing:.04em}
+    .apk-banner-s{font-family:var(--mono);font-size:11px;color:var(--text2);line-height:1.4}
     .nav-back{margin-top:auto;padding-top:16px;font-family:var(--mono);font-size:13px;color:var(--text3);letter-spacing:.04em;cursor:pointer;-webkit-tap-highlight-color:transparent}
     .nav-back:active{color:var(--text)}
 
@@ -843,6 +852,15 @@
       <div class="dept-tile dispatch" onclick="pickDepartment('dispatch')"><div class="dept-tile-name">Dispatch</div><div class="dept-tile-sub">Dispatch In · Allocate · Pack · Out</div></div>
       <div class="dept-tile attend"   onclick="pickDepartment('attendance')"><div class="dept-tile-name">Attendance</div><div class="dept-tile-sub">Clock in / out · Supervisor PIN</div></div>
     </div>
+    <!-- Shown ONLY in a plain browser (unhidden by the IN_APP check in the main script).
+         The floor must run the app: a scan from a browser carries no device identity at all,
+         and nothing about it looks wrong — the same silent-failure shape that hid the
+         attendance signing problem for days. Rather than rely on everyone remembering which
+         icon to tap, the browser tells them. -->
+    <a id="apkBanner" class="apk-banner" href="lot-scanner.apk" hidden>
+      <span class="apk-banner-t">Install the LOT Scanner app</span>
+      <span class="apk-banner-s">You're in a browser — scans from here have no device ID</span>
+    </a>
   </div>
 </div>
 
@@ -1398,6 +1416,42 @@ const WORKER_URL = 'https://lotopsproxy.afshaan.workers.dev';
 const DEFAULT_SUPABASE_URL = 'https://jkxcnjabmrkteanzoofj.supabase.co';
 const DEFAULT_SUPABASE_KEY = 'sb_publishable_1Dd-r3h9Mou2Wqgn6t24Dw_lmWdBtLh';
 
+// ══════════════════════════════════════════════════════
+// DEVICE IDENTITY (APK shell) — step ② of the device-identity work
+// ══════════════════════════════════════════════════════
+// The Android shell (02_scanner/android/) injects `window.LOTDevice` via addJavascriptInterface.
+// In a plain browser it is simply absent, so IN_APP is false, hwHeaders() returns {} and every
+// request goes out BYTE-IDENTICAL to before this change. Nothing outside the app is affected.
+//
+// ⚠️ deviceId() is an IDENTIFIER, NOT a credential — it is readable from the page and therefore
+// spoofable. That is fine while we are only OBSERVING which handsets exist. Do NOT build an
+// enforcement gate on X-LOT-HW; the dormant window.LOTDevice.sign() is what enforcement needs,
+// and it has an unresolved DER-vs-raw mismatch with verifyDeviceSignature (see the backlog).
+const IN_APP = (() => {
+  try { return !!(window.LOTDevice && typeof window.LOTDevice.deviceId === 'function'); }
+  catch (_) { return false; }
+})();
+
+// Read ONCE. ANDROID_ID cannot change while the app is running, and a bridge call is a JNI hop
+// — doing it per request would put one on the hot path of every scan.
+// ⚠️ deviceId() returns '' (not null) on ROMs where ANDROID_ID is unavailable, so a falsy value
+// here means "no id", never the string "null" landing in a register as if it were one.
+const LOT_HW_ID = (() => {
+  if (!IN_APP) return '';
+  try { return window.LOTDevice.deviceId() || ''; } catch (_) { return ''; }
+})();
+
+// Spread into a fetch's headers. Empty outside the app.
+function hwHeaders() { return LOT_HW_ID ? { 'X-LOT-HW': LOT_HW_ID } : {}; }
+
+// Nudge browser users into the app. This script runs after the markup, so the element exists;
+// the null-guard keeps it inert if the banner is ever moved or removed.
+(function showApkBannerIfBrowser() {
+  if (IN_APP) return;
+  const el = document.getElementById('apkBanner');
+  if (el) el.hidden = false;
+})();
+
 
 // ══════════════════════════════════════════════════════
 // STATE
@@ -1565,6 +1619,7 @@ async function signedWorkerPost(action, data) {
       headers: {
         'Content-Type': 'application/json',
         'X-LOT-Device': devCode, 'X-LOT-TS': ts, 'X-LOT-Nonce': nonce, 'X-LOT-Sig': sig,
+        ...hwHeaders(),
       },
       body: JSON.stringify({ action, data })
     });
@@ -1582,7 +1637,11 @@ async function workerPost(action, data) {
   try {
     const res = await fetch(WORKER_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      // ⭐ hwHeaders() matters MOST here. This is the unsigned path signedWorkerPost silently
+      // falls back to, and the fact that such a call could not be attributed to a handset is
+      // exactly why the attendance signing failure stayed invisible for days. Inside the app,
+      // even an unsigned call now says which phone it came from.
+      headers: { 'Content-Type': 'application/json', ...hwHeaders() },
       body: JSON.stringify({ action, data })
     });
     return await res.json();
