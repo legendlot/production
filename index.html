@@ -5662,8 +5662,17 @@ async function processBarcode(barcode, act) {
   // ── PACK — dispatch packing station ──
   if (act === 'PACK') {
     if (packResultShowing) return;
-    if (!isBatchLabel) {
-      showReject('WRONG BARCODE', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R)');
+    // ⛔ THE COURIER LABEL MUST PASS THIS GATE TOO (fixed 2026-09-09; broken since S308,
+    // 2026-08-25). S308 added the AWB branch inside doPackScan() but never widened THIS
+    // caller, which admitted batch labels only — so a scanned AWB was rejected here as
+    // WRONG BARCODE and doPackScan() never ran. The whole AWB feature was unreachable dead
+    // code for 15 days: 0 of 6,963 boxes packed since launch carry one (measured 2026-09-09,
+    // denominator = all dispatch_boxes rows created in that window). Reported by Varnit as a
+    // web-order fault; it was never channel-specific, it was every pack at every station.
+    // ⚠️ Keep the two tests in sync with doPackScan()/looksLikeAwb() — a code admitted here
+    // and not recognised there would silently pack nothing.
+    if (!isBatchLabel && !looksLikeAwb(barcode)) {
+      showReject('WRONG BARCODE', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R) or the courier label');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'PACK', label:'WRONG FORMAT' });
       return;
