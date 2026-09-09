@@ -3735,6 +3735,13 @@ async function switchPackMode(mode) {
   packShipment = null;
   packBox      = null;
   packDirectChannel = null;
+  // ⛔ A HELD COURIER LABEL BELONGS TO THE PARCEL IN FRONT OF THE OPERATOR, SO IT DIES WITH THE
+  // CONTEXT. Without this, an AWB held for parcel A survives a mode switch and is stamped on the
+  // next box label scanned — parcel B's carton carrying A's courier number, which mis-attributes
+  // every unit in it to the wrong customer and is first-write-wins in the worker, so it sticks.
+  // The 120 s TTL does NOT cover this: switching mode takes seconds, well inside the window.
+  // (Latent since S308; only reachable once the courier scan started working — S367.)
+  clearPendingAwb('context changed');
 
   // Remove existing selector and box bars
   ['packShipmentBar','packBoxBar','packDirectBar'].forEach(id => {
@@ -3859,6 +3866,8 @@ let openBoxes = []; // all open boxes for current shipment
 async function selectPackShipment(id, fromUI = true) {
   packShipment = activeShipments.find(s => s.id === id);
   localStorage.setItem('pack_shipment_id', id);
+  // Same reason as switchPackMode: changing shipment changes which parcel is in hand.
+  clearPendingAwb('context changed');
 
   if (fromUI) togglePackShipmentList();
 
@@ -4073,6 +4082,15 @@ const PENDING_AWB_TTL_MS = 120000;
 let pendingAwb = null;
 let pendingAwbAt = 0;
 
+// Drop a held AWB, telling the operator it is gone. ⭐ SILENCE IS THE DEFECT HERE: a courier label
+// that vanishes without a word reads to the operator as "captured", and the parcel ships with no
+// AWB — under-capture that nothing on the floor can see. Every discard says so out loud.
+function clearPendingAwb(why) {
+  if (!pendingAwb) return;
+  pendingAwb = null; pendingAwbAt = 0;
+  showToast(`Courier label cleared (${why}) — scan it again for this parcel`, 'err');
+}
+
 // Drop a held AWB that is too old to trust. Returns the live value or null.
 function takePendingAwb() {
   if (!pendingAwb) return null;
@@ -4106,7 +4124,11 @@ async function doPackScan(barcode) {
     showToast(`AWB ${pendingAwb} — now scan the box label`, 'ok');
     playSuccessBeep(); vibrate(40);
     addLog({ barcode, status:'ok', tag:'AWB', label:'AWB HELD' });
-    lastBarcode = ''; lastScanTs = 0;
+    // ⛔ DO NOT BLANK lastBarcode HERE. PACK is a CAMERA station: clearing the debounce key makes
+    // the next decoded frame of the SAME label a fresh scan, so a courier label left in the ROI
+    // re-fires several times a second — success beep, vibrate and an AWB HELD log row each time,
+    // silently re-extending the TTL. The 2 s DEBOUNCE_MS suppression is what stops that, and the
+    // WRONG BARCODE path this branch replaced kept it. (S367 hostile review, finding 9.)
     return;
   }
   if (packMode === 'shipment' && !packShipment) {
@@ -4138,10 +4160,16 @@ async function doPackScan(barcode) {
       operator_id: operatorUUID || currentOperator?.id || null,
       awb:         takePendingAwb(),
     });
+    // Consumed either way — the request carried it, so holding it would re-send it against the
+    // next box label. ⚠️ On a FAILED pack that means a correctly-scanned courier label is gone
+    // and the retry would otherwise pack with awb:null and no one the wiser, so the failure
+    // branch below says so explicitly. (S367 hostile review, finding 3.)
+    const hadAwb = !!pendingAwb;
     pendingAwb = null; pendingAwbAt = 0;
     if (!packRes.ok) {
       flash('err'); vibrate([100,50,100]); playErrBeep();
       showReject('PACK FAILED', packRes.error || 'Unknown error');
+      if (hadAwb) showToast('The courier label was NOT saved — scan it again with the box label', 'err');
       addLog({ barcode, status:'err', tag:'PACK', label:'PACK ERR' });
       return;
     }
@@ -4204,9 +4232,12 @@ async function doPackScan(barcode) {
     operator_id:  operatorUUID || currentOperator?.id || null,
     awb:          takePendingAwb(),
   });
+  // See the direct-mode note above — consumed either way, and a failure must say so.
+  const hadAwbShip = !!pendingAwb;
   pendingAwb = null; pendingAwbAt = 0;
 
   if (!result.ok) {
+    if (hadAwbShip) showToast('The courier label was NOT saved — scan it again with the box label', 'err');
     // Revert the optimistic count bump — the worker rejected (e.g. BOX FULL / over-target).
     if (isBulk && packBox) {
       packBox.unit_count = Math.max(0, (packBox.unit_count || 1) - 1);
@@ -5666,9 +5697,12 @@ async function processBarcode(barcode, act) {
     // 2026-08-25). S308 added the AWB branch inside doPackScan() but never widened THIS
     // caller, which admitted batch labels only — so a scanned AWB was rejected here as
     // WRONG BARCODE and doPackScan() never ran. The whole AWB feature was unreachable dead
-    // code for 15 days: 0 of 6,963 boxes packed since launch carry one (measured 2026-09-09,
-    // denominator = all dispatch_boxes rows created in that window). Reported by Varnit as a
-    // web-order fault; it was never channel-specific, it was every pack at every station.
+    // code for 15 days: 0 of 7,257 boxes created 2026-08-22..2026-09-09 carried one
+    // (re-derived 2026-09-09; denominator = all dispatch_boxes rows in that calendar range —
+    // an earlier "6,963" here was a rolling 18-day window mis-described as this range).
+    // Reported by Varnit as a web-order fault; it was never channel-specific, it was every
+    // pack at every station. ✅ First capture ever landed 18:53 IST the same day, 46 min after
+    // this shipped — BOX-55210, AWB 39308710373730, by a real operator.
     // ⚠️ Keep the two tests in sync with doPackScan()/looksLikeAwb() — a code admitted here
     // and not recognised there would silently pack nothing.
     if (!isBatchLabel && !looksLikeAwb(barcode)) {
