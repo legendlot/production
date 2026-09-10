@@ -3056,10 +3056,25 @@ async function renderAttendanceDeviceStrip() {
     attKeyStale = false; applyAttKeyBlock(); return;
   }
 
-  attKeyStale = true;
+  // ⛔⛔ A WRONG KEY ONLY *REFUSES* WHEN THE SERVER WOULD REFUSE TOO (S371). This block used to
+  // be unconditional, and that made the two halves of the feature contradict each other: with
+  // `attendance_device_enforce` OFF — which it is, and has been — the worker happily accepts
+  // unsigned attendance from ANY phone, while this line hard-refused every clock-in on the one
+  // phone we actually trust. Measured 2026-09-10: ATT-GATE carried 465 of 485 clock-ins (96%),
+  // the queue starts at 08:03, and 52-78 people clock in before 09:00 — so a gate phone that
+  // has not been re-paired is a ~60-person morning stoppage bought for no security at all,
+  // because the same people can clock in from anywhere via the `ATTENDANCE` fallback.
+  // The strip still goes RED and still says exactly what is wrong; it just does not refuse
+  // until enforcement is on, at which point the server refuses anyway and the two agree.
+  // ⚠️ `v.enforced` absent (an older worker) is falsy => warn, not block. That is the correct
+  // direction: a wrong `true` stops the floor, a wrong `false` shows a warning on attendance
+  // the server is accepting regardless.
+  attKeyStale = !!(v && v.enforced === true);
   applyAttKeyBlock();
   el.innerHTML = `<span style="color:#DE2A2A">\u25cf</span> <span style="color:#DE2A2A">This phone's key is NOT the registered one.`
-    + ` Attendance recorded here is unverified. Ask admin for a fresh enrolment code.</span>`
+    + (attKeyStale
+        ? ` Attendance is BLOCKED here. Ask admin for a fresh enrolment code.</span>`
+        : ` Attendance still works, but it is UNVERIFIED. Ask admin for a fresh enrolment code.</span>`)
     + ` <span style="color:var(--text3)">(${cfg.attDeviceCode} \u00b7 ${v.reason || 'bad_signature'})</span>`
     + ` <button onclick="enrolAttendanceDevice()" style="margin-left:8px;background:none;border:1px solid #DE2A2A;color:#DE2A2A;border-radius:5px;padding:3px 8px;font-family:var(--mono);font-size:10px;cursor:pointer">Re-enrol</button>`;
 }
