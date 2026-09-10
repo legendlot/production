@@ -2762,18 +2762,80 @@ async function enrolAttendanceDevice() {
   }
 }
 
+// \u26a0\ufe0f TRUE only when the worker has explicitly said this phone's key is NOT the registered one.
+// Nothing else may set it \u2014 not a network error, not a missing response. See the probe below.
+let attKeyStale = false;
+
 // Small status strip on the attendance screen. Deliberately shows the UNenrolled state too,
 // so the person setting the gate phone up can see at a glance whether this is the one.
+//
+// \u26a0\ufe0f THREE states, not two, since 2026-09-10. "A code and a key exist" was the old green test
+// and it LIED: `devices` holds ONE pubkey per device row, so every re-enrolment (ATT-GATE has
+// had three) leaves the older phones signing with a key the server no longer knows. With
+// enforcement off the clock-in still succeeds, so a stale phone marked 110 unverified
+// attendances in one day showing a green strip the whole time. Only the server can tell the
+// difference, which is why the strip now asks it.
 async function renderAttendanceDeviceStrip() {
   const el = document.getElementById('att_deviceStrip');
   if (!el) return;
   let enrolled = false;
   try { enrolled = !!(cfg.attDeviceCode && await getDeviceKeyPair()); } catch (_) {}
-  el.innerHTML = enrolled
-    ? `<span style="color:var(--green)">\u25cf</span> Enrolled as <strong>${cfg.attDeviceCode}</strong>`
-      + ` <button onclick="enrolAttendanceDevice()" style="margin-left:8px;background:none;border:1px solid var(--border2);color:var(--text3);border-radius:5px;padding:3px 8px;font-family:var(--mono);font-size:10px;cursor:pointer">Re-enrol</button>`
-    : `<span style="color:var(--text3)">\u25cb Not enrolled \u2014 attendance is not locked to this phone</span>`
+
+  if (!enrolled) {
+    attKeyStale = false;
+    applyAttKeyBlock();
+    el.innerHTML = `<span style="color:var(--text3)">\u25cb Not enrolled \u2014 attendance is not locked to this phone</span>`
       + ` <button onclick="enrolAttendanceDevice()" style="margin-left:8px;background:none;border:1px solid var(--border2);color:var(--yellow);border-radius:5px;padding:3px 8px;font-family:var(--mono);font-size:10px;cursor:pointer">Enrol this phone</button>`;
+    return;
+  }
+
+  // Show the old green line immediately; the probe upgrades or downgrades it a moment later.
+  // \u26a0\ufe0f ONCE PER SCREEN OPEN, never per scan \u2014 a clock-in queue of 130 people at 08:30 may not
+  // pay a round trip each, and the verdict cannot change mid-queue anyway.
+  el.innerHTML = `<span style="color:var(--green)">\u25cf</span> Enrolled as <strong>${cfg.attDeviceCode}</strong>`
+    + ` <button onclick="enrolAttendanceDevice()" style="margin-left:8px;background:none;border:1px solid var(--border2);color:var(--text3);border-radius:5px;padding:3px 8px;font-family:var(--mono);font-size:10px;cursor:pointer">Re-enrol</button>`;
+
+  // \u26a0\ufe0f FAILS SAFE FOR THE OPERATOR: only an explicit `attested === false` blocks. No response,
+  // a thrown fetch, an older worker that does not know the action, or `attested === null`
+  // (the worker could not tell) all leave the screen exactly as it is today. Blocking the gate
+  // because the network hiccuped would stop the whole floor clocking in.
+  let v = null;
+  try {
+    const r = await signedWorkerPost('checkDeviceKey', { device_code: cfg.attDeviceCode });
+    v = (r && r.ok !== false) ? (r.data || null) : null;
+  } catch (_) { v = null; }
+  // ⚠️ ONE reason is explicitly NOT stale: `stale_timestamp` is a drifting phone clock (the
+  // worker's window is ±2 min), not a wrong key. Blocking the gate on it would take the floor
+  // down over an NTP problem, and re-enrolling would not fix it. Every other explicit false —
+  // unsigned, bad_signature, device_not_enrolled, unknown_or_inactive_device, verify_error —
+  // means the server does not accept what this phone signs, which is exactly the silent state.
+  if (!v || v.attested !== false || v.reason === 'stale_timestamp') {
+    attKeyStale = false; applyAttKeyBlock(); return;
+  }
+
+  attKeyStale = true;
+  applyAttKeyBlock();
+  el.innerHTML = `<span style="color:#DE2A2A">\u25cf</span> <span style="color:#DE2A2A">This phone's key is NOT the registered one.`
+    + ` Attendance recorded here is unverified. Ask admin for a fresh enrolment code.</span>`
+    + ` <span style="color:var(--text3)">(${cfg.attDeviceCode} \u00b7 ${v.reason || 'bad_signature'})</span>`
+    + ` <button onclick="enrolAttendanceDevice()" style="margin-left:8px;background:none;border:1px solid #DE2A2A;color:#DE2A2A;border-radius:5px;padding:3px 8px;font-family:var(--mono);font-size:10px;cursor:pointer">Re-enrol</button>`;
+}
+
+// The block itself. Disables the typed input and shows the reason inline; `submitAttendanceLookup`
+// is the other half, because the CAMERA is the primary surface here and a disabled input stops
+// nothing. Re-enrol lives in the strip and stays reachable \u2014 it is the only way out of this state.
+function applyAttKeyBlock() {
+  const input = document.getElementById('att_input');
+  if (input) {
+    input.disabled = attKeyStale;
+    input.style.opacity = attKeyStale ? '0.4' : '';
+    if (attKeyStale) input.value = '';
+    input.placeholder = attKeyStale
+      ? 'Attendance disabled \u2014 this phone needs re-enrolment'
+      : 'Employee number (e.g. 1012)';
+  }
+  const btn = document.getElementById('att_confirmBtn');
+  if (btn) { btn.disabled = attKeyStale; btn.style.opacity = attKeyStale ? '0.4' : ''; }
 }
 
 function launchAttendance() {
@@ -3207,6 +3269,13 @@ function resetAttendance() {
 
 async function submitAttendanceLookup() {
   if (attState !== 'idle') return;
+  // ⚠️ THE chokepoint — the camera path (handleAttendanceScan) and the typed path both land
+  // here, so disabling the input alone would stop nothing on a phone where the camera is the
+  // primary surface. Set ONLY by an explicit `attested === false` from checkDeviceKey; a
+  // network failure leaves it false and attendance works exactly as before.
+  if (attKeyStale) {
+    return showAttError("This phone's key is NOT the registered one — attendance here is unverified. Ask admin for a fresh enrolment code, then Re-enrol.");
+  }
   const input = document.getElementById('att_input');
   const employeeId = normalizeEmployeeId(input.value);
   if (!employeeId) return;
