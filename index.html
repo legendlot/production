@@ -3668,10 +3668,11 @@ async function submitAttendanceLookup() {
   if (attState !== 'idle') return;
   // ⚠️ THE chokepoint — the camera path (handleAttendanceScan) and the typed path both land
   // here, so disabling the input alone would stop nothing on a phone where the camera is the
-  // primary surface. Set ONLY by an explicit `attested === false` from checkDeviceKey; a
-  // network failure leaves it false and attendance works exactly as before.
+  // primary surface. Set by an explicit `attested === false` from checkDeviceKey AND
+  // `enforced === true` (S371), or by `noteAttendanceRefusal` when the server actually refuses.
+  // A network failure leaves it false and attendance works exactly as before.
   if (attKeyStale) {
-    return showAttError("This phone's key is NOT the registered one — attendance here is unverified. Ask admin for a fresh enrolment code, then Re-enrol.");
+    return showAttError("This phone's key is NOT the registered one — attendance is BLOCKED here. Ask admin for a fresh enrolment code, then Re-enrol.");
   }
   const input = document.getElementById('att_input');
   const employeeId = normalizeEmployeeId(input.value);
@@ -3679,6 +3680,7 @@ async function submitAttendanceLookup() {
   setAttState('loading');
   const r = await signedWorkerPost('getOperatorByCode', { employee_id: employeeId, device_id: cfg.attDeviceCode || cfg.deviceCode || 'ATTENDANCE' });
   if (!r || r.ok === false) {
+    noteAttendanceRefusal(r?.error);
     return showAttError(r?.error || 'Operator not found');
   }
   // Worker (post-fix) returns { ok: true, data: { id, name, department, status } }
@@ -3692,6 +3694,27 @@ async function submitAttendanceLookup() {
   setAttState('confirm');
   // 15-second auto-reset on confirm screen
   attResetTimer = setTimeout(() => resetAttendance(), 15000);
+}
+
+
+// ⛔⛔ THE PHONE MUST LEARN FROM THE SERVER'S REFUSAL, NOT ONLY FROM A PROBE AT BOOT (S371,
+// second hostile review, finding 1). `renderAttendanceDeviceStrip` runs ONCE per screen open and
+// nothing re-runs it — no `visibilitychange`, no interval, verified. The gate phone sits on the
+// attendance screen all day. So flipping `attendance_device_enforce` to 'on' at 07:55 would NOT
+// reach a phone that is already open: it keeps the cached `enforced:false`, shows a
+// "still works, unverified" strip with the input live, and every person in the queue gets a 403
+// one at a time with nothing on screen explaining why. The unconditional block this replaced at
+// least failed CLOSED and visibly — so gating it on `enforced` traded a wrong refusal for a
+// silent one unless the server's own answer can flip it back.
+// Any 403 naming the gate-device rule is exactly that answer, and it is authoritative.
+const ATT_ENFORCED_REFUSAL = /registered gate device/i;
+function noteAttendanceRefusal(err) {
+  if (!err || !ATT_ENFORCED_REFUSAL.test(String(err))) return false;
+  if (attKeyStale) return true;              // already blocking, nothing to change
+  attKeyStale = true;                        // enforcement is ON and this phone is not trusted
+  applyAttKeyBlock();
+  try { renderAttendanceDeviceStrip(); } catch (_) {}
+  return true;
 }
 
 async function confirmAttendance() {
@@ -3710,6 +3733,7 @@ async function confirmAttendance() {
   // not yet eligible to clock out) or no_open_window (outside any clock-in window).
   const r = await signedWorkerPost('recordAttendance', payload);
   if (!r || r.ok === false) {
+    noteAttendanceRefusal(r?.error);
     return showAttError(r?.error || 'Attendance failed');
   }
   const d = r.data || {};
