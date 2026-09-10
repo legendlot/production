@@ -874,7 +874,22 @@
          from /lot-scanner.apk. -->
     <div id="apkBanner" class="apk-banner" hidden>
       <span class="apk-banner-t">This is the browser, not the LOT Scanner app</span>
-      <span class="apk-banner-s">Scans from here work normally but carry no device ID. Ask your supervisor to install the app.</span>
+      <span class="apk-banner-s">Scans from here work normally but carry no device ID.</span>
+      <!-- ⭐ LINK RESTORED 2026-09-10 (Afshaan, during the staffed rollout: "add the link so that
+           people can download"). It was removed by the S345 hostile review for TWO reasons —
+           reason (1), the service worker caching the APK as the app shell and bricking the
+           scanner offline, is FIXED: sw.js now only caches a response whose content-type is
+           text/html, and the APK is served as application/vnd.android.package-archive.
+           ⛔ REASON (2) IS NOT FIXED AND IS WHY THE GUARD BELOW EXISTS: installing the app gives
+           the WebView a FRESH storage partition, so any UNSENT scans queued in this browser are
+           DESTROYED, and a scan is ground truth (RULE-DSP-001). So the button is HIDDEN while
+           anything is queued, and the phone says why instead. Do not remove that guard to
+           "simplify" this — the whole reason the link was pulled was an unguarded invitation. -->
+      <a id="apkDownload" href="./lot-scanner.apk"
+         style="display:none;margin-top:8px;padding:10px 14px;border-radius:8px;text-align:center;
+                background:var(--yellow,#F2CD1A);color:#111;font-weight:800;text-decoration:none;
+                font-family:var(--mono);font-size:13px">Download the LOT Scanner app</a>
+      <span id="apkQueueBlock" style="display:none;margin-top:8px;color:#DE2A2A;font-family:var(--mono);font-size:11px;line-height:1.5"></span>
     </div>
   </div>
 </div>
@@ -1501,6 +1516,33 @@ function hwHeaders() { return LOT_HW_ID ? { 'X-LOT-HW': LOT_HW_ID } : {}; }
   if (IN_APP) return;
   const el = document.getElementById('apkBanner');
   if (el) el.hidden = false;
+
+  // ⛔ THE DOWNLOAD BUTTON IS GATED ON AN EMPTY SEND QUEUE, and that is the whole point of it.
+  // Installing the app hands the WebView a FRESH storage partition: anything still sitting in
+  // `lot_queue` in THIS browser is gone, and a scan is the floor's record that a physical thing
+  // happened (RULE-DSP-001). So a phone that has been offline in a corner must drain first.
+  // ⚠️ Read localStorage directly, NOT `scanQueue` — this IIFE runs before boot populates it.
+  // ⚠️ Fail CLOSED here, deliberately, and note this is the opposite of every other guard
+  // shipped today: if the queue cannot be read we hide the button, because the cost of being
+  // wrong is destroyed scans, not a blocked scan.
+  const a = document.getElementById('apkDownload');
+  const warn = document.getElementById('apkQueueBlock');
+  if (!a || !warn) return;
+  let queued = null;
+  try {
+    const raw = JSON.parse(localStorage.getItem('lot_queue') || '[]');
+    queued = Array.isArray(raw) ? raw.length : null;
+  } catch (_) { queued = null; }
+
+  if (queued === 0) {
+    a.style.display = 'block';
+  } else {
+    warn.style.display = 'block';
+    warn.textContent = queued === null
+      ? 'Cannot check this phone’s unsent scans, so the app download is hidden. Show this phone to a supervisor.'
+      : queued + ' scan(s) on this phone have NOT been sent yet. Installing the app would DESTROY them. '
+        + 'Get this phone online and wait until it shows nothing queued, then reload this page.';
+  }
 })();
 
 
