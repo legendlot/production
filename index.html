@@ -1401,6 +1401,41 @@
   </div>
 </div>
 
+<!-- ══════════════════════════════════
+     DEVICE PAIRING SHEET (S369) — the ONLY enrolment surface.
+     ONE field. The device NAME is never typed: `public.device_enrolments` has always
+     stored `device_code` against the code at mint time, so the worker resolves it and
+     returns it. Asking for it was the second of two prompts that both said "code", one
+     of which was really a name — and a typo there bound the phone to the wrong device.
+══════════════════════════════════ -->
+<div class="modal-backdrop" id="devEnrolSheet">
+  <div style="width:100%;background:var(--surface);border-radius:20px 20px 0 0;border-top:1px solid var(--border2);padding:20px 18px 26px">
+    <div style="font-family:var(--head);font-size:14px;letter-spacing:.12em;color:var(--text)">PAIR THIS PHONE</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5">
+      Enter the 6-digit pairing code from Garage → Users → Scanner PINs → Attendance device.
+    </div>
+    <input id="devEnrolInput" type="text" inputmode="numeric" autocomplete="one-time-code"
+      maxlength="6" placeholder="000000"
+      oninput="this.value=this.value.replace(/\D/g,'')"
+      onkeydown="if(event.key==='Enter'){event.preventDefault();submitDeviceEnrolment()}"
+      style="width:100%;box-sizing:border-box;margin-top:14px;padding:18px 12px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:26px;font-weight:700;text-align:center;letter-spacing:.34em">
+    <div id="devEnrolMsg" style="display:none;font-family:var(--mono);font-size:12px;line-height:1.55;padding:11px 12px;border-radius:8px;margin-top:12px"></div>
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button id="devEnrolSubmit" onclick="submitDeviceEnrolment()"
+        style="flex:2;padding:16px;border-radius:8px;border:none;background:var(--yellow);color:#000;font-family:var(--head);font-size:13px;font-weight:700;letter-spacing:.15em;cursor:pointer">
+        PAIR PHONE
+      </button>
+      <button id="devEnrolClose" onclick="closeDeviceEnrolSheet()"
+        style="flex:1;padding:16px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:12px;cursor:pointer">
+        Cancel
+      </button>
+    </div>
+    <div style="font-size:10px;color:var(--text3);font-family:var(--mono);text-align:center;margin-top:10px">
+      A pairing code expires 15 minutes after it is created.
+    </div>
+  </div>
+</div>
+
 <!-- WKS overlay — system-inferred IN / OUT -->
 <div class="wks-overlay" id="wksOverlay">
   <div class="wks-overlay-header">
@@ -2722,43 +2757,112 @@ function afterLaunch() {
   startSession();
   bootScanner();
 }
-// ── Attendance device enrolment (S324) ────────────────────────────────────────
-// Two prompts, run once, standing at the gate phone. The FIRST is what ties a name to this
-// physical handset; the SECOND makes that binding permanent, because only this phone can
-// sign afterwards. Nothing here can be done remotely: the one-time code is minted by a super
-// admin in Garage, lasts 15 minutes and is spent once.
-async function enrolAttendanceDevice() {
+// ── Attendance device enrolment (S324; one-field guided flow S369) ────────────
+// ONE code, typed once into an in-page sheet, standing at the gate phone. It used to be two
+// prompt() dialogs that BOTH said "code" — the first was really the device NAME. The name is
+// no longer asked for at all: `public.device_enrolments` stores `device_code` against the code
+// at mint time, so the worker resolves it and returns it, and `cfg.attDeviceCode` is set from
+// THAT response — never from anything typed here. The code is minted by a super admin in
+// Garage, lasts 15 minutes and is spent once; nothing here can be done remotely.
+//
+// ⚠️ No alert()/prompt() on any path. This is used one-handed at a factory gate: a native
+// dialog steals the field and the focus, and it is what made this feel like a debug tool.
+function enrolAttendanceDevice() {
+  const sheet = document.getElementById('devEnrolSheet');
+  if (!sheet) return;
+  const input = document.getElementById('devEnrolInput');
+  if (input) { input.value = ''; input.disabled = false; }
+  setDeviceEnrolState('idle');
+  sheet.classList.add('show');
+  // The secure-context precondition is fatal but it is not the operator's mistake — it lands
+  // in the SAME in-page failure state as a bad code rather than in an alert().
   if (!window.isSecureContext || !crypto.subtle) {
-    alert('This phone cannot store a secure key (the page must be served over HTTPS).');
+    setDeviceEnrolState('fail', 'This phone cannot store a secure key — the page must be served over HTTPS. Open the scanner link itself, not a copied file.');
+    if (input) input.disabled = true;
     return;
   }
-  const devCode = (prompt('Device code for THIS phone\n\nAsk the admin which code was created for the gate phone, e.g. ATT-GATE.') || '').trim();
-  if (!devCode) return;
-  const code = (prompt('Enrolment code\n\nThe 6-digit code from Garage \u2192 Users \u2192 Scanner PINs \u2192 Attendance device.\nIt expires 15 minutes after it was created.') || '').trim();
-  if (!code) return;
+  if (input) setTimeout(() => { try { input.focus(); } catch (_) {} }, 60);
+}
 
+function closeDeviceEnrolSheet() {
+  const sheet = document.getElementById('devEnrolSheet');
+  if (sheet) sheet.classList.remove('show');
+}
+
+// The four guided states: idle → submitting → success → fail. Failure leaves the field live
+// AND focused, because the common failure is a mistyped or expired code and the fix is to
+// retype it right here.
+function setDeviceEnrolState(state, msg) {
+  const box      = document.getElementById('devEnrolMsg');
+  const btn      = document.getElementById('devEnrolSubmit');
+  const input    = document.getElementById('devEnrolInput');
+  const closeBtn = document.getElementById('devEnrolClose');
+  if (!box || !btn) return;
+  const TONE = { submitting: 'var(--text2)', success: 'var(--green)', fail: 'var(--red)' };
+  if (state === 'idle') {
+    box.style.display = 'none'; box.innerHTML = '';
+  } else {
+    const fg = TONE[state] || 'var(--text2)';
+    box.style.display = 'block';
+    box.style.color = fg;
+    box.style.border = '1px solid ' + (state === 'submitting' ? 'var(--border2)' : fg);
+    box.style.background = 'var(--bg3)';
+    box.innerHTML = msg || '';
+  }
+  const locked = (state === 'submitting' || state === 'success');
+  btn.disabled = locked;
+  btn.style.opacity = locked ? '0.4' : '';
+  btn.textContent = state === 'submitting' ? 'PAIRING…' : (state === 'success' ? 'PAIRED' : 'PAIR PHONE');
+  if (closeBtn) closeBtn.textContent = (state === 'success') ? 'Done' : 'Cancel';
+  if (input) {
+    input.disabled = locked;
+    input.style.opacity = locked ? '0.4' : '';
+    if (state === 'fail') { try { input.focus(); input.select(); } catch (_) {} }
+  }
+}
+
+async function submitDeviceEnrolment() {
+  const input = document.getElementById('devEnrolInput');
+  const code  = ((input && input.value) || '').replace(/\D/g, '');
+  if (!window.isSecureContext || !crypto.subtle) {
+    setDeviceEnrolState('fail', 'This phone cannot store a secure key — the page must be served over HTTPS.');
+    return;
+  }
+  if (code.length !== 6) {
+    setDeviceEnrolState('fail', 'Enter the 6-digit pairing code from Garage. Codes expire 15 minutes after they are created.');
+    return;
+  }
+  setDeviceEnrolState('submitting', '⏳ Pairing this phone…');
   try {
     // Generated in memory only — NOT yet written to IndexedDB. If the server refuses the
     // code below, this key is simply discarded and the phone keeps the enrolment it already
     // had. Persisting first is what used to break a working gate phone on a mistyped code.
     const pair   = await generateDeviceKeyPair();
     const pubB64 = await exportPublicKeyB64(pair);
+    // ⚠️ Only the code and the key go up. `device_code` is deliberately NOT sent: the worker
+    // reads it off the enrolment row, so this phone cannot claim to be a device it is not.
     const r = await workerPost('completeDeviceEnrolment', {
-      device_code: devCode, enrolment_code: code, public_key: pubB64 });
+      enrolment_code: code, public_key: pubB64 });
     if (!r || r.ok === false) {
-      alert('Enrolment failed\n\n' + ((r && r.error) || 'Unknown error') +
-            '\n\nAsk the admin for a fresh code and try again.' +
-            '\n\nThis phone\'s existing enrolment has NOT been changed.');
+      // The server's message is deliberately generic for an unknown code — show it as-is and
+      // add the one thing the operator can act on.
+      setDeviceEnrolState('fail', escBoxHtml((r && r.error) || 'Pairing failed — unknown error')
+        + '<br><span style="color:var(--text3)">Codes expire 15 minutes after they are created — ask your supervisor for a fresh one. This phone’s existing pairing has NOT been changed.</span>');
       return;
     }
     // Server accepted this key. Only now does it replace whatever was stored.
     await persistDeviceKeyPair(pair);
-    cfg.attDeviceCode = devCode;
+    const d       = (r && r.data) ? r.data : r;
+    const devCode = d.device_code || cfg.attDeviceCode;
+    const label   = d.label || '';
+    cfg.attDeviceCode = devCode;                       // from the RESPONSE, never from input
     localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+    setDeviceEnrolState('success', '✓ This phone is now paired as <strong>'
+      + escBoxHtml(label ? label + ' (' + devCode + ')' : devCode) + '</strong>'
+      + '<br><span style="color:var(--text3)">Attendance marked here is signed by a key that cannot be copied to another phone.</span>');
     renderAttendanceDeviceStrip();
-    alert('This phone is now enrolled as ' + devCode + '.\n\nAttendance marked here is signed by a key that cannot be copied to another phone.');
   } catch (e) {
-    alert('Enrolment failed on this phone: ' + (e && e.message ? e.message : e));
+    setDeviceEnrolState('fail', escBoxHtml('Pairing failed on this phone: ' + (e && e.message ? e.message : e)));
   }
 }
 
