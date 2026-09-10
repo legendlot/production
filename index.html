@@ -2913,7 +2913,20 @@ async function renderAttendanceDeviceStrip() {
   // down over an NTP problem, and re-enrolling would not fix it. Every other explicit false —
   // unsigned, bad_signature, device_not_enrolled, unknown_or_inactive_device, verify_error —
   // means the server does not accept what this phone signs, which is exactly the silent state.
-  if (!v || v.attested !== false || v.reason === 'stale_timestamp') {
+  // ⛔ ONLY A PROVEN-WRONG KEY MAY BLOCK. Everything else leaves the screen working.
+  // `stale_timestamp` = clock drift, not a wrong key.
+  // ⛔ `unsigned` / `missing_sig_headers` / `verify_error` ARE NOT EVIDENCE OF A BAD KEY, and
+  // treating them as such was a floor-stopper shipped and caught the same evening (S369 hostile
+  // review). The path: `signedWorkerPost` catches ANY throw on the SIGNED fetch — a dropped
+  // connection at the gate is enough — and deliberately retries UNSIGNED so signing can never
+  // cost a clock-in. That retry succeeds, the worker truthfully answers `attested:false,
+  // reason:'unsigned'`, and this test then latched the RED block and disabled the attendance
+  // input. The probe only re-runs on screen open, so one flaky request took attendance out for
+  // the rest of the session — at 08:00, with a queue, on the busiest network moment of the day.
+  // The exact opposite of what this block exists to do.
+  const KEY_IS_PROVEN_WRONG = v && v.attested === false &&
+    !['stale_timestamp', 'unsigned', 'missing_sig_headers', 'verify_error'].includes(v.reason);
+  if (!KEY_IS_PROVEN_WRONG) {
     attKeyStale = false; applyAttKeyBlock(); return;
   }
 
