@@ -1427,10 +1427,10 @@
   <div style="width:100%;background:var(--surface);border-radius:20px 20px 0 0;border-top:1px solid var(--border2);padding:20px 18px 26px">
     <div style="font-family:var(--head);font-size:14px;letter-spacing:.12em;color:var(--text)">PAIR THIS PHONE</div>
     <div style="font-family:var(--mono);font-size:11px;color:var(--text3);margin-top:6px;line-height:1.5">
-      Enter the 6-digit pairing code from Garage → Users → Scanner PINs → Attendance device.
+      Enter the 8-digit pairing code from Garage → Devices → “Re-pair this phone”.
     </div>
     <input id="devEnrolInput" type="text" inputmode="numeric" autocomplete="one-time-code"
-      maxlength="6" placeholder="000000"
+      maxlength="8" placeholder="00000000"
       oninput="this.value=this.value.replace(/\D/g,'')"
       onkeydown="if(event.key==='Enter'){event.preventDefault();submitDeviceEnrolment()}"
       style="width:100%;box-sizing:border-box;margin-top:14px;padding:18px 12px;border-radius:8px;border:1px solid var(--border2);background:var(--bg3);color:var(--text);font-family:var(--mono);font-size:26px;font-weight:700;text-align:center;letter-spacing:.34em">
@@ -1852,6 +1852,11 @@ window.addEventListener('load', async () => {
   // the Department Select screen.
   routeBootGuided();
 
+  // S369d — station lock. STRICTLY AFTER routeBootGuided(), never awaited and never before:
+  // the scanner must open at the same speed with no network, so this is fire-and-forget and
+  // returns silently on any failure. See reconcileLockedStation().
+  reconcileLockedStation().catch(() => {});
+
   // CC_TASK_DISPATCH_OPERATOR_GATE — wire up gate buttons / manual fallback.
   const dopStartBtn = document.getElementById('dopStartBtn');
   if (dopStartBtn) {
@@ -1894,6 +1899,18 @@ window.addEventListener('load', async () => {
   }
 });
 
+// ⛔⛔ DEAD CODE SINCE 2026-06-06 — DO NOT WIRE NEW BEHAVIOUR TO THIS FUNCTION. ⛔⛔
+// It has NO CALL SITE. The live boot router is `routeBootGuided()` below, which is the only
+// thing the `load` listener calls (S106's guided department flow replaced this path).
+// Evidence, measured 2026-09-10 (S369 hostile review): `SELECT max(setup_at) FROM
+// public.devices` = 2026-06-06, 0 setups in 30 days, 0 rows with a live `setup_expires_at`.
+// The ritual the floor ACTUALLY performs is the 6-digit department PIN, whose expiry is
+// `cfg.deptUnlockExpiry`, computed CLIENT-SIDE in verifyDeptPin and never asked of a server.
+// ⚠️ THIS COST A DAY: `devices.station_locked` was built on top of `getDeviceStatus`, which
+// only this function calls, so the Garage Lock toggle reported success and bound nothing.
+// The live station lock is `reconcileLockedStation()`. Kept, not deleted, until someone
+// decides whether the daily supervisor setup is being revived or retired — backlog/lotops.md.
+//
 // FEAT-022 — decide whether to show operator or supervisor sign-in on boot.
 // Calls getDeviceStatus when we have a deviceCode in cfg; otherwise demands
 // supervisor setup.
@@ -2729,13 +2746,41 @@ function showSetup() {
   renderSetupLines();
   stopAllCameras();
   showOnly('setupScreen');
+  // S369d — re-ask, because the lock may have been set in Garage since boot. Fire-and-forget
+  // and fail-open like every other call to it: with no network the pickers simply stay live.
+  reconcileLockedStation().then(applySetupLock).catch(() => {});
+}
+
+// S369d — a locked handset cannot be re-pointed from the phone. Only the STATION and LINE
+// pickers are disabled; camera, torch and volume stay live, because none of those decides
+// what the phone scans as.
+// ⚠️ Applies only to a `hardware` resolution (see reconcileLockedStation) — a browser is
+// never greyed out, because a browser can never be locked.
+function applySetupLock() {
+  const locked = (lockedAssignment && lockedAssignment.station_locked) ? lockedAssignment : null;
+  for (const id of ['s_stationDynamic', 's_lineRowDyn']) {
+    const wrap = document.getElementById(id);
+    if (!wrap) continue;
+    wrap.style.pointerEvents = locked ? 'none' : '';
+    wrap.style.opacity       = locked ? '0.45' : '';
+  }
+  const el = document.getElementById('setupStatus');
+  if (!el) return;
+  if (locked) {
+    const label = STATION_DEFS[locked.station]?.label || locked.station;
+    const line  = (locked.line && locked.line !== 'SHARED') ? ' / ' + locked.line : '';
+    el.textContent = `Locked to ${label}${line} by admin — ask a super admin to change it.`;
+    el.style.color = 'var(--text2)';
+  } else if (el.textContent.startsWith('Locked to ')) {
+    el.textContent = '';   // clear ONLY our own message — launchGuided uses this element too
+  }
 }
 function renderSetupStations() {
   const wrap = document.getElementById('s_stationDynamic');
   const single = navCat.stations.length === 1;
   document.getElementById('s_stationSection').style.display = single ? 'none' : '';
   wrap.innerHTML = '';
-  if (single) { navStation = navCat.stations[0]; renderSetupLines(); return; }
+  if (single) { navStation = navCat.stations[0]; renderSetupLines(); applySetupLock(); return; }
   navCat.stations.forEach(code => {
     const b = document.createElement('div');
     b.className = 'seg-btn nav-station-btn' + (navStation === code ? ' on' : '');
@@ -2749,6 +2794,7 @@ function renderSetupStations() {
     };
     wrap.appendChild(b);
   });
+  applySetupLock();
 }
 function renderSetupLines() {
   const field = document.getElementById('s_lineFieldDyn');
@@ -2768,10 +2814,19 @@ function renderSetupLines() {
     b.onclick = () => { row.querySelectorAll('.seg-btn').forEach(x => x.classList.remove('on')); b.classList.add('on'); navLine = L; };
     row.appendChild(b);
   });
+  applySetupLock();
 }
 
 // ── Launch: resolve device, build cfg, gate operator (Store/Dispatch), boot ──
 async function launchGuided() {
+  // S369d — a locked handset launches at the station it is locked to, whatever the picker
+  // says. Belt and braces with applySetupLock(): the pickers are already disabled, but the
+  // selection may have been made BEFORE the lock answer arrived, and the button that decides
+  // where the phone scans must not be the one place the lock is advisory.
+  if (lockedAssignment && lockedAssignment.station_locked && lockedAssignment.station) {
+    navStation = lockedAssignment.station;
+    navLine    = lockedAssignment.line || 'SHARED';
+  }
   if (!navStation) { showToast('Select a station', 'err'); return; }
   const type = STATION_LINE_TYPE[navStation] || 'none';
   if (type !== 'none' && !navLine) { showToast('Select a line', 'err'); return; }
@@ -2896,8 +2951,11 @@ async function submitDeviceEnrolment() {
     setDeviceEnrolState('fail', 'This phone cannot store a secure key — the page must be served over HTTPS.');
     return;
   }
-  if (code.length !== 6) {
-    setDeviceEnrolState('fail', 'Enter the 6-digit pairing code from Garage. Codes expire 15 minutes after they are created.');
+  // ⚠️ 6..8, not 8 exactly. Codes were widened 6→8 on 2026-09-10 (S371) because the code is
+  // the whole credential on an unauthenticated endpoint; the range keeps any 6-digit code that
+  // was already in someone's hand working. Narrow it only after checking for live short codes.
+  if (code.length < 6 || code.length > 8) {
+    setDeviceEnrolState('fail', 'Enter the 8-digit pairing code from Garage. Codes expire 15 minutes after they are created.');
     return;
   }
   setDeviceEnrolState('submitting', '⏳ Pairing this phone…');
@@ -3090,6 +3148,101 @@ function routeBootGuided() {
   showDeptSelect();
 }
 
+// ══════════════════════════════════════════════════════
+// STATION LOCK (S369d, 2026-09-10) — the phone half
+// ══════════════════════════════════════════════════════
+// `public.devices.station_locked` shipped on 2026-09-10 and DID NOT BIND: it exempted a
+// handset from the daily supervisor setup, and that ritual has not run since 2026-06-06
+// (0 setups in 30 days, 0 live setup_expires_at). Its only reader here is
+// `routeBootScreen()`, which is dead code. So Garage's Lock toggle changed nothing.
+//
+// ⛔ WHY THIS IS KEYED ON THE HANDSET AND NOT ON cfg.deviceCode: the phone's identity IS the
+// station it picked. `launchGuided()` looks `public.devices` up BY the station+line the
+// operator chose and stores the resulting `device_code` in localStorage — so a lock checked
+// against `cfg.deviceCode` cannot stop anyone re-picking a different station, because that
+// simply resolves to a different device row. Only `X-LOT-HW` (ANDROID_ID, APK only) is
+// stable across the operator changing their mind.
+// ⚠️ A BROWSER CANNOT BE LOCKED. It sends no X-LOT-HW, so the server can only ever answer
+// `resolved_by:'device_code'` and this function does nothing. Known and accepted — the same
+// limit the hardware block already carries. The Garage copy says so.
+//
+// ⚠️ FAILS OPEN AT EVERY UNKNOWN, and that is non-negotiable: offline boot must keep working.
+// No network, a timeout, a non-ok body, a throw, an ambiguous handset → return and change
+// NOTHING. The phone must boot and scan with no network, exactly as it does today.
+
+const LOCK_RECONCILE_TIMEOUT_MS = 4000;
+
+// The last hardware-resolved assignment, or null. Read by the setup screen to disable the
+// pickers; populated only by a `hardware` resolution, never by a client-asserted code.
+let lockedAssignment = null;
+
+// Which department owns a station. Several stations sit in more than one department
+// (LOOKUP, QC_PASS), so the CURRENT department wins when it still contains the station —
+// moving a phone must not also move it out of the department its operator is signed into.
+function departmentForStation(code, prefer) {
+  if (prefer && DEPARTMENTS[prefer] &&
+      DEPARTMENTS[prefer].categories.some(c => c.stations.includes(code))) return prefer;
+  for (const [key, dept] of Object.entries(DEPARTMENTS)) {
+    if (dept.categories.some(c => c.stations.includes(code))) return key;
+  }
+  return prefer || null;
+}
+
+async function reconcileLockedStation() {
+  // Nothing to ask about: no handset id and no code the server could resolve.
+  if (!LOT_HW_ID && !cfg.deviceCode) return;
+  if (!navigator.onLine) return;
+
+  let res;
+  try {
+    res = await Promise.race([
+      workerPost('getDeviceAssignment', { device_code: cfg.deviceCode || null }),
+      new Promise(resolve => setTimeout(() => resolve(null), LOCK_RECONCILE_TIMEOUT_MS)),
+    ]);
+  } catch (_) { return; }
+  if (!res || !res.ok || !res.data) return;
+
+  const a = res.data;
+  // ⚠️ `resolved_by` IS THE GATE. A `device_code` resolution is the phone telling us what it
+  // told itself — advisory only, and it may never overwrite what the phone has locally.
+  if (a.resolved_by !== 'hardware') return;
+
+  // A hardware answer is authoritative in BOTH directions — an unlock must clear the
+  // picker greyout as reliably as a lock applies it.
+  lockedAssignment = (a.station_locked && a.station) ? a : null;
+  if (!lockedAssignment) return;
+
+  if (a.station === cfg.stationCode && (a.line || null) === (cfg.line || null)) return;
+
+  cfg.stationCode  = a.station;
+  cfg.line         = a.line || 'SHARED';
+  cfg.deviceCode   = a.device_code || cfg.deviceCode;
+  cfg.stationLabel = STATION_DEFS[a.station]?.label || a.station;
+  cfg.activity     = STATION_DEFS[a.station]?.activity || a.station;
+  cfg.department   = departmentForStation(a.station, cfg.department);
+  cfg.shift        = deriveShift(a.station);
+  // `deviceId` is the devices-row UUID (startSession writes it). getDeviceAssignment does not
+  // return it — it is looked up by device_code there anyway — so clear it rather than leave
+  // the PREVIOUS station's UUID attached to the new station.
+  cfg.deviceId     = null;
+  localStorage.setItem('lot_cfg', JSON.stringify(cfg));
+  currentShift     = cfg.shift;
+
+  showToast('Moved to ' + cfg.stationLabel + ' — an admin locked this phone to it', 'err');
+
+  // Re-open the scanner on the new station so its station-specific UI is rebuilt. Only when
+  // the scanner is already the live screen: on any picker screen cfg is read fresh anyway,
+  // and yanking an operator out of a menu would be worse than letting them arrive there.
+  const sc = document.getElementById('scannerScreen');
+  if (sc && sc.classList.contains('active')) bootScanner();
+}
+
+// ⛔⛔ DEAD CODE — DO NOT WIRE NEW BEHAVIOUR TO THIS FUNCTION. ⛔⛔
+// NO CALL SITE (verified 2026-09-10, S369d: grep `saveSetup` → this definition and its own
+// console.warn, nothing else). It also queries `#s_stationGroup` / `#s_lineField`, elements
+// that NO LONGER EXIST IN THE MARKUP — the live station picker is the guided one
+// (`showSetup` → `renderSetupStations`/`renderSetupLines` → `launchGuided`, S106).
+// It is the only caller of the worker's `supervisorSetupDevice`, which is therefore dead too.
 async function saveSetup() {
   const stationEl = document.querySelector('#s_stationGroup .seg-btn.on, #s_dispatchStationGroup .seg-btn.on, #s_legacyStationGroup .seg-btn.on, #s_utilityStationGroup .seg-btn.on, #s_extStationGroup .seg-btn.on, #s_storeStationGroup .seg-btn.on');
   if (!stationEl) { showToast('Select a station', 'err'); return; }
