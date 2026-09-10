@@ -3207,6 +3207,18 @@ async function reconcileLockedStation() {
   // told itself — advisory only, and it may never overwrite what the phone has locally.
   if (a.resolved_by !== 'hardware') return;
 
+  // ⛔ A STATION THIS BUILD CANNOT RENDER IS IGNORED OUTRIGHT (S371 hostile review, finding 10).
+  // `setDeviceStation` validates only that the station string is non-empty — there is no
+  // stations table and no CHECK — and `public.devices` really does carry active rows whose
+  // station has no entry here (RTD, RTO_IN, measured 2026-09-10). Honouring one would grey out
+  // the pickers, force `launchGuided` to a station with no screen, and survive a logout
+  // (`lockedAssignment` is module state), with NOTHING on the phone able to undo it. Fail open.
+  if (a.station && !STATION_DEFS[a.station]) {
+    lockedAssignment = null;
+    console.warn('[lock] ignoring a lock on unknown station', a.station);
+    return;
+  }
+
   // A hardware answer is authoritative in BOTH directions — an unlock must clear the
   // picker greyout as reliably as a lock applies it.
   lockedAssignment = (a.station_locked && a.station) ? a : null;
@@ -3214,21 +3226,53 @@ async function reconcileLockedStation() {
 
   if (a.station === cfg.stationCode && (a.line || null) === (cfg.line || null)) return;
 
-  cfg.stationCode  = a.station;
-  cfg.line         = a.line || 'SHARED';
-  cfg.deviceCode   = a.device_code || cfg.deviceCode;
-  cfg.stationLabel = STATION_DEFS[a.station]?.label || a.station;
-  cfg.activity     = STATION_DEFS[a.station]?.activity || a.station;
-  cfg.department   = departmentForStation(a.station, cfg.department);
-  cfg.shift        = deriveShift(a.station);
-  // `deviceId` is the devices-row UUID (startSession writes it). getDeviceAssignment does not
-  // return it — it is looked up by device_code there anyway — so clear it rather than leave
-  // the PREVIOUS station's UUID attached to the new station.
-  cfg.deviceId     = null;
+  // ⛔ RESOLVE EVERYTHING THAT CAN FAIL *BEFORE* TOUCHING cfg (findings 4 + 9).
+  // The first version assigned six cfg fields one at a time and only the fetch was inside the
+  // try, so a throw part-way left cfg half-moved, unpersisted, with `currentShift` stale — and
+  // the `.catch(()=>{})` at both call sites swallowed it.
+  const dept = departmentForStation(a.station, cfg.department);
+  if (!dept) return;                       // nowhere to put it — change nothing
+
+  // ⛔ `deviceId` IS THE devices-ROW UUID AND IT IS WHAT EVERY SCAN IS ATTRIBUTED BY
+  // (`device_id: cfg.deviceId || null` at five call sites). `launchGuided` sets it; nothing
+  // else does. The first version NULLED it here, which would have posted `device_id: null` on
+  // every scan for the rest of the session — losing the very attribution the lock exists to
+  // protect, and worse than the stale UUID it was trying to avoid. Look it up, and if it
+  // cannot be resolved, change NOTHING.
+  const newCode = a.device_code || cfg.deviceCode;
+  let deviceId = null;
+  try {
+    const devs = await sbGet('devices', `device_code=eq.${encodeURIComponent(newCode)}`);
+    if (devs && devs.length) deviceId = devs[0].id;
+  } catch (_) { return; }
+  if (!deviceId) return;
+
+  // Build the whole next cfg, then commit it in one assignment + one write.
+  const next = Object.assign({}, cfg, {
+    stationCode:  a.station,
+    line:         a.line || 'SHARED',
+    deviceCode:   newCode,
+    deviceId,
+    stationLabel: STATION_DEFS[a.station]?.label || a.station,
+    activity:     STATION_DEFS[a.station]?.activity || a.station,
+    department:   dept,
+    shift:        deriveShift(a.station),
+  });
+
+  // ⚠️ A CROSS-DEPARTMENT MOVE MUST NOT INHERIT THE PIN UNLOCK (finding 8). The department PIN
+  // is the door into a department; carrying `unlockedDept` across would let the operator scan
+  // in one they never entered a PIN for. Clear it and send them to Department Select — the
+  // honest outcome, and the same door everyone else uses.
+  const crossDept = dept !== cfg.department;
+  if (crossDept) { next.unlockedDept = null; next.deptUnlockExpiry = null; }
+
+  cfg = next;
   localStorage.setItem('lot_cfg', JSON.stringify(cfg));
-  currentShift     = cfg.shift;
+  currentShift = cfg.shift;
 
   showToast('Moved to ' + cfg.stationLabel + ' — an admin locked this phone to it', 'err');
+
+  if (crossDept) { showDeptSelect(); return; }
 
   // Re-open the scanner on the new station so its station-specific UI is rebuilt. Only when
   // the scanner is already the live screen: on any picker screen cfg is read fresh anyway,
