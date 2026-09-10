@@ -1534,15 +1534,41 @@ function hwHeaders() { return LOT_HW_ID ? { 'X-LOT-HW': LOT_HW_ID } : {}; }
     queued = Array.isArray(raw) ? raw.length : null;
   } catch (_) { queued = null; }
 
+  function queueDepth() {
+    try {
+      const raw = JSON.parse(localStorage.getItem('lot_queue') || '[]');
+      return Array.isArray(raw) ? raw.length : null;
+    } catch (_) { return null; }
+  }
+  function blockMsg(n) {
+    return n === null
+      ? 'Cannot check this phone’s unsent scans, so the app download is hidden. Show this phone to a supervisor.'
+      : n + ' scan(s) on this phone have NOT been sent yet. Installing the app would DESTROY them. '
+        + 'Get this phone online and wait until it shows nothing queued, then reload this page.';
+  }
+
+  queued = queueDepth();
   if (queued === 0) {
     a.style.display = 'block';
   } else {
     warn.style.display = 'block';
-    warn.textContent = queued === null
-      ? 'Cannot check this phone’s unsent scans, so the app download is hidden. Show this phone to a supervisor.'
-      : queued + ' scan(s) on this phone have NOT been sent yet. Installing the app would DESTROY them. '
-        + 'Get this phone online and wait until it shows nothing queued, then reload this page.';
+    warn.textContent = blockMsg(queued);
   }
+
+  // ⛔ RE-CHECK ON CLICK, NOT ONLY ON LOAD. The load-time check alone was a hole, found by this
+  // session's own review of its own change: this banner sits on the FIRST screen and a station
+  // phone leaves that page open for hours. Empty queue at load → button shown → phone goes
+  // offline → operator scans → queue fills → someone taps the button → those scans are DESTROYED,
+  // which is the exact loss the guard exists to prevent. The window was hours wide, not seconds.
+  // ⚠️ Still fails CLOSED: an unreadable queue refuses the download.
+  a.addEventListener('click', function (ev) {
+    const n = queueDepth();
+    if (n === 0) return;                 // still clean — let the download proceed
+    ev.preventDefault();
+    a.style.display = 'none';
+    warn.style.display = 'block';
+    warn.textContent = blockMsg(n);
+  });
 })();
 
 
