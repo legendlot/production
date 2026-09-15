@@ -4889,7 +4889,7 @@ function setRepackHint(text) {
 async function doRepackReleaseScan(barcode) {
   if (!repackRun) { showReject('NO RUN SELECTED', 'Select a repack run above first'); playErrBeep(); vibrate([100,50,100]); return; }
   if (!isOnline)  { showReject('OFFLINE', 'Repack release requires a live connection'); playErrBeep(); vibrate([100,50,100]); return; }
-  if (!/^LOT-\d+(-[ER])?$/i.test(barcode)) {
+  if (!/^LOT-\d+(-[ERX])?$/i.test(barcode)) {
     showReject('WRONG BARCODE', 'Scan the unit box label (LOT-XXXXXXXX-E/R)');
     playErrBeep(); vibrate([100,50,100]);
     addLog({ barcode, status:'err', tag:'REPACK_RELEASE', label:'WRONG FORMAT' });
@@ -4920,7 +4920,7 @@ async function doRepackInScan(barcode) {
   // Old-box label format depends on the box's fulfillment model: bulk boxes
   // carry a BOX-XXXXX label; unit boxes (~99% of dispatch) carry the car's
   // PKG batch label (LOT-XXXXXXXX-E/R). Accept both (same as Dispatch Out).
-  if (!/^BOX-\d+$/i.test(barcode) && !/^LOT-\d+(-[ER])?$/i.test(barcode)) {
+  if (!/^BOX-\d+$/i.test(barcode) && !/^LOT-\d+(-[ERX])?$/i.test(barcode)) {
     showReject('WRONG BARCODE', 'Scan the OLD box label (BOX-XXXXX or LOT-XXXXXXXX)');
     playErrBeep(); vibrate([100,50,100]);
     addLog({ barcode, status:'err', tag:'REPACK_IN', label:'WRONG FORMAT' });
@@ -6197,7 +6197,7 @@ function onScan(raw) {
 
 async function processBarcode(barcode, act) {
   const isLotUpc     = /^LOT-\d+$/.test(barcode);
-  const isBatchLabel = /^LOT-\d+-[ER]$/.test(barcode);
+  const isBatchLabel = /^LOT-\d+-[ERX]$/i.test(barcode);
   const isEan        = /^\d{13}$/.test(barcode);
 
   // ── PACK — dispatch packing station ──
@@ -6216,7 +6216,7 @@ async function processBarcode(barcode, act) {
     // ⚠️ Keep the two tests in sync with doPackScan()/looksLikeAwb() — a code admitted here
     // and not recognised there would silently pack nothing.
     if (!isBatchLabel && !looksLikeAwb(barcode)) {
-      showReject('WRONG BARCODE', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R) or the courier label');
+      showReject('WRONG BARCODE', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R/X) or the courier label');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'PACK', label:'WRONG FORMAT' });
       return;
