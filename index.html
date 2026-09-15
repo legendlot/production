@@ -4592,12 +4592,32 @@ function takePendingAwb() {
   return pendingAwb;
 }
 
-// A LOT batch label is `LOT-<digits>-E|R`; a courier AWB is bare digits (Delhivery is 14).
+// A LOT batch label is `LOT-<digits>-E|R`; a courier AWB is one of the SHAPES below.
 // Distinct enough to route on, so the operator just scans BOTH — no extra input box, no
 // focus juggling on a live floor scanner, and either order works.
+// ⛔ WIDENED PER SHAPE on 2026-09-15 (S383, decisions §S383b) — NEVER to "any alphanumeric":
+// that would swallow the batch label (checked first in processBarcode, so packing would break
+// outright) and product EANs (13 digits, guarded server-side only for the digit shape).
+// Every shape was measured off public.ecom_shipments (90 days to 2026-09-15):
+//   bare digits 10–18     Delhivery 14 · Xpressbees 11–15 · Bluedart 11 · Shiprocket 11–15
+//   SF<digits><letters>   Shadowfax SF3773469581CRD (15) … SF3249594296661CRD (18); SF…KAC via Shiprocket
+//   <letters><digits>     Ekart-style FHHP4002194163 / FMPP… · Shiprocket SRSC0983948328 / SRSP… (14)
+//   <d>D<digits>          Shiprocket 7D122077295 (11)
+//   dddd_AA/dd-ddddddd    self-ship reference 6679_SP/26-2700906 (18). The worker stores every AWB
+//                         stripped to alphanumerics + uppercased (→ 6679SP262700906) and
+//                         v_unit_order_link strips the ecom side identically, so it still links.
+// ⚠️ ONE PREDICATE IN THREE REPOS — keep byte-identical with `AWB_SHAPES` in
+// 01_worker/lib/channel.js and apps/depot/src/app/(auth)/scans/page.js (watchboard [depot]).
+const AWB_SHAPES = [
+  /^[0-9]{10,18}$/,
+  /^SF[0-9]{10,16}[A-Z]{2,4}$/i,
+  /^[A-Z]{2,4}[0-9]{10,12}$/i,
+  /^[0-9]{1,2}[A-Z][0-9]{8,10}$/i,
+  /^[0-9]{4}_[A-Z]{2}\/[0-9]{2}-[0-9]{7}$/i,
+];
 function looksLikeAwb(code) {
   const c = String(code || '').trim();
-  return /^[0-9]{10,18}$/.test(c);
+  return AWB_SHAPES.some(re => re.test(c));
 }
 
 async function doPackScan(barcode) {
