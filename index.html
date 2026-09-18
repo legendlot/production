@@ -661,6 +661,15 @@
       gap:14px;
     }
     .reject-screen.show{display:flex}
+    /* PKG channel-change PIN gate (S390, Mrudula 2026-09-18) — modal over the scanner screen,
+       above flash/badge (200), below the reject screen (300) and toasts (400). Reuses the dept-PIN keypad styles. */
+    .chpin-overlay{
+      display:none;position:fixed;inset:0;z-index:250;
+      background:rgba(8,8,8,0.96);
+      flex-direction:column;align-items:center;justify-content:center;padding:0 20px;
+    }
+    .chpin-overlay.show{display:flex}
+    .chpin-sub{font-family:var(--mono);font-size:11px;color:var(--text2);letter-spacing:.1em;text-align:center;margin-top:6px}
     .reject-icon{font-size:52px;line-height:1}
     .reject-title{font-size:18px;font-weight:900;letter-spacing:0.06em;color:var(--red)}
     .reject-msg{font-size:12px;color:var(--text2);letter-spacing:0.04em;text-align:center;padding:0 24px}
@@ -1092,6 +1101,27 @@
     <div class="ch-btn active ecom" id="chEcom" onclick="setChannel('ecom',this)"><svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z"/><path d="M3.3 7 12 12l8.7-5"/><path d="M12 22V12"/></svg> ECOM</div>
     <div class="ch-btn retail" id="chRetail" onclick="setChannel('retail',this)"><svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 7h20l-1.5-4.5A1 1 0 0 0 19.6 2H4.4a1 1 0 0 0-.95.66z"/><path d="M4 7v13a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1V7"/><path d="M9 21v-6h6v6"/></svg> RETAIL</div>
     <div class="ch-btn export" id="chExport" onclick="setChannel('export',this)"><svg class="ic" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17.8 19.2 16 11l3.5-3.5a2.12 2.12 0 0 0-3-3L13 8 4.8 6.2a1 1 0 0 0-.9 1.7l4.6 3.3-2 2H4l-1.5 1.5 3.4 1.1 1.1 3.4L8.5 18v-2.5l2-2 3.3 4.6a1 1 0 0 0 1.7-.9z"/></svg> EXPORT</div>
+  </div>
+
+  <!-- PKG channel-change PIN gate — opened by setChannel(), never by a scan -->
+  <div class="chpin-overlay" id="chPinOverlay">
+    <div class="pin-head">
+      <div class="nav-sub">PIN TO SWITCH CHANNEL TO</div>
+      <div class="pin-dept" id="chPinLabel">—</div>
+      <div class="chpin-sub">ask a supervisor · every change asks again</div>
+    </div>
+    <div class="pin-dots" id="chPinDots">
+      <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+      <span class="pin-dot"></span><span class="pin-dot"></span><span class="pin-dot"></span>
+    </div>
+    <div class="pin-error" id="chPinError" style="display:none">Incorrect PIN — try again</div>
+    <div class="keypad">
+      <div class="key" onclick="chPinKey(1)">1</div><div class="key" onclick="chPinKey(2)">2</div><div class="key" onclick="chPinKey(3)">3</div>
+      <div class="key" onclick="chPinKey(4)">4</div><div class="key" onclick="chPinKey(5)">5</div><div class="key" onclick="chPinKey(6)">6</div>
+      <div class="key" onclick="chPinKey(7)">7</div><div class="key" onclick="chPinKey(8)">8</div><div class="key" onclick="chPinKey(9)">9</div>
+      <div class="key key-ghost" onclick="chPinCancel()">✕</div><div class="key" onclick="chPinKey(0)">0</div><div class="key key-ghost" onclick="chPinBackspace()">⌫</div>
+    </div>
+    <div class="nav-back" onclick="chPinCancel()">← Keep current channel</div>
   </div>
 
   <!-- ── LEGACY REG panel ── -->
@@ -6157,6 +6187,7 @@ function scanFrame(reader, video, canvas) {
 // SCAN HANDLER
 // ══════════════════════════════════════════════════════
 function onScan(raw) {
+  if (chPinPending) return;      // channel PIN keypad open — a camera decode must not pack into the OLD channel (hostile review S390 #2)
   if (pkgResultShowing) return;  // ignore scans while PKG result overlay is up
 
   const now = Date.now();
@@ -6658,7 +6689,28 @@ function cancelQcPassFlow() {
 // ══════════════════════════════════════════════════════
 // PKG FLOW
 // ══════════════════════════════════════════════════════
+// ⛔ A channel switch is PIN-gated (S390, Mrudula #bugs 2026-09-18 `1789727143.799209`): the
+// operator taps ECOM/RETAIL/EXPORT, a keypad opens, and the change applies only after the
+// worker confirms the 'pkg_channel' PIN (verifyDepartmentPin — same hash table as the
+// department PINs, separate key). EVERY change asks again — nothing is cached, because the
+// ask was "whenever we are changing channel". Tapping the channel already active is a no-op.
+// The PIN is a SUPERVISOR secret (Garage → Users → Scanner PINs); the Production PIN the
+// operator typed to enter the department would gate nothing. Cancel keeps the current channel.
+let chPinPending = null;   // { ch, el } while the keypad is open
+let chPinBuffer  = '';
+let chPinBusy    = false;
+let chPinReqSeq  = 0;      // request token — a late reply from a cancelled/timed-out verify is ignored
+const CH_PIN_TIMEOUT_MS = 8000;
 function setChannel(ch, el) {
+  if (ch === pkgChannel) return;                    // already on it — nothing to gate
+  if (chPinPending) return;                         // keypad already open
+  chPinPending = { ch, el }; chPinBuffer = '';
+  document.getElementById('chPinLabel').textContent = PKG_CHANNELS[ch]?.label || ch.toUpperCase();
+  document.getElementById('chPinError').style.display = 'none';
+  renderChPinDots();
+  document.getElementById('chPinOverlay').classList.add('show');
+}
+function applyChannel(ch, el) {
   pkgChannel    = ch;
   cfg.pkgChannel = ch;
   localStorage.setItem('lot_cfg', JSON.stringify(cfg));
@@ -6668,6 +6720,86 @@ function setChannel(ch, el) {
   el.classList.add('active');
   showToast('Channel: ' + (PKG_CHANNELS[ch]?.toast || ch), 'ok');
 }
+function renderChPinDots() {
+  const dots = document.getElementById('chPinDots');
+  if (!dots) return;
+  dots.querySelectorAll('.pin-dot').forEach((d, i) => d.classList.toggle('filled', i < chPinBuffer.length));
+}
+function chPinKey(d) {
+  if (!chPinPending || chPinBusy || chPinBuffer.length >= 6) return;
+  chPinBuffer += String(d);
+  document.getElementById('chPinError').style.display = 'none';
+  renderChPinDots();
+  if (chPinBuffer.length === 6) verifyChPin();
+}
+function chPinBackspace() { if (chPinBusy) return; chPinBuffer = chPinBuffer.slice(0, -1); renderChPinDots(); }
+// Cancel is ALWAYS allowed — a verify that hangs on dead wifi must never wedge the station
+// (hostile review S390). The in-flight reply, if it ever lands, is dropped by the token.
+function chPinCancel() {
+  chPinReqSeq++; chPinBusy = false;
+  chPinPending = null; chPinBuffer = '';
+  document.getElementById('chPinOverlay').classList.remove('show');
+}
+async function verifyChPin() {
+  const pending = chPinPending, pin = chPinBuffer;
+  if (!pending) return;
+  chPinBusy = true;
+  const seq = ++chPinReqSeq;
+  const dotsEl = document.getElementById('chPinDots');
+  // Three different faults, three different messages: wrong PIN · unreachable server (network
+  // error or an 8 s stall) · a server that REFUSES the request (e.g. a worker that does not know
+  // 'pkg_channel' yet). The last one must never read as "Incorrect PIN" — that blames the
+  // supervisor for a deploy gap (hostile review S390 #3).
+  let fault = null, valid = false;
+  try {
+    const res = await Promise.race([
+      workerPost('verifyDepartmentPin', {
+        department:    'pkg_channel',
+        pin,
+        device_code:   cfg.deviceCode || cfg.attDeviceCode || null,
+        station:       cfg.stationCode || cfg.activity || null,
+        operator_id:   currentOperator?.id || null,
+        operator_name: currentOperator?.name || null,
+        from:          pkgChannel,
+        to:            pending.ch,
+      }),
+      new Promise(r => setTimeout(() => r({ ok: false, error: 'Network error: timed out' }), CH_PIN_TIMEOUT_MS)),
+    ]);
+    if (seq !== chPinReqSeq) return;                 // cancelled or superseded while in flight
+    if (res && res.ok === false) {
+      fault = /network error/i.test(String(res.error || ''))
+        ? 'Cannot reach the server — check the connection, then try again'
+        : 'Server refused the check: ' + String(res.error || 'unknown').slice(0, 80) + ' — tell Afshaan';
+    }
+    valid = !!(res && res.ok && res.data && res.data.valid);
+  } catch (e) { fault = 'Cannot reach the server — check the connection, then try again'; }
+  if (seq !== chPinReqSeq) return;
+  chPinBusy = false;
+  if (valid) {
+    chPinPending = null; chPinBuffer = '';
+    document.getElementById('chPinOverlay').classList.remove('show');
+    applyChannel(pending.ch, pending.el);
+    return;
+  }
+  chPinBuffer = '';
+  renderChPinDots();
+  const err = document.getElementById('chPinError');
+  err.textContent = fault || 'Incorrect PIN — try again';
+  err.style.display = '';
+  if (dotsEl) { dotsEl.classList.remove('shake'); void dotsEl.offsetWidth; dotsEl.classList.add('shake'); }
+  playErrBeep(); vibrate([100,50,100]);
+}
+// While the keypad is open, swallow every keystroke at capture so a barcode gun (a keyboard
+// wedge) cannot scan "through" the gate into the scan input. Keys are NOT fed to the PIN: a
+// gun firing a 13-digit EAN would otherwise submit its first six digits as a PIN attempt and
+// write a false "wrong PIN" audit row against the operator (hostile review S390 #4). The
+// keypad is touch-only; Escape cancels; the browser's own reload shortcut is left alone.
+document.addEventListener('keydown', e => {
+  if (!chPinPending) return;
+  if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); chPinCancel(); return; }
+  if (e.key === 'F5' || ((e.ctrlKey || e.metaKey) && /^r$/i.test(e.key))) return;
+  e.preventDefault(); e.stopPropagation();
+}, true);
 
 async function doPkgCar(carUpc) {
   if (!isOnline) {
