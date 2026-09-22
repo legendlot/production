@@ -4636,6 +4636,8 @@ function takePendingAwb() {
 //   dddd_AA/dd-ddddddd    self-ship reference 6679_SP/26-2700906 (18). The worker stores every AWB
 //                         stripped to alphanumerics + uppercased (→ 6679SP262700906) and
 //                         v_unit_order_link strips the ecom side identically, so it still links.
+//   AAdddddddddIN         India Post Speed Post (UPU S10) JH039369321IN (13), booked via Shiprocket;
+//                         added 2026-09-23 (Varnit #bugs 1790070321) — 2 live in the 30 days before.
 // ⚠️ ONE PREDICATE IN THREE REPOS — keep byte-identical with `AWB_SHAPES` in
 // 01_worker/lib/channel.js and apps/depot/src/app/(auth)/scans/page.js (watchboard [depot]).
 const AWB_SHAPES = [
@@ -4644,6 +4646,7 @@ const AWB_SHAPES = [
   /^[A-Z]{2,4}[0-9]{10,12}$/i,
   /^[0-9]{1,2}[A-Z][0-9]{8,10}$/i,
   /^[0-9]{4}_[A-Z]{2}\/[0-9]{2}-[0-9]{7}$/i,
+  /^[A-Z]{2}[0-9]{9}IN$/i,
 ];
 function looksLikeAwb(code) {
   const c = String(code || '').trim();
