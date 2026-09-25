@@ -6438,7 +6438,7 @@ async function processBarcode(barcode, act) {
   // ── PKG_OUT — scans batch label, not UPC ──
   if (act === 'PKG_OUT') {
     if (!isBatchLabel) {
-      showReject('WRONG BARCODE', 'Expected LOT-XXXXXXXX-E or LOT-XXXXXXXX-R');
+      showReject('WRONG BARCODE', 'Expected LOT-XXXXXXXX-E, -R or -X');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'PKG_OUT', label:'WRONG FORMAT' });
       return;
