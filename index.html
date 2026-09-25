@@ -2460,12 +2460,12 @@ const STATION_DEFS = {
   QC_FAIL: { label: 'QC Fail',      activity: 'QC_FAIL', hint: 'SCAN LOT UPC — DEFECT SELECT FOLLOWS' },
   WKS:     { label: 'Workshop',     activity: 'WKS',     hint: 'SCAN LOT UPC' },
   PKG:     { label: 'Packaging',    activity: 'PKG',     hint: 'SCAN CAR UPC FIRST' },
-  PKG_OUT: { label: 'PKG Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
+  PKG_OUT: { label: 'PKG Out', activity: 'PKG_OUT', hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R/X' },
   RET_IN:  { label: 'Returns Intake', activity: 'RET_IN', hint: 'SELECT OPEN SHIPMENT, THEN SCAN EACH UNIT' },
   UDR_ISSUE: { label: 'Issue UDR', activity: 'UDR_ISSUE', hint: 'SCAN A UDR BOX LABEL OR UPC TO ISSUE OUT' },
   REPAIR_ISSUE: { label: 'Issue Repair', activity: 'REPAIR_ISSUE', hint: 'SELECT REPAIR RUN THEN SCAN EACH UNIT' },
   PACK:    { label: 'Dispatch Pack', activity: 'PACK',    hint: 'SCAN AWB THEN BATCH LABEL' },
-  DTK:     { label: 'Dispatch In',  activity: 'DTK',   hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R' },
+  DTK:     { label: 'Dispatch In',  activity: 'DTK',   hint: 'SCAN BATCH LABEL — LOT-XXXXXXXX-E/R/X' },
   ALLOC:   { label: 'Allocate',     activity: 'ALLOC', hint: 'SELECT CHANNEL THEN SCAN BATCH LABEL' },
   DOUT:       { label: 'Dispatch Out',    activity: 'DOUT',       hint: 'SCAN BOX LABEL (BOX-XXXXX) OR BATCH LABEL' },
   LEGACY_REG: { label: 'Legacy Reg',      activity: 'LEGACY_REG', hint: 'SELECT MODE THEN SCAN' },
@@ -2474,7 +2474,7 @@ const STATION_DEFS = {
   ATTENDANCE: { label: 'Attendance',      activity: 'ATTENDANCE', hint: 'SCAN OR TYPE EMPLOYEE ID' },
   EXT_INW:    { label: 'Ext Inwarding',   activity: 'EXT_INW',    hint: 'SCAN LOT UPC — OUTSOURCED VENDOR UNIT' },
   STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN OR REQUEST THEN SCAN BAG QR' },
-  RESTOCK:    { label: 'Restock / Remove',  activity: 'RESTOCK',     hint: 'PICK REASON, SCAN BOX LABEL (LOT-…-E/R) OR CAR UPC — REMOVES FROM BOX, BACK TO DISPATCH' },
+  RESTOCK:    { label: 'Restock / Remove',  activity: 'RESTOCK',     hint: 'PICK REASON, SCAN BOX LABEL (LOT-…-E/R/X) OR CAR UPC — REMOVES FROM BOX, BACK TO DISPATCH' },
   STOCK_AUDIT:{ label: 'Stock Audit',      activity: 'STOCK_AUDIT', hint: 'OPEN AN AUDIT IN DEPOT, THEN SCAN EVERY CAR LABEL YOU HOLD — RE-SCANS IGNORED' },
   DSP_ISSUE:  { label: 'Direct Issue',     activity: 'DSP_ISSUE',   hint: 'SCAN DI-NNN STICKER TO ISSUE OUT' },
   REPACK_IN:  { label: 'Repack In',        activity: 'REPACK_IN',   hint: 'SELECT RUN THEN SCAN OLD BOX LABEL' },
@@ -4923,7 +4923,7 @@ async function doRepackReleaseScan(barcode) {
   if (!repackRun) { showReject('NO RUN SELECTED', 'Select a repack run above first'); playErrBeep(); vibrate([100,50,100]); return; }
   if (!isOnline)  { showReject('OFFLINE', 'Repack release requires a live connection'); playErrBeep(); vibrate([100,50,100]); return; }
   if (!/^LOT-\d+(-[ERX])?$/i.test(barcode)) {
-    showReject('WRONG BARCODE', 'Scan the unit box label (LOT-XXXXXXXX-E/R)');
+    showReject('WRONG BARCODE', 'Scan the unit box label (LOT-XXXXXXXX-E/R/X)');
     playErrBeep(); vibrate([100,50,100]);
     addLog({ barcode, status:'err', tag:'REPACK_RELEASE', label:'WRONG FORMAT' });
     return;
@@ -6349,7 +6349,7 @@ async function processBarcode(barcode, act) {
   // ── STOCK AUDIT — scan held car labels into the open audit (soft, dedup) ──
   if (act === 'STOCK_AUDIT') {
     if (!isBatchLabel && !isLotUpc) {
-      showReject('WRONG BARCODE', 'Scan a car box label (LOT-XXXXXXXX-E/R)');
+      showReject('WRONG BARCODE', 'Scan a car box label (LOT-XXXXXXXX-E/R/X)');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'AUDIT', label:'WRONG FORMAT' });
       return;
@@ -6450,7 +6450,7 @@ async function processBarcode(barcode, act) {
   // ── DTK — dispatch intake, scans batch label ──
   if (act === 'DTK') {
     if (!isBatchLabel) {
-      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R)');
+      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R/X)');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'DTK', label:'WRONG FORMAT' });
       return;
@@ -6485,7 +6485,7 @@ async function processBarcode(barcode, act) {
       return;
     }
     if (!isBatchLabel) {
-      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R)');
+      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R/X)');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'ALLOC', label:'WRONG FORMAT' });
       return;
@@ -6516,7 +6516,7 @@ async function processBarcode(barcode, act) {
   if (act === 'DOUT') {
     const isBoxLabel = /^BOX-\d+$/.test(barcode);
     if (!isBatchLabel && !isBoxLabel) {
-      showReject('INVALID LABEL', 'Scan a BOX label (BOX-XXXXX) or batch label (LOT-XXXXXXXX-E/R)');
+      showReject('INVALID LABEL', 'Scan a BOX label (BOX-XXXXX) or batch label (LOT-XXXXXXXX-E/R/X)');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'DOUT', label:'WRONG FORMAT' });
       return;
@@ -6552,7 +6552,7 @@ async function processBarcode(barcode, act) {
   const restockBoxLabelOk = act === 'RESTOCK' && isBatchLabel;
   if (!isLotUpc && !restockBoxLabelOk) {
     showReject('WRONG BARCODE', act === 'RESTOCK'
-      ? 'Scan the box label (LOT-XXXXXXXX-E/R) or the car UPC'
+      ? 'Scan the box label (LOT-XXXXXXXX-E/R/X) or the car UPC'
       : 'Expected LOT-XXXXXXXX format');
     playErrBeep(); vibrate([100,50,100]);
     addLog({ barcode, status:'err', tag:'ERR', label:'WRONG FORMAT' });
