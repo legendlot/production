@@ -4090,8 +4090,8 @@ async function handleRetInScan(barcode) {
 let _restockReason = 'orders_cancelled';
 
 // ── COUNT TARGET (Stock Audit / Cycle Count) ──
-// Fetches whichever audit or count the next scan will actually land in, using the
-// same resolution the scan handlers use, so the header cannot disagree with reality.
+// Fetches the open audit, or every open cycle count (a bag lands on the count that holds its
+// part, so with several open the header lists them all and each scan's toast names its count).
 // Never throws and never blocks scanning: a network failure or a closed audit just
 // shows the state in amber — the station stays usable, because the scan handlers are
 // deliberately soft too (RULE-AUDIT-001 / RULE-COUNT-001).
@@ -4128,6 +4128,12 @@ async function refreshCountTarget() {
   if (isAudit) {
     idEl.textContent = d.audit_no || 'OPEN AUDIT';
     metaEl.textContent = `${d.total_scanned || 0} scanned so far`;
+  } else if (Array.isArray(d.counts) && d.counts.length > 1) {
+    // Several counts open (one per product): each bag lands on the count that holds its part,
+    // so list them all — the scan toast names the count each bag went to.
+    idEl.textContent = `${d.counts.length} COUNTS OPEN`;
+    metaEl.textContent = d.counts.map(c =>
+      `${c.count_no} ${c.scan_mode ? 'shelf' : String(c.area || '').replace(/^.*Product:\s*/, '') || 'parts'} · ${c.bags_scanned || 0} bags`).join('  |  ');
   } else {
     idEl.textContent = d.count_no || 'OPEN COUNT';
     metaEl.textContent = `${d.bags_scanned || 0} bag${d.bags_scanned === 1 ? '' : 's'} scanned · ${d.line_count || 0} part${d.line_count === 1 ? '' : 's'} on count`;
@@ -6415,16 +6421,20 @@ async function processBarcode(barcode, act) {
         showToast(`Already counted · ${d.part_code} — ${d.counted_qty}`, 'warn');
         addLog({ barcode, status:'warn', tag:'COUNT', label:`${d.part_code} ALREADY (${d.counted_qty})` });
       } else {
-        showToast(`✓ ${d.part_code} +${d.bag_qty} → ${d.counted_qty}`, 'ok');
+        showToast(`✓ ${d.part_code} +${d.bag_qty} → ${d.counted_qty}${d.count_no ? ` · ${d.count_no}` : ''}`, 'ok');
         addLog({ barcode, status:'ok', tag:'COUNT',
-          label:`${d.part_code} +${d.bag_qty} = ${d.counted_qty} (${d.bags_scanned} bag${d.bags_scanned === 1 ? '' : 's'})` });
+          label:`${d.part_code} +${d.bag_qty} = ${d.counted_qty} (${d.bags_scanned} bag${d.bags_scanned === 1 ? '' : 's'})${d.count_no ? ` ${d.count_no}` : ''}` });
       }
       // Header shows the COUNT-WIDE total, so it must read `total_scans` — the scan
       // response's `bags_scanned` is scoped to the part just scanned (used in the log line
       // above, where that is what you want). Both the fresh and already-counted paths carry
       // it, and a re-scan deliberately leaves it unchanged (RULE-COUNT-001 merge).
-      if (d.total_scans != null) {
+      // Bump only when the header shows exactly the count this bag landed on; otherwise (several
+      // open, or a count opened since the header loaded) re-read the header.
+      if (d.total_scans != null && d.count_no && document.getElementById('countTargetId')?.textContent === d.count_no) {
         bumpCountTarget(`${d.total_scans} bag${d.total_scans === 1 ? '' : 's'} scanned in this count`);
+      } else if (d.count_no) {
+        refreshCountTarget();
       }
     } else {
       // SOFT — never red-screen a count in progress; every scan is data.
