@@ -4686,6 +4686,37 @@ async function doPackScan(barcode) {
     return;
   }
 
+  // ── Vendor carton (O9): the whole CTN becomes one packed box on a bulk shipment ──
+  // No open box needed (the carton IS the box) and no courier label is taken — a held AWB
+  // stays held for the next per-unit box label.
+  if (/^CTN-\d{7}$/i.test(barcode)) {
+    if (packMode !== 'shipment' || packShipment.dispatch_channels?.fulfillment_model === 'unit') {
+      showReject('NOT A BULK SHIPMENT', 'A vendor carton packs whole only onto a bulk shipment — open it and scan each unit');
+      playErrBeep(); vibrate([100,50,100]);
+      addLog({ barcode, status:'err', tag:'PACK', label:'CTN NOT BULK' });
+      return;
+    }
+    flash('ok'); vibrate([50]);
+    const cr = await workerPost('postPack', {
+      batch_label: barcode,
+      shipment_id: packShipment.id,
+      device_id:   cfg.deviceId || null,
+      operator_id: operatorUUID || currentOperator?.id || null,
+    });
+    if (!cr.ok) {
+      flash('err'); vibrate([100,50,100]); playErrBeep();
+      showReject('CARTON PACK FAILED', cr.error || 'Unknown error');
+      addLog({ barcode, status:'err', tag:'PACK', label:'CTN ERR' });
+      return;
+    }
+    const cd = cr.data;
+    playSuccessBeep();
+    addLog({ barcode, status:'ok', tag:'PACK', label:`CTN ✓ ${cd.unit_count} units → ${cd.shipment_no}` });
+    showToast(`✓ ${cd.ctn_no} packed — ${cd.unit_count} units on ${cd.shipment_no}`, 'ok');
+    if (cd.needs_dimensions) await maybeAskBoxDim({ ...cd, needs_dimensions: true });
+    return;
+  }
+
   // ── Direct mode (no shipment) ──
   if (packMode === 'direct') {
     if (!packDirectChannel) {
@@ -4959,6 +4990,12 @@ async function doRepackInScan(barcode) {
   // Old-box label format depends on the box's fulfillment model: bulk boxes
   // carry a BOX-XXXXX label; unit boxes (~99% of dispatch) carry the car's
   // PKG batch label (LOT-XXXXXXXX-E/R). Accept both (same as Dispatch Out).
+  if (/^CTN-\d{7}$/i.test(barcode)) {
+    showReject('VENDOR CARTON', 'A vendor carton is not repacked whole — open it and scan each unit\'s box label');
+    playErrBeep(); vibrate([100,50,100]);
+    addLog({ barcode, status:'err', tag:'REPACK_IN', label:'CTN' });
+    return;
+  }
   if (!/^BOX-\d+$/i.test(barcode) && !/^LOT-\d+(-[ERX])?$/i.test(barcode)) {
     showReject('WRONG BARCODE', 'Scan the OLD box label (BOX-XXXXX or LOT-XXXXXXXX)');
     playErrBeep(); vibrate([100,50,100]);
@@ -6239,6 +6276,9 @@ async function processBarcode(barcode, act) {
   const isLotUpc     = /^LOT-\d+$/.test(barcode);
   const isBatchLabel = /^LOT-\d+-[ERX]$/i.test(barcode);
   const isEan        = /^\d{13}$/.test(barcode);
+  // Outpost vendor carton (O9): at ALLOC / PACK / DOUT it moves every unit inside at once.
+  // Same shape as CARTON_LABEL_RE in 01_worker/lib/channel.js.
+  const isCarton     = /^CTN-\d{7}$/i.test(barcode);
 
   // ── PACK — dispatch packing station ──
   if (act === 'PACK') {
@@ -6255,8 +6295,8 @@ async function processBarcode(barcode, act) {
     // this shipped — BOX-55210, AWB 39308710373730, by a real operator.
     // ⚠️ Keep the two tests in sync with doPackScan()/looksLikeAwb() — a code admitted here
     // and not recognised there would silently pack nothing.
-    if (!isBatchLabel && !looksLikeAwb(barcode)) {
-      showReject('WRONG BARCODE', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R/X) or the courier label');
+    if (!isBatchLabel && !looksLikeAwb(barcode) && !isCarton) {
+      showReject('WRONG BARCODE', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R/X), a vendor carton (CTN-XXXXXXX) or the courier label');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'PACK', label:'WRONG FORMAT' });
       return;
@@ -6494,8 +6534,8 @@ async function processBarcode(barcode, act) {
       playErrBeep(); vibrate([100,50,100]);
       return;
     }
-    if (!isBatchLabel) {
-      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R/X)');
+    if (!isBatchLabel && !isCarton) {
+      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R/X) or a vendor carton (CTN-XXXXXXX)');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'ALLOC', label:'WRONG FORMAT' });
       return;
@@ -6511,9 +6551,10 @@ async function processBarcode(barcode, act) {
     if (res.ok) {
       const d = res.data;
       playSuccessBeep();
-      const lbl = d.is_realloc ? `Re-allocated → ${channelName}` : `Allocated → ${channelName}`;
+      const what = d.is_ctn ? `${d.ctn_no} · ${d.unit_count} units ` : '';
+      const lbl = d.is_realloc ? `${what}Re-allocated → ${channelName}` : `${what}Allocated → ${channelName}`;
       showToast('✓ ' + lbl, 'ok');
-      addLog({ barcode, status:'ok', tag:'ALLOC', label:`ALLOC ✓ ${d.product || ''} → ${channelName}` });
+      addLog({ barcode, status:'ok', tag:'ALLOC', label: d.is_ctn ? `CTN ✓ ${d.unit_count} units → ${channelName}` : `ALLOC ✓ ${d.product || ''} → ${channelName}` });
     } else {
       playErrBeep(); vibrate([100,50,100]);
       showReject('ALLOCATION FAILED', res.error || 'Unknown error');
@@ -6525,8 +6566,8 @@ async function processBarcode(barcode, act) {
   // ── DOUT — dispatch out, physical exit scan ──
   if (act === 'DOUT') {
     const isBoxLabel = /^BOX-\d+$/.test(barcode);
-    if (!isBatchLabel && !isBoxLabel) {
-      showReject('INVALID LABEL', 'Scan a BOX label (BOX-XXXXX) or batch label (LOT-XXXXXXXX-E/R/X)');
+    if (!isBatchLabel && !isBoxLabel && !isCarton) {
+      showReject('INVALID LABEL', 'Scan a BOX label (BOX-XXXXX), a vendor carton (CTN-XXXXXXX) or batch label (LOT-XXXXXXXX-E/R/X)');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'DOUT', label:'WRONG FORMAT' });
       return;
