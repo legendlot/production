@@ -6499,8 +6499,9 @@ async function processBarcode(barcode, act) {
 
   // ── DTK — dispatch intake, scans batch label ──
   if (act === 'DTK') {
-    if (!isBatchLabel) {
-      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R/X)');
+    // O12 (S428): a vendor carton (CTN-) hands over every unit in it; a vendor unit's batch label works as in-house.
+    if (!isBatchLabel && !isCarton) {
+      showReject('INVALID LABEL', 'Scan a PKG batch label (LOT-XXXXXXXX-E/R/X) or a vendor carton (CTN-XXXXXXX)');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'DTK', label:'WRONG FORMAT' });
       return;
@@ -6514,8 +6515,13 @@ async function processBarcode(barcode, act) {
     if (res.ok) {
       const d = res.data;
       playSuccessBeep();
-      showToast('✓ Handed Over', 'ok');
-      addLog({ barcode, status:'ok', tag:'DTK', label:`DTK ✓ ${d.product || ''}` });
+      if (d.is_ctn) {
+        showToast(`✓ Carton handed over — ${d.count} units`, 'ok');
+        addLog({ barcode, status:'ok', tag:'DTK', label:`DTK ✓ ${d.ctn_no} · ${d.count} × ${d.product || d.sku || ''}` });
+      } else {
+        showToast('✓ Handed Over', 'ok');
+        addLog({ barcode, status:'ok', tag:'DTK', label:`DTK ✓ ${d.product || ''}` });
+      }
     } else {
       playErrBeep(); vibrate([100,50,100]);
       showReject('INTAKE FAILED', res.error || 'Unknown error');
