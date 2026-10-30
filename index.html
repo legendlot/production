@@ -2476,7 +2476,7 @@ const STATION_DEFS = {
   STORE_ISSUE:{ label: 'Store Issue',      activity: 'STORE_ISSUE', hint: 'SELECT RUN OR REQUEST THEN SCAN BAG QR' },
   RESTOCK:    { label: 'Restock / Remove',  activity: 'RESTOCK',     hint: 'PICK REASON, SCAN BOX LABEL (LOT-…-E/R/X) OR CAR UPC — REMOVES FROM BOX, BACK TO DISPATCH' },
   STOCK_AUDIT:{ label: 'Stock Audit',      activity: 'STOCK_AUDIT', hint: 'OPEN AN AUDIT IN DEPOT, THEN SCAN EVERY CAR LABEL YOU HOLD — RE-SCANS IGNORED' },
-  DSP_ISSUE:  { label: 'Direct Issue',     activity: 'DSP_ISSUE',   hint: 'SCAN DI-NNN STICKER TO ISSUE OUT' },
+  DSP_ISSUE:  { label: 'Direct Issue',     activity: 'DSP_ISSUE',   hint: 'SCAN DI STICKER → SCAN ITS BAGS → SCAN DI STICKER AGAIN TO ISSUE' },
   REPACK_IN:  { label: 'Repack In',        activity: 'REPACK_IN',   hint: 'SELECT RUN THEN SCAN OLD BOX LABEL' },
   REPACK_OUT: { label: 'Repack Out',       activity: 'REPACK_OUT',  hint: 'SELECT RUN, SCAN CAR THEN DEST BOX' },
   REPACK_RELEASE: { label: 'Repack Release', activity: 'REPACK_RELEASE', hint: 'SELECT RUN THEN SCAN EACH BOX TO RELEASE TO REPACK' },
@@ -3561,6 +3561,7 @@ function bootScanner() {
   if (cfg.stationCode === 'LEGACY_REG')  { setupLegacyRegStation();   }
   if (cfg.stationCode === 'REPAIR')      { setupRepairStation();      }
   if (cfg.stationCode === 'STORE_ISSUE') { setupStoreIssueStation();  }
+  if (cfg.stationCode === 'DSP_ISSUE')   { setupDspIssueStation();    }
   if (cfg.stationCode === 'REPAIR_ISSUE') { setupRepairIssueStation(); }
   if (cfg.stationCode === 'RET_IN')      { setupRetInStation();       }
   if (cfg.stationCode === 'RESTOCK')     { setupRestockStation();     }
@@ -5446,6 +5447,250 @@ async function doStoreIssueScan(barcode) {
 }
 
 // ════════════════════════════════════════════════════════════════
+// DSP_ISSUE bag-scan check (Piyush, #bugs 1793190266.014989 / 1793340401.432229)
+// Scan the DI-NNN sticker (or pick it from the list) to start its bag check →
+// scan each bag QR (the part must be on the DI, a bag holding more than the DI
+// still needs is refused — the store makes a smaller bag first) → scan the DI
+// sticker again to issue. MANDATORY for every DI with part lines; the worker
+// refuses the sticker until every part is in. A unit-only DI issues on the
+// first sticker scan, as before. Picking moves no stock; the sticker does.
+// Reuses the Store Issue bar ids so station-switch cleanup already removes them.
+// ════════════════════════════════════════════════════════════════
+let dspPickDi      = null;  // { issue_no, purpose, destination } once a DI is selected
+let dspPickLines   = [];    // [{ part_code, part_name, required_qty, scanned_qty }]
+let dspPickableDIs = [];
+let dspListNote    = '';    // why the list is empty when it could not load (offline etc.)
+let dspSelSeq      = 0;     // bumped on every selection change — a reply for an older one is dropped
+let dspBusy        = false; // one DI call at a time (bag, reset, select, issue)
+
+async function setupDspIssueStation() {
+  dspClearSelection(false);
+  ['packShipmentBar','packDirectBar','packBoxBar','allocChannelBar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.remove();
+  });
+  await loadDspPickable();
+}
+
+function dspClearSelection(render = true) {
+  dspSelSeq++;
+  dspPickDi = null;
+  dspPickLines = [];
+  if (render) { renderDspSelector(); renderDspProgressBar(); }
+}
+
+// The list is a convenience — the sticker scan selects a DI on its own — so a failed load is a
+// quiet note in the list, never a red reject (it used to flash LOAD FAILED on every offline boot).
+async function loadDspPickable() {
+  const seq = dspSelSeq;
+  if (!isOnline) {
+    dspPickableDIs = [];
+    dspListNote = 'Offline — Direct Issue needs a live connection';
+  } else {
+    const res = await workerPost('getPickableDirectIssues', { device_code: cfg.deviceCode });
+    dspPickableDIs = (res.ok ? res.data : null) || [];
+    dspListNote = res.ok ? '' : `Could not load the list (${res.error || 'error'}) — scan the DI sticker instead`;
+    // Drop a selection that is no longer waiting (issued / cancelled elsewhere) — but only if
+    // nothing was selected while this list was loading.
+    if (res.ok && seq === dspSelSeq && dspPickDi && !dspPickableDIs.some(x => x.issue_no === dspPickDi.issue_no)) {
+      dspClearSelection(false);
+    }
+  }
+  renderDspSelector();
+  renderDspProgressBar();
+}
+
+// A late reply after the device switched station must not repaint the shared Store Issue bars.
+const dspOnStation = () => cfg.stationCode === 'DSP_ISSUE';
+
+function renderDspSelector() {
+  if (!dspOnStation()) return;
+  const existing = document.getElementById('storeRunBar');
+  if (existing) existing.remove();
+  const bar = document.createElement('div');
+  bar.id = 'storeRunBar';
+  bar.className = 'pack-shipment-bar';
+  bar.style.position = 'relative';
+  const label = dspPickDi
+    ? `${dspPickDi.issue_no} · ${dspPickDi.destination || dspPickDi.purpose || ''}`
+    : 'Scan a DI sticker, or select one';
+  const items = dspPickableDIs.length
+    ? dspPickableDIs.map(x => {
+        const started = x.pick_started
+          ? `<span style="color:var(--yellow);font-weight:700;margin-left:6px">• ${Number(x.lines_complete) || 0}/${Number(x.lines_total) || 0}</span>` : '';
+        return `<div class="pack-ship-item" data-di="${escBoxHtml(x.issue_no)}" onclick="pickDspDiFromList(this.dataset.di)">
+          <div>
+            <div class="pack-ship-name">${escBoxHtml(x.issue_no)}${started}</div>
+            <div class="pack-ship-meta">${escBoxHtml([x.destination, x.purpose].filter(Boolean).join(' · ') || 'Direct Issue')}</div>
+          </div>
+        </div>`;
+      }).join('')
+    : `<div style="padding:14px;font-size:11px;color:var(--muted)">${escBoxHtml(dspListNote || 'No approved Direct Issues waiting')}</div>`;
+  bar.innerHTML = `
+    <div id="storeRunSelected" class="pack-shipment-selected ${dspPickDi ? 'active' : ''}"
+         onclick="toggleStoreRunList()">
+      <span id="storeRunLabel">${escBoxHtml(label)}</span>
+      <span style="font-size:10px;color:var(--muted)">▼</span>
+    </div>
+    <div id="storeRunList" class="pack-shipment-list">${items}</div>`;
+  const camWrap = document.querySelector('.camera-wrap');
+  if (camWrap) camWrap.parentNode.insertBefore(bar, camWrap);
+}
+
+async function pickDspDiFromList(issueNo) {
+  toggleStoreRunList();
+  if (!isOnline) { dspOfflineReject(); return; }
+  await startDspDi(issueNo);
+}
+
+function dspOfflineReject() {
+  showReject('OFFLINE', 'Direct Issue needs a live connection — nothing was counted or issued');
+  playErrBeep(); vibrate([100,50,100]);
+}
+
+// Select a DI and start (or resume) its bag check. Returns the worker's data, or null.
+async function startDspDi(issueNo) {
+  if (dspBusy) { showToast('Still working on the last scan…', 'warn'); return null; }
+  dspBusy = true;
+  const seq = ++dspSelSeq;
+  let res;
+  try {
+    res = await workerPost('startDiPick', { device_code: cfg.deviceCode, di_no: issueNo });
+  } finally { dspBusy = false; }
+  if (seq !== dspSelSeq || !dspOnStation()) return null;
+  if (!res.ok) {
+    showReject('CANNOT START', res.error || 'Unknown error');
+    playErrBeep(); vibrate([100,50,100]);
+    addLog({ barcode: issueNo, status:'err', tag:'DSP_ISSUE', label: (res.error || 'START FAILED').slice(0, 60) });
+    return null;
+  }
+  dspPickDi    = res.data;
+  dspPickLines = res.data.pick_lines || [];
+  renderDspSelector();
+  renderDspProgressBar();
+  if (res.data.stale) {
+    showReject('DI CHANGED', `${issueNo} was changed in Garage after its bags were scanned — tap RESET BAGS and scan them again`);
+    playErrBeep(); vibrate([100,50,100]);
+  } else if (!res.data.no_parts) {
+    const left = dspPickLines.filter(l => (l.scanned_qty || 0) < l.required_qty).length;
+    showToast(left
+      ? `✓ ${issueNo} — scan the bags for ${left} part${left === 1 ? '' : 's'}, then this sticker again`
+      : `${issueNo} — all bags in, scan the sticker again to issue`, 'ok');
+  }
+  return res.data;
+}
+
+async function resetDspBags() {
+  if (!dspPickDi) return;
+  if (!isOnline) { dspOfflineReject(); return; }
+  if (dspBusy) { showToast('Still working on the last scan…', 'warn'); return; }
+  const issueNo = dspPickDi.issue_no;
+  const n = dspPickLines.reduce((a, l) => a + (Number(l.scanned_qty) || 0), 0);
+  if (!confirm(`Forget every bag counted on ${issueNo} (${n} pcs) and scan them again?`)) return;
+  dspBusy = true;
+  const seq = dspSelSeq;
+  let res;
+  try {
+    res = await workerPost('resetDiPick', { device_code: cfg.deviceCode, di_no: issueNo });
+  } finally { dspBusy = false; }
+  if (seq !== dspSelSeq || !dspOnStation()) return;
+  if (!res.ok) {
+    showReject('RESET FAILED', res.error || 'Unknown error');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+  dspPickDi    = res.data;
+  dspPickLines = res.data.pick_lines || [];
+  renderDspProgressBar();
+  addLog({ barcode: issueNo, status:'ok', tag:'DI-PICK', label:'BAGS RESET' });
+  showToast(`${issueNo} — bags cleared, scan them again`, 'ok');
+}
+
+function renderDspProgressBar() {
+  if (!dspOnStation()) return;
+  const existing = document.getElementById('storeProgressBar');
+  if (existing) existing.remove();
+  if (!dspPickDi) return;
+  const bar = document.createElement('div');
+  bar.id = 'storeProgressBar';
+  bar.className = 'pack-box-bar';
+  let text;
+  if (!dspPickLines.length) {
+    text = `<span style="color:var(--green)">No parts — scan the DI sticker to issue</span>`;
+  } else {
+    const done = dspPickLines.filter(l => (l.scanned_qty || 0) >= l.required_qty).length;
+    const short = dspPickLines.filter(l => (l.scanned_qty || 0) < l.required_qty)
+      .map(l => `${escBoxHtml(l.part_code)} ${Number(l.scanned_qty) || 0}/${Number(l.required_qty) || 0}`).join(' · ');
+    text = `<strong style="color:var(--yellow)">${done}/${dspPickLines.length}</strong> parts bagged`
+      + (short ? ` · <span style="color:var(--text3)">short: ${short}</span>` : ' · <span style="color:var(--green)">READY — scan the DI sticker</span>');
+  }
+  bar.innerHTML = `
+    <div class="pack-box-info" style="font-family:var(--mono);font-size:11px;color:var(--text2)">${text}</div>
+    ${dspPickLines.length ? '<button class="pack-box-btn open" onclick="resetDspBags()">RESET BAGS</button>' : ''}
+    <button class="pack-box-btn" style="background:var(--surface3);color:var(--text)" onclick="dspClearSelection()">✕</button>`;
+  const runBar = document.getElementById('storeRunBar');
+  if (runBar && runBar.parentNode) runBar.parentNode.insertBefore(bar, runBar.nextSibling);
+}
+
+async function doDspBagScan(barcode) {
+  if (!dspPickDi) {
+    showReject('NO DI SELECTED', 'Scan the DI sticker first, then its bags');
+    playErrBeep(); vibrate([100,50,100]);
+    return;
+  }
+  if (!isOnline) { dspOfflineReject(); return; }
+  if (dspBusy) { showToast('Still counting the last bag — wait a moment, then scan this one again', 'warn'); return; }
+  dspBusy = true;
+  const seq = dspSelSeq;
+  const issueNo = dspPickDi.issue_no;
+  let res;
+  try {
+    res = await workerPost('postDiPick', { device_code: cfg.deviceCode, di_no: issueNo, bag_id: barcode });
+  } finally { dspBusy = false; }
+  // The DI was changed or cleared while this bag was in flight: the server result belongs to
+  // the old one, so log it but never paint its lines onto the new selection.
+  const stale = seq !== dspSelSeq || !dspOnStation();
+  if (!res.ok) {
+    // Bag too big, wrong part, duplicate, used on another DI: the worker's message says which.
+    if (!stale) { flash('err'); vibrate([100,50,100]); playErrBeep(); showReject('BAG REFUSED', res.error || 'Unknown error'); }
+    addLog({ barcode, status:'err', tag:'DI-PICK', label: `${issueNo} ${(res.error || 'REFUSED')}`.slice(0, 60) });
+    return;
+  }
+  const d = res.data;
+  addLog({ barcode, status:'ok', tag:'DI-PICK', label:`${issueNo} BAG ✓ ${d.part_code} ${d.qty} pcs [${d.scanned_qty}/${d.required_qty}]` });
+  if (stale) return;
+  flash('ok'); vibrate([50]); playSuccessBeep();
+  if (Array.isArray(d.pick_lines)) dspPickLines = d.pick_lines;
+  renderDspProgressBar();
+  if (d.pick_complete) {
+    showToast(`ALL BAGS IN — scan ${issueNo} sticker to issue`, 'ok');
+  } else {
+    showToast(`✓ ${d.part_code} ${d.scanned_qty}/${d.required_qty}`, 'ok');
+  }
+}
+
+// A DI sticker: the first scan selects the DI and starts its bag check; the same sticker again
+// (with every bag in) issues it. A unit-only DI issues on the first scan, as before the check.
+async function doDspStickerScan(barcode) {
+  const issueNo = barcode.toUpperCase();
+  if (!isOnline) { dspOfflineReject(); addLog({ barcode, status:'err', tag:'DSP_ISSUE', label:'OFFLINE' }); return; }
+  if (!dspPickDi || dspPickDi.issue_no.toUpperCase() !== issueNo) {
+    const started = await startDspDi(issueNo);
+    if (!started || !started.no_parts || started.stale) return;
+  }
+  if (dspBusy) { showToast('Still working on the last scan…', 'warn'); return; }
+  dspBusy = true;
+  // submitScanWorker routes DSP_ISSUE → postDspIssueScan and owns the flash/beep/toast and every
+  // reject; on success it clears the selection (dspIssued). The worker refuses while bags are short.
+  try { await submitScanWorker(issueNo, 'DSP_ISSUE'); } finally { dspBusy = false; }
+}
+
+function dspIssued(issueNo) {
+  if (dspPickDi && dspPickDi.issue_no.toUpperCase() === String(issueNo || '').toUpperCase()) dspClearSelection(false);
+  loadDspPickable();
+}
+
+// ════════════════════════════════════════════════════════════════
 // REPAIR_ISSUE station (FEAT-023)
 // Fulfil a production-requested repair run by scanning each CXR/BRV
 // unit out of the returns pile.
@@ -6378,17 +6623,18 @@ async function processBarcode(barcode, act) {
   //    sticker gained a QR on 2026-07-28 — before that there was nothing to scan,
   //    so every DI went out through Garage force-issue (Piyush, DI-005, 07-30).
   if (cfg.stationCode === 'DSP_ISSUE') {
+    // Bag QRs are the bag-scan check that precedes the sticker (Piyush, S438).
+    if (/^BAG-/i.test(barcode)) {
+      await doDspBagScan(barcode.trim());
+      return;
+    }
     if (!/^DI-\d+$/i.test(barcode)) {
-      showReject('WRONG BARCODE', 'Scan the DI-NNN sticker on the Direct Issuance slip');
+      showReject('WRONG BARCODE', 'Scan the DI-NNN sticker on the Direct Issuance slip, or a bag QR (BAG-…)');
       playErrBeep(); vibrate([100,50,100]);
       addLog({ barcode, status:'err', tag:'DSP_ISSUE', label:'WRONG FORMAT' });
       return;
     }
-    // submitScanWorker already routes DSP_ISSUE → postDspIssueScan (sending di_no)
-    // AND owns the success flash/beep/toast + every reject/queue state, returning
-    // null either way — same shape as RESTOCK. So do NOT re-toast here; that branch
-    // is the single place that knows the outcome.
-    await submitScanWorker(barcode.toUpperCase(), 'DSP_ISSUE');
+    await doDspStickerScan(barcode);
     return;
   }
 
@@ -7607,6 +7853,7 @@ async function submitScanWorker(barcode, act) {
     // succeeded (the return is null on both success and failure).
     addLog({ barcode, status:'ok', tag:'DSP_ISSUE',
              label:`ISSUED ✓ ${result.data?.di_no || ''} · ${u} unit${u === 1 ? '' : 's'}`.trim() });
+    dspIssued(result.data?.di_no || barcode);
     return null;
   }
 
